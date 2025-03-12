@@ -96,13 +96,21 @@ class GatheringModal(ui.Modal):
             existing_responses = data[self.event_name]
 
             # Check if the user_id exists in the current event responses
-            if any(response["user_id"] == str(interaction.user.id) for response in existing_responses):
-                await interaction.response.send_message("❌ You have already submitted a response for this event.", ephemeral=True)
+            if any(
+                response["user_id"] == str(interaction.user.id)
+                for response in existing_responses
+            ):
+                await interaction.response.send_message(
+                    "❌ You have already submitted a response for this event.",
+                    ephemeral=True,
+                )
                 return  # Prevent further processing if the user already submitted a response
 
-             # If the user hasn't submitted yet, append the new response
+            # If the user hasn't submitted yet, append the new response
             existing_responses.append(response_data)
-            data[self.event_name] = existing_responses  # Save the updated responses back to the event
+            data[self.event_name] = (
+                existing_responses  # Save the updated responses back to the event
+            )
         except KeyError:
             data[self.event_name] = [response_data]
 
@@ -131,7 +139,7 @@ class InteractionView(ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         await interaction.response.send_modal(
-            GatheringModal(event_name=self.event_name)
+            GatheringModal(title=self.event_name, event_name=self.event_name)
         )
 
 

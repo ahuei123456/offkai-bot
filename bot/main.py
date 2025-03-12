@@ -1,7 +1,6 @@
 import config
 import datetime
 import discord
-import event
 import logging
 
 from datetime import datetime
@@ -55,8 +54,7 @@ async def create_offkai(
     channel = interaction.guild.get_channel(interaction.channel_id)
     # Create a thread in the channel
     thread = await channel.create_thread(
-        name=event_name,
-        type=discord.ChannelType.public_thread
+        name=event_name, type=discord.ChannelType.public_thread
     )  # Create a new channel thread
     event_details = (
         f"📅 **Event Name**: {event_name}\n"
