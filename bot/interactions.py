@@ -3,21 +3,7 @@ import discord
 import json
 from discord import ui
 from datetime import datetime, UTC
-
-
-# Function to save the events data back to the JSON file
-def save_event_data(events):
-    with open(config.EVENTS_FILE, "w") as file:
-        json.dump(events, file, indent=4)
-
-
-# Load event data from the JSON file
-def load_event_data():
-    try:
-        with open(config.EVENTS_FILE, "r") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+from util import save_event_data, load_event_data
 
 
 # Class to handle the modal for event attendance
@@ -34,7 +20,7 @@ class GatheringModal(ui.Modal):
         self.event_name = event_name
 
     extra_people = ui.TextInput(
-        label="Extra people (0-5)",
+        label="🧑 I am bringing extra people (0-5)",
         placeholder="Enter a number between 0-5",
         required=True,
         max_length=1,
@@ -129,13 +115,27 @@ class GatheringModal(ui.Modal):
 
 
 # Class to create a button that opens the modal
-class InteractionView(ui.View):
+class OpenEvent(ui.View):
     def __init__(self, event_name: str):
         super().__init__(timeout=None)
         self.event_name = event_name
 
     @discord.ui.button(label="Confirm Attendance", style=discord.ButtonStyle.primary)
-    async def open_modal(
+    async def respond(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_modal(
+            GatheringModal(title=self.event_name, event_name=self.event_name)
+        )
+
+# Class to create a button that opens the modal
+class ClosedEvent(ui.View):
+    def __init__(self, event_name: str):
+        super().__init__(timeout=None)
+        self.event_name = event_name
+
+    @discord.ui.button(label="Responses Closed", style=discord.ButtonStyle.secondary, disabled=True)
+    async def respond(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         await interaction.response.send_modal(
@@ -145,7 +145,10 @@ class InteractionView(ui.View):
 
 # Function to send the event message with button interaction
 async def send_event_message(channel: discord.Thread, event):
-    view = InteractionView(event["event_name"])
+    if event["open"]:
+        view = OpenEvent(event["event_name"])
+    else:
+        view = ClosedEvent(event["event_name"])
     message = await channel.send(event["message"], view=view)
     event["message_id"] = str(message.id)  # Save the message ID back to event data
     save_event_data(load_event_data())  # Save the updated event data
@@ -157,7 +160,10 @@ async def update_event_message(client: discord.Client, event):
     if channel:
         try:
             message = await channel.fetch_message(int(event["message_id"]))
-            view = InteractionView(event["event_name"])
+            if event["open"]:
+                view = OpenEvent(event["event_name"])
+            else:
+                view = ClosedEvent(event["event_name"])
             await message.edit(content=event["message"], view=view)
         except discord.errors.NotFound:
             print(
@@ -177,6 +183,4 @@ async def load_and_update_events(client: discord.Client):
             if channel:
                 await send_event_message(channel, event)  # Send the message
 
-                # Save the updated event back to the JSON file
-                with open(config.EVENTS_FILE, "w") as file:
-                    json.dump(events, file, indent=4)
+                save_event_data(events)

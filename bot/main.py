@@ -6,10 +6,21 @@ import logging
 from datetime import datetime
 from discord import app_commands
 from discord.ext import commands
-from interactions import load_and_update_events, InteractionView
-from util import load_event_data, save_event_data
+from interactions import load_and_update_events, update_event_message, OpenEvent
+from util import load_event_data, save_event_data, load_event_data_cached
 
 _log = logging.getLogger(__name__)
+
+
+OFFKAI_MESSAGE = (
+    "Please take note of the following:\n"
+    "1. We will not accomodate any allergies or dietary restrictions.\n"
+    "2. Please register yourself and all your +1s by the deadline if you are planning on attending. Anyone who shows up uninvited or with uninvited guests can and will be turned away.\n"
+    "3. Please show up on time. Restaurants tend to be packed after live events and we have been asked to give up table space in the past.\n"
+    "4. To simplify accounting, we will split the bill evenly among all participants, regardless of how much you eat or drink. Expect to pay around 4000 yen, maybe more if some people decide to drink a lot.\n"
+    "5. Depending on turnout or venue restrictions, we might need to change the location of the offkai.\n"
+    "6. Please pay attention to this thread for day-of announcements before the offkai starts.\n"
+)
 
 
 class OffkaiClient(discord.Client):
@@ -37,11 +48,19 @@ client = OffkaiClient(intents=intents)
 )
 @app_commands.describe(
     event_name="The name of the event.",
-    address="The addresss of the offkai location",
+    venue="The offkai venue.",
+    address="The address of the offkai venue",
+    google_maps_link="A link to the venue on Google Maps.",
     date_time="The date and time of the event.",
 )
+@app_commands.checks.has_role("Offkai Organizer")
 async def create_offkai(
-    interaction: discord.Interaction, event_name: str, address: str, date_time: str
+    interaction: discord.Interaction,
+    event_name: str,
+    venue: str,
+    address: str,
+    google_maps_link: str,
+    date_time: str,
 ):
     try:
         event_datetime = datetime.strptime(date_time, r"%Y-%m-%d %H:%M")
@@ -58,11 +77,14 @@ async def create_offkai(
     )  # Create a new channel thread
     event_details = (
         f"📅 **Event Name**: {event_name}\n"
+        f"🍽️ **Venue**: {venue}\n"
         f"📍 **Address**: {address}\n"
-        f"🕑 **Date and Time**: {event_datetime.strftime('%Y-%m-%d %H:%M')}\n\n"
+        f"🌎 **Google Maps Link**: {google_maps_link}\n"
+        f"🕑 **Date and Time**: {event_datetime.strftime(r'%Y-%m-%d %H:%M')} JST\n\n"
+        f"{OFFKAI_MESSAGE}\n"
         "Click the button below to confirm your attendance!"
     )
-    view = InteractionView(event_name=event_name)
+    view = OpenEvent(event_name=event_name)
     message = await thread.send(event_details, view=view)
     events = load_event_data()
     events.append(
@@ -71,12 +93,85 @@ async def create_offkai(
             "message": event_details,
             "channel_id": str(thread.id),
             "message_id": str(message.id),
+            "open": True,
         }
     )
     save_event_data(events)
     await interaction.response.send_message(
         f"✅ Event '{event_name}' created successfully in thread {thread.mention}."
     )
+
+
+@client.tree.command(
+    name="close_offkai",
+    description="Close responses for an offkai.",
+    guilds=config.guilds,
+)
+@app_commands.describe(
+    event_name="The name of the event.",
+)
+@app_commands.checks.has_role("Offkai Organizer")
+async def close_offkai(interaction: discord.Interaction, event_name: str):
+    events = load_event_data()
+    for event in events:
+        if event["event_name"].lower() == event_name.lower():
+            event["open"] = False
+            await update_event_message(client, event)
+
+    save_event_data(events)
+
+    await interaction.response.send_message(
+        f"✅ Responses for '{event_name}' have been closed."
+    )
+
+
+@client.tree.command(
+    name="reopen_offkai",
+    description="Reopen responses for an offkai.",
+    guilds=config.guilds,
+)
+@app_commands.describe(
+    event_name="The name of the event.",
+)
+@app_commands.checks.has_role("Offkai Organizer")
+async def reopen_offkai(interaction: discord.Interaction, event_name: str):
+    events = load_event_data()
+    for event in events:
+        if event["event_name"].lower() == event_name.lower():
+            event["open"] = True
+            await update_event_message(client, event)
+
+    save_event_data(events)
+
+    await interaction.response.send_message(
+        f"✅ Responses for '{event_name}' have been reopened."
+    )
+
+
+@close_offkai.error
+@reopen_offkai.error
+@create_offkai.error
+async def on_offkai_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    if isinstance(error, app_commands.MissingRole):
+        await interaction.response.send_message(
+            "❌ You do not have offkai organizing permissions.", ephemeral=True
+        )
+
+
+@close_offkai.autocomplete("event_name")
+@reopen_offkai.autocomplete("event_name")
+async def offkai_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    events = load_event_data_cached()
+    event_names = [event["event_name"] for event in events]
+    return [
+        app_commands.Choice(name=event_name, value=event_name)
+        for event_name in event_names
+        if current.lower() in event_name.lower()
+    ]
 
 
 # Event to run when the client is ready
