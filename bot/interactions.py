@@ -3,7 +3,14 @@ import discord
 import json
 from discord import ui
 from datetime import datetime, UTC
-from util import save_event_data, load_event_data
+from util import (
+    save_event_data,
+    load_event_data,
+    load_event_data_cached,
+    load_response_data,
+    load_response_data_cached,
+    save_response_data,
+)
 
 
 # Class to handle the modal for event attendance
@@ -66,15 +73,7 @@ class GatheringModal(ui.Modal):
             ).isoformat(),  # Save the timestamp in ISO format
         }
 
-        # Log the data into a JSON file
-        try:
-            # Load existing data from the JSON file
-            with open("data/responses.json", "r") as file:
-                data = json.load(file)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = (
-                {}
-            )  # If the file doesn't exist or is empty, initialize an empty dictionary
+        data = load_response_data()
 
         # Append the new response to the list
         try:
@@ -100,9 +99,7 @@ class GatheringModal(ui.Modal):
         except KeyError:
             data[self.event_name] = [response_data]
 
-        # Write the updated data back into the JSON file
-        with open(config.RESPONSES_FILE, "w") as file:
-            json.dump(data, file, indent=4)
+        save_response_data(data)
 
         # Confirm submission with a response message
         await interaction.response.send_message(
@@ -112,15 +109,38 @@ class GatheringModal(ui.Modal):
             f"✔ Arrival confirmed: {self.arrival_checkbox.value}",
             ephemeral=True,
         )
+        await interaction.channel.add_user(interaction.user)
 
 
-# Class to create a button that opens the modal
-class OpenEvent(ui.View):
+class EventView(ui.View):
     def __init__(self, event_name: str):
         super().__init__(timeout=None)
         self.event_name = event_name
 
-    @discord.ui.button(label="Confirm Attendance", style=discord.ButtonStyle.primary)
+    @discord.ui.button(
+        label="Attendance Count", style=discord.ButtonStyle.primary, row=1
+    )
+    async def count(self, interaction: discord.Interaction, button: discord.ui.Button):
+        responses = load_response_data_cached()
+
+        try:
+            num = sum(
+                1 + int(response["extra_people"])
+                for response in responses[self.event_name]
+            )
+        except KeyError:
+            num = 0
+
+        await interaction.response.send_message(
+            f"📝 Registration count: {num}", ephemeral=True
+        )
+
+
+# Class to create a button that opens the modal
+class OpenEvent(EventView):
+    @discord.ui.button(
+        label="Confirm Attendance", style=discord.ButtonStyle.primary, row=0
+    )
     async def respond(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
@@ -128,13 +148,15 @@ class OpenEvent(ui.View):
             GatheringModal(title=self.event_name, event_name=self.event_name)
         )
 
-# Class to create a button that opens the modal
-class ClosedEvent(ui.View):
-    def __init__(self, event_name: str):
-        super().__init__(timeout=None)
-        self.event_name = event_name
 
-    @discord.ui.button(label="Responses Closed", style=discord.ButtonStyle.secondary, disabled=True)
+# Class to create a button that opens the modal
+class ClosedEvent(EventView):
+    @discord.ui.button(
+        label="Responses Closed",
+        style=discord.ButtonStyle.secondary,
+        disabled=True,
+        row=0,
+    )
     async def respond(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):

@@ -3,6 +3,7 @@ import discord
 import json
 
 EVENT_DATA_CACHE = None
+RESPONSE_DATA_CACHE = None
 
 
 # Load event data from the JSON file
@@ -23,7 +24,41 @@ def load_event_data_cached():
 
 # Function to save the events data back to the JSON file
 def save_event_data(events):
+    global EVENT_DATA_CACHE
     EVENT_DATA_CACHE = events
 
     with open(config.EVENTS_FILE, "w") as file:
         json.dump(events, file, indent=4)
+
+
+def get_event(event_name: str):
+    events = load_event_data_cached()
+
+    for event in events:
+        if event_name.lower() == event["event_name"].lower():
+            return event
+
+    return None
+
+
+def load_response_data():
+    try:
+        with open(config.RESPONSES_FILE, "r") as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def load_response_data_cached():
+    if RESPONSE_DATA_CACHE:
+        return RESPONSE_DATA_CACHE
+    else:
+        return load_response_data()
+
+
+def save_response_data(responses):
+    global RESPONSE_DATA_CACHE
+    RESPONSE_DATA_CACHE = responses
+
+    with open(config.RESPONSES_FILE, "w") as file:
+        json.dump(responses, file, indent=4)

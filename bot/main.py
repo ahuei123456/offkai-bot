@@ -5,9 +5,8 @@ import logging
 
 from datetime import datetime
 from discord import app_commands
-from discord.ext import commands
 from interactions import load_and_update_events, update_event_message, OpenEvent
-from util import load_event_data, save_event_data, load_event_data_cached
+from util import load_event_data, save_event_data, load_event_data_cached, get_event
 
 _log = logging.getLogger(__name__)
 
@@ -94,11 +93,12 @@ async def create_offkai(
             "channel_id": str(thread.id),
             "message_id": str(message.id),
             "open": True,
+            "archived": False,
         }
     )
     save_event_data(events)
     await interaction.response.send_message(
-        f"✅ Event '{event_name}' created successfully in thread {thread.mention}."
+        f"# Offkai: {event_name}\n\n" f"More info in the thread {thread.mention}."
     )
 
 
@@ -148,9 +148,56 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str):
     )
 
 
+@client.tree.command(
+    name="archive_offkai",
+    description="Archive an offkai.",
+    guilds=config.guilds,
+)
+@app_commands.describe(
+    event_name="The name of the event.",
+)
+@app_commands.checks.has_role("Offkai Organizer")
+async def archive_offkai(interaction: discord.Interaction, event_name: str):
+    events = load_event_data()
+    for event in events:
+        if event["event_name"].lower() == event_name.lower():
+            event["archived"] = True
+
+    save_event_data(events)
+
+    await interaction.response.send_message(f"✅ '{event_name}' has been archived.")
+
+
+@client.tree.command(
+    name="broadcast",
+    description="Sends a message to the offkai channel.",
+    guilds=config.guilds,
+)
+@app_commands.describe(
+    event_name="The name of the event.", message="Message to broadcast."
+)
+@app_commands.checks.has_role("Offkai Organizer")
+async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
+    event = get_event(event_name)
+    channel = client.get_channel(int(event["channel_id"]))
+    try:
+        await channel.send(f"{message}")
+        await interaction.response.send_message(
+            f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True
+        )
+    except AttributeError:
+        await interaction.response.send_message(f"❌ Channel not found", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            f"❌ Unable to broadcast message.", ephemeral=True
+        )
+
+
 @close_offkai.error
 @reopen_offkai.error
 @create_offkai.error
+@archive_offkai.error
+@broadcast.error
 async def on_offkai_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
 ):
@@ -162,11 +209,13 @@ async def on_offkai_error(
 
 @close_offkai.autocomplete("event_name")
 @reopen_offkai.autocomplete("event_name")
+@archive_offkai.autocomplete("event_name")
+@broadcast.autocomplete("event_name")
 async def offkai_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
     events = load_event_data_cached()
-    event_names = [event["event_name"] for event in events]
+    event_names = [event["event_name"] for event in events if not event["archived"]]
     return [
         app_commands.Choice(name=event_name, value=event_name)
         for event_name in event_names
