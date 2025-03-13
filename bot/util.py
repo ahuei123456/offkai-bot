@@ -62,3 +62,9 @@ def save_response_data(responses):
 
     with open(config.RESPONSES_FILE, "w") as file:
         json.dump(responses, file, indent=4)
+
+
+def get_responses(event_name: str):
+    responses = load_response_data_cached()
+
+    return responses[event_name]

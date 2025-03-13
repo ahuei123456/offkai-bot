@@ -6,7 +6,13 @@ import logging
 from datetime import datetime
 from discord import app_commands
 from interactions import load_and_update_events, update_event_message, OpenEvent
-from util import load_event_data, save_event_data, load_event_data_cached, get_event
+from util import (
+    load_event_data,
+    save_event_data,
+    load_event_data_cached,
+    get_event,
+    get_responses,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -193,10 +199,35 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
         )
 
 
+@client.tree.command(
+    name="attendance",
+    description="Gets a list of attendees.",
+    guilds=config.guilds,
+)
+@app_commands.describe(event_name="The name of the event.")
+@app_commands.checks.has_role("Offkai Organizer")
+async def attendance(interaction: discord.Interaction, event_name: str):
+    responses = get_responses(event_name)
+
+    gen = lambda response: [
+        f"{response["username"]}{f" +{i}" if i > 0 else ""}"
+        for i in range(int(response["extra_people"]) + 1)
+    ]
+
+    attendees = [item for response in responses for item in gen(response)]
+
+    await interaction.response.send_message(
+        f"Total attendees: **{len(attendees)}**\n\n"
+        f'{"\n".join(f"{i+1}. {v}" for i, v in enumerate(attendees))}',
+        ephemeral=True,
+    )
+
+
 @close_offkai.error
 @reopen_offkai.error
 @create_offkai.error
 @archive_offkai.error
+@attendance.error
 @broadcast.error
 async def on_offkai_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -205,11 +236,14 @@ async def on_offkai_error(
         await interaction.response.send_message(
             "❌ You do not have offkai organizing permissions.", ephemeral=True
         )
+    else:
+        await interaction.response.send_message(str(error), ephemeral=True)
 
 
 @close_offkai.autocomplete("event_name")
 @reopen_offkai.autocomplete("event_name")
 @archive_offkai.autocomplete("event_name")
+@attendance.autocomplete("event_name")
 @broadcast.autocomplete("event_name")
 async def offkai_autocomplete(
     interaction: discord.Interaction, current: str
