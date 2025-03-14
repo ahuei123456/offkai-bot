@@ -1,0 +1,39 @@
+name: Offkai Bot
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write  # Required if you want to allow auto-fixing and pushing changes
+
+
+jobs:
+  build:
+    name: python
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Format with Ruff
+        run: uvx ruff format .
+
+      - name: Lint and fix with Ruff
+        run: uvx ruff check --fix .
+
+      - name: Type-check with mypy
+        run: uvx mypy . --pretty --extra-checks --ignore-missing-imports

@@ -1,5 +1,4 @@
 import config
-import discord
 import json
 
 EVENT_DATA_CACHE = None

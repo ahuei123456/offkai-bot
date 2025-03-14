@@ -1,5 +1,4 @@
 import config
-import datetime
 import discord
 import logging
 
@@ -104,7 +103,7 @@ async def create_offkai(
     )
     save_event_data(events)
     await interaction.response.send_message(
-        f"# Offkai: {event_name}\n\n" f"More info in the thread {thread.mention}."
+        f"# Offkai: {event_name}\n\nMore info in the thread {thread.mention}."
     )
 
 
@@ -192,10 +191,10 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
             f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True
         )
     except AttributeError:
-        await interaction.response.send_message(f"❌ Channel not found", ephemeral=True)
+        await interaction.response.send_message("❌ Channel not found", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message(
-            f"❌ Unable to broadcast message.", ephemeral=True
+            "❌ Unable to broadcast message.", ephemeral=True
         )
 
 
@@ -209,16 +208,17 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 async def attendance(interaction: discord.Interaction, event_name: str):
     responses = get_responses(event_name)
 
-    gen = lambda response: [
-        f"{response["username"]}{f" +{i}" if i > 0 else ""}"
-        for i in range(int(response["extra_people"]) + 1)
-    ]
+    def gen(response):
+        return [
+            f"{response['username']}{f' +{i}' if i > 0 else ''}"
+            for i in range(int(response["extra_people"]) + 1)
+        ]
 
     attendees = [item for response in responses for item in gen(response)]
 
     await interaction.response.send_message(
         f"Total attendees: **{len(attendees)}**\n\n"
-        f'{"\n".join(f"{i+1}. {v}" for i, v in enumerate(attendees))}',
+        f"{'\n'.join(f'{i + 1}. {v}' for i, v in enumerate(attendees))}",
         ephemeral=True,
     )
 

@@ -1,12 +1,9 @@
-import config
 import discord
-import json
 from discord import ui
 from datetime import datetime, UTC
 from util import (
     save_event_data,
     load_event_data,
-    load_event_data_cached,
     load_response_data,
     load_response_data_cached,
     save_response_data,

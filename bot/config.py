@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-DEFAULT_CHANNEL_ID = int(os.getenv("DEFAULT_CHANNEL_ID"))
+DEFAULT_CHANNEL_ID = int(os.getenv("DEFAULT_CHANNEL_ID", "-1"))
 EVENTS_FILE = os.getenv("EVENTS_FILE")
 RESPONSES_FILE = os.getenv("RESPONSES_FILE")
 
