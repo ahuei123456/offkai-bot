@@ -49,7 +49,7 @@ client = OffkaiClient(intents=intents)
 @client.tree.command(
     name="create_offkai",
     description="Create a new offkai in the current channel.",
-    guilds=config.guilds,
+    guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.",
@@ -111,7 +111,7 @@ async def create_offkai(
 @client.tree.command(
     name="close_offkai",
     description="Close responses for an offkai.",
-    guilds=config.guilds,
+    guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.",
@@ -134,7 +134,7 @@ async def close_offkai(interaction: discord.Interaction, event_name: str):
 @client.tree.command(
     name="reopen_offkai",
     description="Reopen responses for an offkai.",
-    guilds=config.guilds,
+    guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.",
@@ -157,7 +157,7 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str):
 @client.tree.command(
     name="archive_offkai",
     description="Archive an offkai.",
-    guilds=config.guilds,
+    guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.",
@@ -177,7 +177,7 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 @client.tree.command(
     name="broadcast",
     description="Sends a message to the offkai channel.",
-    guilds=config.guilds,
+    guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.", message="Message to broadcast."
@@ -202,7 +202,7 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 @client.tree.command(
     name="attendance",
     description="Gets a list of attendees.",
-    guilds=config.guilds,
+    guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.")
 @app_commands.checks.has_role("Offkai Organizer")

@@ -175,3 +175,4 @@ cython_debug/
 
 # Events and responses
 data/*.json
+config.json

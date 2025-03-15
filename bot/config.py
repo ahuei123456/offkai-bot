@@ -1,12 +1,15 @@
 import os
 import discord
+import json
 from dotenv import load_dotenv
 
-load_dotenv()
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-DEFAULT_CHANNEL_ID = int(os.getenv("DEFAULT_CHANNEL_ID"))
-EVENTS_FILE = os.getenv("EVENTS_FILE")
-RESPONSES_FILE = os.getenv("RESPONSES_FILE")
+with open(f"config.json") as f:
+    config = json.load(f)
 
-guilds = [discord.Object(id=171931647883608065), discord.Object(id=137463604311097345)]
+
+DISCORD_TOKEN = config["DISCORD_TOKEN"]
+DEFAULT_CHANNEL_ID = config["DEFAULT_CHANNEL_ID"]
+EVENTS_FILE = config["EVENTS_FILE"]
+RESPONSES_FILE = config["RESPONSES_FILE"]
+GUILDS = [discord.Object(id=id) for id in config["GUILDS"]]
