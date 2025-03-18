@@ -21,7 +21,7 @@ Creates a new thread in the current channel with the details of the offkai. The 
 
 ### modify_offkai
 
-- `event_name`: Name of the event to modify (e.g. Hasu 4L Yokohama D2)
+- `event_name`: Name of the event to modify (autocompletes from existing open events)
 - `venue`: Name of the new venue of the offkai (e.g. Yokohama Chibachan)
 - `address`: Address of the mew venue (e.g. 〒220-0004 Kanagawa, Yokohama, Nishi Ward, Kitasaiwai, 1 Chome−8−2 犬山西口ビル 7階)
 - `google_maps_link`: A new link to the Google Maps page of the venue (e.g. https://maps.app.goo.gl/sa8k1VzNBr4CsiLy6)
@@ -32,21 +32,21 @@ Modifies an existing offkai with a new venue, address, Google Maps link and Date
 
 ### close_offkai
 
-- `event_name`: Name of the event to close (autocompletes from existing events)
+- `event_name`: Name of the event to close (autocompletes from existing open events)
 - `close_msg`: A message to accompany the closing.
 
 Closes responses for an offkai and sends a message in the current channel that responses have been closed. The response button is disabled, but users may still check the attendance count for the total number of people. Sends an epheremal error message if the offkai is already closed.
 
 ### reopen_offkai
 
-- `event_name`: Name of the event to reopen (autocompletes from existing events)
+- `event_name`: Name of the event to reopen (autocompletes from existing closed events)
 - `reopen_msg`: A message to accompany the reopening.
 
 Reopens responses for an offkai and sends a message in the current channel that responses have been reopened. The response button is reenabled until it is closed again.
 
 ### archive_offkai
 
-- `event_name`: Name of the event to archive (autocompletes from existing events)
+- `event_name`: Name of the event to archive (autocompletes from existing closed events)
 
 Archives an offkai and no longer shows it in the autocomplete list.
 
@@ -70,5 +70,4 @@ Sends an ephemeral message with a count of the total number of attendees, and a 
 Clicking on the `Confirm Attendance` button brings up a Discord Modal, where the user needs to answer a few questions before their attendance is confirmed. 
 
 **TO-DO**: Add customization for certain specialized events (e.g. Chibachan drink preorders). Unfortunately, Modal `TextInput` field labels are limited to 45 characters, so the options cannot fit in the label. Maybe list them in the placeholder text?\
-**TO-DO**: Allow a user to withdraw/modify their response.\
 **TO-DO**: Allow organizers to delete responses via slash commands.

@@ -10,6 +10,7 @@ from util import (
     load_response_data,
     load_response_data_cached,
     save_response_data,
+    get_event
 )
 
 
@@ -118,7 +119,7 @@ class EventView(ui.View):
         self.event_name = event_name
 
     @discord.ui.button(
-        label="Attendance Count", style=discord.ButtonStyle.primary, row=1
+        label="Attendance Count", style=discord.ButtonStyle.primary, row=2
     )
     async def count(self, interaction: discord.Interaction, button: discord.ui.Button):
         responses = load_response_data_cached()
@@ -147,6 +148,29 @@ class OpenEvent(EventView):
         await interaction.response.send_modal(
             GatheringModal(title=self.event_name, event_name=self.event_name)
         )
+
+    @discord.ui.button(
+        label="Withdraw Attendance", style=discord.ButtonStyle.primary, row=1
+    )
+    async def withdraw(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        responses = load_response_data_cached()
+        event_responses = responses[self.event_name]
+
+        new_responses = [entry for entry in event_responses if entry["user_id"] != str(interaction.user.id)]
+
+        if len(new_responses) != len(event_responses):
+            responses[self.event_name] =  new_responses
+            save_response_data(responses)
+
+            await interaction.response.send_message(
+                "👋 Your attendance has been withdrawn. We're sad to see you go!", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "❌ You cannot withdraw from an event which you did not register for.", ephemeral=True
+            )
 
 
 # Class to create a button that opens the modal

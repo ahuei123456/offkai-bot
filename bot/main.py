@@ -298,17 +298,41 @@ async def on_offkai_error(
         await interaction.response.send_message(str(error), ephemeral=True)
 
 
-@modify_offkai.autocomplete("event_name")
-@close_offkai.autocomplete("event_name")
-@reopen_offkai.autocomplete("event_name")
-@archive_offkai.autocomplete("event_name")
 @attendance.autocomplete("event_name")
 @broadcast.autocomplete("event_name")
-async def offkai_autocomplete(
+async def offkai_autocomplete_all(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
     events = load_event_data_cached()
     event_names = [event["event_name"] for event in events if not event["archived"]]
+    return [
+        app_commands.Choice(name=event_name, value=event_name)
+        for event_name in event_names
+        if current.lower() in event_name.lower()
+    ]
+
+
+@modify_offkai.autocomplete("event_name")
+@close_offkai.autocomplete("event_name")
+async def offkai_autocomplete_open(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    events = load_event_data_cached()
+    event_names = [event["event_name"] for event in events if not event["archived"] and event["open"]]
+    return [
+        app_commands.Choice(name=event_name, value=event_name)
+        for event_name in event_names
+        if current.lower() in event_name.lower()
+    ]
+
+
+@reopen_offkai.autocomplete("event_name")
+@archive_offkai.autocomplete("event_name")
+async def offkai_autocomplete_closed(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    events = load_event_data_cached()
+    event_names = [event["event_name"] for event in events if not event["archived"] and not event["open"]]
     return [
         app_commands.Choice(name=event_name, value=event_name)
         for event_name in event_names
