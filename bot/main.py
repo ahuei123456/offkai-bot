@@ -13,20 +13,10 @@ from util import (
     get_event,
     get_responses,
     replace_event,
+    create_event_message,
 )
 
 _log = logging.getLogger(__name__)
-
-
-OFFKAI_MESSAGE = (
-    "Please take note of the following:\n"
-    "1. We will not accomodate any allergies or dietary restrictions.\n"
-    "2. Please register yourself and all your +1s by the deadline if you are planning on attending. Anyone who shows up uninvited or with uninvited guests can and will be turned away.\n"
-    "3. Please show up on time. Restaurants tend to be packed after live events and we have been asked to give up table space in the past.\n"
-    "4. To simplify accounting, we will split the bill evenly among all participants, regardless of how much you eat or drink. Expect to pay around 4000 yen, maybe more if some people decide to drink a lot.\n"
-    "5. Depending on turnout or venue restrictions, we might need to change the location of the offkai.\n"
-    "6. Please pay attention to this thread for day-of announcements before the offkai starts.\n"
-)
 
 
 class OffkaiClient(discord.Client):
@@ -81,14 +71,8 @@ async def create_offkai(
     thread = await channel.create_thread(
         name=event_name, type=discord.ChannelType.public_thread
     )  # Create a new channel thread
-    event_details = (
-        f"📅 **Event Name**: {event_name}\n"
-        f"🍽️ **Venue**: {venue}\n"
-        f"📍 **Address**: {address}\n"
-        f"🌎 **Google Maps Link**: {google_maps_link}\n"
-        f"🕑 **Date and Time**: {event_datetime.strftime(r'%Y-%m-%d %H:%M')} JST\n\n"
-        f"{OFFKAI_MESSAGE}\n"
-        "Click the button below to confirm your attendance!"
+    event_details = create_event_message(
+        event_name, venue, address, google_maps_link, event_datetime
     )
     view = OpenEvent(event_name=event_name)
     message = await thread.send(event_details, view=view)
@@ -141,14 +125,8 @@ async def modify_offkai(
 
     event = get_event(event_name)
 
-    event_details = (
-        f"📅 **Event Name**: {event_name}\n"
-        f"🍽️ **Venue**: {venue}\n"
-        f"📍 **Address**: {address}\n"
-        f"🌎 **Google Maps Link**: {google_maps_link}\n"
-        f"🕑 **Date and Time**: {event_datetime.strftime(r'%Y-%m-%d %H:%M')} JST\n\n"
-        f"{OFFKAI_MESSAGE}\n"
-        "Click the button below to confirm your attendance!"
+    event_details = create_event_message(
+        event_name, venue, address, google_maps_link, event_datetime
     )
 
     new_event = {
