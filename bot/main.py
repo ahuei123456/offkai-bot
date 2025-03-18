@@ -12,6 +12,7 @@ from util import (
     load_event_data_cached,
     get_event,
     get_responses,
+    replace_event,
 )
 
 _log = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class OffkaiClient(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        for guild in config.guilds:
+        for guild in config.GUILDS:
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
 
@@ -106,6 +107,64 @@ async def create_offkai(
     await interaction.response.send_message(
         f"# Offkai: {event_name}\n\n" f"More info in the thread {thread.mention}."
     )
+
+
+@client.tree.command(
+    name="modify_offkai",
+    description="Modifies an existing offkai.",
+    guilds=config.GUILDS,
+)
+@app_commands.describe(
+    event_name="The name of the event.",
+    venue="The new offkai venue.",
+    address="The new address of the offkai venue",
+    google_maps_link="A new link to the venue on Google Maps.",
+    date_time="The new date and time of the event.",
+)
+@app_commands.checks.has_role("Offkai Organizer")
+async def modify_offkai(
+    interaction: discord.Interaction,
+    event_name: str,
+    venue: str,
+    address: str,
+    google_maps_link: str,
+    date_time: str,
+    update_msg: str,
+):
+    try:
+        event_datetime = datetime.strptime(date_time, r"%Y-%m-%d %H:%M")
+    except ValueError:
+        await interaction.response.send_message(
+            "❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True
+        )
+        return
+
+    event = get_event(event_name)
+
+    event_details = (
+        f"📅 **Event Name**: {event_name}\n"
+        f"🍽️ **Venue**: {venue}\n"
+        f"📍 **Address**: {address}\n"
+        f"🌎 **Google Maps Link**: {google_maps_link}\n"
+        f"🕑 **Date and Time**: {event_datetime.strftime(r'%Y-%m-%d %H:%M')} JST\n\n"
+        f"{OFFKAI_MESSAGE}\n"
+        "Click the button below to confirm your attendance!"
+    )
+
+    new_event = {
+        "event_name": event_name,
+        "message": event_details,
+        "channel_id": event["channel_id"],
+        "message_id": event["message_id"],
+        "open": True,
+        "archived": False,
+    }
+
+    await update_event_message(client, new_event)
+
+    replace_event(event_name, new_event)
+
+    await interaction.response.send_message(f"# Update to {event_name}\n\n{update_msg}")
 
 
 @client.tree.command(
@@ -226,6 +285,7 @@ async def attendance(interaction: discord.Interaction, event_name: str):
 @close_offkai.error
 @reopen_offkai.error
 @create_offkai.error
+@modify_offkai.error
 @archive_offkai.error
 @attendance.error
 @broadcast.error
@@ -240,6 +300,7 @@ async def on_offkai_error(
         await interaction.response.send_message(str(error), ephemeral=True)
 
 
+@modify_offkai.autocomplete("event_name")
 @close_offkai.autocomplete("event_name")
 @reopen_offkai.autocomplete("event_name")
 @archive_offkai.autocomplete("event_name")

@@ -41,6 +41,17 @@ def get_event(event_name: str):
     return None
 
 
+def replace_event(event_name: str, new_event):
+    events = load_event_data_cached()
+
+    events = [
+        event if not event["event_name"].lower() == event_name.lower() else new_event
+        for event in events
+    ]
+
+    save_event_data(events)
+
+
 def load_response_data():
     try:
         with open(config.RESPONSES_FILE, "r") as file:
