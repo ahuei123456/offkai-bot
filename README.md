@@ -15,10 +15,9 @@ Anyone who is interested in organizing an offkai using the slash commands must h
 - `address`: Address of the venue (e.g. 〒220-0004 Kanagawa, Yokohama, Nishi Ward, Kitasaiwai, 1 Chome−8−2 犬山西口ビル 7階)
 - `google_maps_link`: A link to the Google Maps page of the venue (e.g. https://maps.app.goo.gl/sa8k1VzNBr4CsiLy6)
 - `date_time`: The date and time of the offkai, in YYYY-MM-DD HH:MM format (e.g. 2025-06-08 21:00)
+- `announce_msg`: A message to accompany the announcement.
 
 Creates a new thread in the current channel with the details of the offkai. The message will also include buttons to confirm attendance (if registration is still open) and to show how many attendees there are for the event.
-
-**TO-DO**: Allow specifying custom messages for the announcement.
 
 ### modify_offkai
 

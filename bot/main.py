@@ -48,6 +48,7 @@ client = OffkaiClient(intents=intents)
     address="The address of the offkai venue",
     google_maps_link="A link to the venue on Google Maps.",
     date_time="The date and time of the event.",
+    announce_msg="A message to accompany the announcement.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
 async def create_offkai(
@@ -57,6 +58,7 @@ async def create_offkai(
     address: str,
     google_maps_link: str,
     date_time: str,
+    announce_msg: str,
 ):
     try:
         event_datetime = datetime.strptime(date_time, r"%Y-%m-%d %H:%M")
@@ -89,7 +91,7 @@ async def create_offkai(
     )
     save_event_data(events)
     await interaction.response.send_message(
-        f"# Offkai: {event_name}\n\n" f"More info in the thread {thread.mention}."
+        f"# Offkai: {event_name}\n\n" f"{announce_msg + "\n\n" if len(announce_msg) > 0 else ""}More info in the thread {thread.mention}."
     )
 
 
@@ -104,6 +106,7 @@ async def create_offkai(
     address="The new address of the offkai venue",
     google_maps_link="A new link to the venue on Google Maps.",
     date_time="The new date and time of the event.",
+    update_msg="A message to accompany the modification announcement.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
 async def modify_offkai(
