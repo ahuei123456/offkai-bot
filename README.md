@@ -30,8 +30,6 @@ Creates a new thread in the current channel with the details of the offkai. The 
 
 Modifies an existing offkai with a new venue, address, Google Maps link and Date/Time.
 
-**TO-DO**: Add a link to the offkai thread.
-
 ### close_offkai
 
 - `event_name`: Name of the event to close (autocompletes from existing events)

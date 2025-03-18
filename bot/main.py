@@ -141,11 +141,13 @@ async def modify_offkai(
         "archived": False,
     }
 
+    thread = client.get_channel(int(event["channel_id"]))
+
     await update_event_message(client, new_event)
 
     replace_event(event_name, new_event)
 
-    await interaction.response.send_message(f"# Update to {event_name}\n\n{update_msg}")
+    await interaction.response.send_message(f"# Update to {event_name}:\n\n{update_msg}\n\n{thread.mention}")
 
 
 @client.tree.command(
