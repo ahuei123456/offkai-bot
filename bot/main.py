@@ -12,6 +12,8 @@ from util import (
     load_event_data_cached,
     get_event,
     get_responses,
+    load_response_data_cached,
+    save_response_data,
     replace_event,
     create_event_message,
 )
@@ -257,6 +259,34 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 
 
 @client.tree.command(
+        name="delete_response",
+        description="Deletes a response to an offkai.",
+        guilds=config.GUILDS,
+)
+@app_commands.describe(
+    event_name="The name of the event.", member="The member to remove."
+)
+@app_commands.checks.has_role("Offkai Organizer")
+async def delete_response(interaction: discord.Interaction, event_name: str, member: discord.Member):
+    responses = load_response_data_cached()
+    event_responses = responses[event_name]
+
+    new_responses = [response for response in event_responses if response["user_id"] != str(member.id)]
+
+    if len(event_responses) != len(new_responses):
+        responses[event_name] = new_responses
+        save_response_data(responses)
+        
+        await interaction.response.send_message(
+            f"🚮 Deleted response from user {member.mention}", ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            f"❌ Could not find a response from user {member.mention}.", ephemeral=True
+        )
+
+
+@client.tree.command(
     name="attendance",
     description="Gets a list of attendees.",
     guilds=config.GUILDS,
@@ -285,6 +315,7 @@ async def attendance(interaction: discord.Interaction, event_name: str):
 @create_offkai.error
 @modify_offkai.error
 @archive_offkai.error
+@delete_response.error
 @attendance.error
 @broadcast.error
 async def on_offkai_error(
@@ -300,6 +331,7 @@ async def on_offkai_error(
 
 @attendance.autocomplete("event_name")
 @broadcast.autocomplete("event_name")
+@delete_response.autocomplete("event_name")
 async def offkai_autocomplete_all(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:

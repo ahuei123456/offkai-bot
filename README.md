@@ -59,6 +59,13 @@ Broadcasts a message in the thread that was opened for the offkai.
 
 **TO-DO**: Add an URGENT flag to also DM the announcement to offkai participants.
 
+### delete_response
+
+- `event_name`: Name of the event to delete a response from (autocompletes from existing events)
+- `member`: The member's response to delete
+
+Deletes a response from a member for a certain offkai.
+
 ### attendance
 
 - `event_name`: Name of the event to get the attendance list for (autocompletes from existing events)
@@ -70,4 +77,3 @@ Sends an ephemeral message with a count of the total number of attendees, and a 
 Clicking on the `Confirm Attendance` button brings up a Discord Modal, where the user needs to answer a few questions before their attendance is confirmed. 
 
 **TO-DO**: Add customization for certain specialized events (e.g. Chibachan drink preorders). Unfortunately, Modal `TextInput` field labels are limited to 45 characters, so the options cannot fit in the label. Maybe list them in the placeholder text?\
-**TO-DO**: Allow organizers to delete responses via slash commands.
