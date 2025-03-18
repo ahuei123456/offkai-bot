@@ -157,9 +157,10 @@ async def modify_offkai(
 )
 @app_commands.describe(
     event_name="The name of the event.",
+    close_msg="A message to accompany the closing."
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def close_offkai(interaction: discord.Interaction, event_name: str):
+async def close_offkai(interaction: discord.Interaction, event_name: str, close_msg: str):
     events = load_event_data()
     for event in events:
         if event["event_name"].lower() == event_name.lower():
@@ -169,7 +170,7 @@ async def close_offkai(interaction: discord.Interaction, event_name: str):
     save_event_data(events)
 
     await interaction.response.send_message(
-        f"✅ Responses for '{event_name}' have been closed."
+        f"✅ Responses for '{event_name}' have been closed.\n\n{close_msg}"
     )
 
 
