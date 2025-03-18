@@ -91,7 +91,8 @@ async def create_offkai(
     )
     save_event_data(events)
     await interaction.response.send_message(
-        f"# Offkai: {event_name}\n\n" f"{announce_msg + "\n\n" if len(announce_msg) > 0 else ""}More info in the thread {thread.mention}."
+        f"# Offkai: {event_name}\n\n"
+        f"{announce_msg + "\n\n" if len(announce_msg) > 0 else ""}More info in the thread {thread.mention}."
     )
 
 
@@ -147,7 +148,9 @@ async def modify_offkai(
 
     replace_event(event_name, new_event)
 
-    await interaction.response.send_message(f"# Update to {event_name}:\n\n{update_msg}\n\n{thread.mention}")
+    await interaction.response.send_message(
+        f"# Update to {event_name}:\n\n{update_msg}\n\n{thread.mention}"
+    )
 
 
 @client.tree.command(
@@ -156,14 +159,20 @@ async def modify_offkai(
     guilds=config.GUILDS,
 )
 @app_commands.describe(
-    event_name="The name of the event.",
-    close_msg="A message to accompany the closing."
+    event_name="The name of the event.", close_msg="A message to accompany the closing."
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def close_offkai(interaction: discord.Interaction, event_name: str, close_msg: str):
+async def close_offkai(
+    interaction: discord.Interaction, event_name: str, close_msg: str = ""
+):
     events = load_event_data()
     for event in events:
         if event["event_name"].lower() == event_name.lower():
+            if not event["open"]:
+                await interaction.response.send_message(
+                    f"❌ {event_name} is already closed!", ephemeral=True
+                )
+                return
             event["open"] = False
             await update_event_message(client, event)
 
@@ -180,20 +189,25 @@ async def close_offkai(interaction: discord.Interaction, event_name: str, close_
     guilds=config.GUILDS,
 )
 @app_commands.describe(
-    event_name="The name of the event.",
+    event_name="The name of the event.", reopen_msg="A message to accompany the reopening."
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def reopen_offkai(interaction: discord.Interaction, event_name: str):
+async def reopen_offkai(interaction: discord.Interaction, event_name: str, reopen_msg: str = ""):
     events = load_event_data()
     for event in events:
         if event["event_name"].lower() == event_name.lower():
+            if event["open"]:
+                await interaction.response.send_message(
+                    f"❌ {event_name} is already open!", ephemeral=True
+                )
+                return
             event["open"] = True
             await update_event_message(client, event)
 
     save_event_data(events)
 
     await interaction.response.send_message(
-        f"✅ Responses for '{event_name}' have been reopened."
+        f"✅ Responses for '{event_name}' have been reopened.\n\n{reopen_msg}"
     )
 
 

@@ -35,18 +35,14 @@ Modifies an existing offkai with a new venue, address, Google Maps link and Date
 - `event_name`: Name of the event to close (autocompletes from existing events)
 - `close_msg`: A message to accompany the closing.
 
-Closes responses for an offkai and sends a message in the current channel that responses have been closed. The response button is disabled, but users may still check the attendance count for the total number of people.
-
-**TO-DO**: Send an error message if the offkai is already closed.
+Closes responses for an offkai and sends a message in the current channel that responses have been closed. The response button is disabled, but users may still check the attendance count for the total number of people. Sends an epheremal error message if the offkai is already closed.
 
 ### reopen_offkai
 
-- `event_name`: Name of the event to close (autocompletes from existing events)
+- `event_name`: Name of the event to reopen (autocompletes from existing events)
+- `reopen_msg`: A message to accompany the reopening.
 
 Reopens responses for an offkai and sends a message in the current channel that responses have been reopened. The response button is reenabled until it is closed again.
-
-**TO-DO**: Allow specifying custom messages for the announcement.\
-**TO-DO**: Send an error message if the offkai is already reopened.
 
 ### archive_offkai
 
