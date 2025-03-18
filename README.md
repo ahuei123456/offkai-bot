@@ -20,6 +20,19 @@ Creates a new thread in the current channel with the details of the offkai. The 
 
 **TO-DO**: Allow specifying custom messages for the announcement.
 
+### modify_offkai
+
+- `event_name`: Name of the event to modify (e.g. Hasu 4L Yokohama D2)
+- `venue`: Name of the new venue of the offkai (e.g. Yokohama Chibachan)
+- `address`: Address of the mew venue (e.g. 〒220-0004 Kanagawa, Yokohama, Nishi Ward, Kitasaiwai, 1 Chome−8−2 犬山西口ビル 7階)
+- `google_maps_link`: A new link to the Google Maps page of the venue (e.g. https://maps.app.goo.gl/sa8k1VzNBr4CsiLy6)
+- `date_time`: The new date and time of the offkai, in YYYY-MM-DD HH:MM format (e.g. 2025-06-08 21:00)
+- `update_msg`: A message to accompany the modification announcement.
+
+Modifies an existing offkai with a new venue, address, Google Maps link and Date/Time.
+
+**TO-DO**: Add a link to the offkai thread.
+
 ### close_offkai
 
 - `event_name`: Name of the event to close (autocompletes from existing events)
