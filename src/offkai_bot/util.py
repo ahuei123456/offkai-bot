@@ -310,7 +310,7 @@ def save_responses():
         return  # Avoid saving None
 
     try:
-        with open(settings.RESPONSES_FILE, "w", encoding="utf-8") as file:
+        with open(settings["RESPONSES_FILE"], "w", encoding="utf-8") as file:
             # Use the custom encoder to handle dataclasses and datetime
             # Dump the global cache directly
             json.dump(
@@ -321,7 +321,7 @@ def save_responses():
                 ensure_ascii=False,
             )
     except IOError as e:
-        logging.error(f"Error writing response data to {settings.RESPONSES_FILE}: {e}")
+        logging.error(f"Error writing response data to {settings['RESPONSES_FILE']}: {e}")
     except Exception as e:
         logging.exception(f"An unexpected error occurred saving response data: {e}")
 
