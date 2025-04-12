@@ -1,16 +1,13 @@
-import config
-import discord
-import json
 import logging
-from discord import ui
 from datetime import datetime, UTC
-from event import Event, Response
-from util import (
+
+import discord
+from discord import ui
+
+from .event import Event, Response
+from .util import (
     save_event_data,
     load_event_data,  # Keep for load_and_update_events initial load if needed
-    load_responses,  # Use this, it handles caching
-    save_responses,
-    get_event,
     get_responses,
     add_response,  # Import new function
     remove_response,  # Import new function
@@ -39,20 +36,20 @@ class GatheringModal(ui.Modal):
         self.event = event
 
         # Define fields (consider making drink choice conditional later if needed)
-        self.extra_people_input = ui.TextInput(
+        self.extra_people_input: ui.TextInput = ui.TextInput(
             label="🧑 I am bringing extra people (0-5)",
             placeholder="Enter a number between 0-5",
             required=True,
             max_length=1,
             custom_id="extra_people",
         )
-        self.behave_checkbox_input = ui.TextInput(
+        self.behave_checkbox_input: ui.TextInput = ui.TextInput(
             label="✔ I will behave",
             placeholder="You must type 'Yes'",
             required=True,
             custom_id="behave_confirm",
         )
-        self.arrival_checkbox_input = ui.TextInput(
+        self.arrival_checkbox_input: ui.TextInput = ui.TextInput(
             label="✔ I will arrive on time",  # Changed wording slightly
             placeholder="You must type 'Yes'",
             required=True,
@@ -64,10 +61,10 @@ class GatheringModal(ui.Modal):
         self.add_item(self.arrival_checkbox_input)
 
         # Dynamically add drink choice only if needed
-        self.drink_choice_input = None
+        self.drink_choice_input: ui.TextInput | None = None
         if self.event.has_drinks:
             self.drink_choice_input = ui.TextInput(
-                label=f"🍺 Drink choice(s) for you",  # Show available drinks
+                label="🍺 Drink choice(s) for you",  # Show available drinks
                 placeholder=f"Choose from: {', '.join(self.event.drinks)}. Separate with commas.",
                 required=True,
                 custom_id="drink_choice",
@@ -395,7 +392,7 @@ async def update_event_message(client: discord.Client, event: Event):
             )
         except Exception as e:
             logging.exception(
-                f"Unexpected error updating event message for {event.name}: {e}"
+                f"Unexpected error updating event message for {event.event_name}: {e}"
             )
     else:
         # Send a new message (handles missing ID or NotFound error)

@@ -1,14 +1,15 @@
-import config
-import discord
+from .config import get_config
 import json
 import logging
+import os
 
 from datetime import datetime
 from dataclasses import asdict, is_dataclass  # Import asdict and is_dataclass
-from event import Event, Response  # Import the dataclasses
 
-EVENT_DATA_CACHE = None
-RESPONSE_DATA_CACHE = None
+from .event import Event, Response  # Import the dataclasses
+
+EVENT_DATA_CACHE: list[Event] | None = None
+RESPONSE_DATA_CACHE: dict[str, list[Response]] | None = None
 DATETIME_FORMAT = r"%Y-%m-%d %H:%M"  # Define the expected format in JSON message
 DATETIME_ISO_FORMAT = "isoformat"  # How we'll store datetimes in JSON going forward
 
@@ -38,16 +39,16 @@ class DataclassJSONEncoder(json.JSONEncoder):
 
 # --- Event Data Handling ---
 
-
 # Load raw event data from the JSON file
 def _load_event_data() -> list[Event]:
     """
     Loads event data from JSON, converts to Event dataclasses,
     and handles missing or empty files.
     """
+    settings = get_config()
     global EVENT_DATA_CACHE
     events_list = []
-    file_path = config.EVENTS_FILE
+    file_path = settings["EVENTS_FILE"]
 
     try:
         # Check if file exists and is not empty before trying to load
@@ -141,12 +142,13 @@ def load_event_data() -> list[Event]:
 def save_event_data():
     """Saves the current state of EVENT_DATA_CACHE to the JSON file."""
     global EVENT_DATA_CACHE
+    settings = get_config()
     if EVENT_DATA_CACHE is None:
         logging.error("Attempted to save event data before loading.")
         return  # Avoid saving None
 
     try:
-        with open(config.EVENTS_FILE, "w", encoding="utf-8") as file:
+        with open(settings["EVENTS_FILE"], "w", encoding="utf-8") as file:
             # Use the custom encoder to handle dataclasses and datetime
             # Dump the global cache directly
             json.dump(
@@ -157,7 +159,7 @@ def save_event_data():
                 ensure_ascii=False,
             )
     except IOError as e:
-        logging.error(f"Error writing event data to {config.EVENTS_FILE}: {e}")
+        logging.error(f"Error writing event data to {settings['EVENTS_FILE']}: {e}")
     except Exception as e:
         logging.exception(f"An unexpected error occurred saving event data: {e}")
 
@@ -180,8 +182,9 @@ def _load_responses() -> dict[str, list[Response]]:
     and handles missing or empty files.
     """
     global RESPONSE_DATA_CACHE
+    settings = get_config()
     responses_dict: dict[str, list[Response]] = {}
-    file_path = config.RESPONSES_FILE
+    file_path = settings["RESPONSES_FILE"]
 
     try:
         # Check if file exists and is not empty before trying to load
@@ -249,7 +252,7 @@ def _load_responses() -> dict[str, list[Response]]:
                         behavior_confirmed=behavior_confirmed,
                         arrival_confirmed=arrival_confirmed,
                         event_name=resp_dict.get("event_name", event_name),
-                        timestamp=ts,  # Allow None if parsing failed
+                        timestamp=ts if ts is not None else datetime.now(),  # Allow None if parsing failed
                         drinks=drinks,
                     )
                     processed_responses.append(response)
@@ -301,12 +304,13 @@ def load_responses() -> dict[str, list[Response]]:
 def save_responses():
     """Saves the current state of RESPONSE_DATA_CACHE to the JSON file."""
     global RESPONSE_DATA_CACHE
+    settings = get_config()
     if RESPONSE_DATA_CACHE is None:
         logging.error("Attempted to save response data before loading.")
         return  # Avoid saving None
 
     try:
-        with open(config.RESPONSES_FILE, "w", encoding="utf-8") as file:
+        with open(settings.RESPONSES_FILE, "w", encoding="utf-8") as file:
             # Use the custom encoder to handle dataclasses and datetime
             # Dump the global cache directly
             json.dump(
@@ -317,7 +321,7 @@ def save_responses():
                 ensure_ascii=False,
             )
     except IOError as e:
-        logging.error(f"Error writing response data to {config.RESPONSES_FILE}: {e}")
+        logging.error(f"Error writing response data to {settings.RESPONSES_FILE}: {e}")
     except Exception as e:
         logging.exception(f"An unexpected error occurred saving response data: {e}")
 
