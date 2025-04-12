@@ -1,17 +1,26 @@
 import config
 import discord
 import json
+import logging
 from discord import ui
 from datetime import datetime, UTC
+from event import Event, Response
 from util import (
     save_event_data,
-    load_event_data,
-    load_event_data_cached,
-    load_response_data,
-    load_response_data_cached,
-    save_response_data,
-    get_event
+    load_event_data,  # Keep for load_and_update_events initial load if needed
+    load_responses,  # Use this, it handles caching
+    save_responses,
+    get_event,
+    get_responses,
+    add_response,  # Import new function
+    remove_response,  # Import new function
+    create_event_message,  # Import message creation helper
 )
+
+
+# --- Helper ---
+async def error_message(interaction: discord.Interaction, message: str):
+    await interaction.response.send_message(f"❌ {message}", ephemeral=True)
 
 
 # Class to handle the modal for event attendance
@@ -19,214 +28,392 @@ class GatheringModal(ui.Modal):
     def __init__(
         self,
         *,
-        title="Event Attendance Confirmation",
+        event: Event,
         timeout=None,
-        custom_id="",
-        event_name="Default Event",
     ):
-        super().__init__(title=title, timeout=timeout, custom_id=custom_id)
-        self.event_name = event_name
+        super().__init__(
+            title=event.event_name,
+            timeout=timeout,
+            custom_id=f"modal_{event.event_name}",
+        )
+        self.event = event
 
-    extra_people = ui.TextInput(
-        label="🧑 I am bringing extra people (0-5)",
-        placeholder="Enter a number between 0-5",
-        required=True,
-        max_length=1,
-    )
-    behave_checkbox = ui.TextInput(
-        label="✔ I will behave", placeholder="You must type 'Yes'", required=True
-    )
-    arrival_checkbox = ui.TextInput(
-        label="✔ I will arrive 5 minutes early",
-        placeholder="You must type 'Yes'",
-        required=True,
-    )
+        # Define fields (consider making drink choice conditional later if needed)
+        self.extra_people_input = ui.TextInput(
+            label="🧑 I am bringing extra people (0-5)",
+            placeholder="Enter a number between 0-5",
+            required=True,
+            max_length=1,
+            custom_id="extra_people",
+        )
+        self.behave_checkbox_input = ui.TextInput(
+            label="✔ I will behave",
+            placeholder="You must type 'Yes'",
+            required=True,
+            custom_id="behave_confirm",
+        )
+        self.arrival_checkbox_input = ui.TextInput(
+            label="✔ I will arrive on time",  # Changed wording slightly
+            placeholder="You must type 'Yes'",
+            required=True,
+            custom_id="arrival_confirm",
+        )
+        # Add other items
+        self.add_item(self.extra_people_input)
+        self.add_item(self.behave_checkbox_input)
+        self.add_item(self.arrival_checkbox_input)
+
+        # Dynamically add drink choice only if needed
+        self.drink_choice_input = None
+        if self.event.has_drinks:
+            self.drink_choice_input = ui.TextInput(
+                label=f"🍺 Drink choice(s) for you",  # Show available drinks
+                placeholder=f"Choose from: {', '.join(self.event.drinks)}. Separate with commas.",
+                required=True,
+                custom_id="drink_choice",
+            )
+            self.add_item(self.drink_choice_input)
+        # else:
+        #     # Add a non-required placeholder if drinks aren't needed, or omit entirely
+        #     self.drink_choice_input = ui.TextInput(
+        #         label="🍺 Drink choice (Not required for this event)",
+        #         placeholder="Type N/A or leave blank.",
+        #         required=False,  # Make not required if drinks aren't needed
+        #         custom_id="drink_choice_na",
+        #     )
+        #     self.add_item(self.drink_choice_input)
+
+    @property
+    def event_name(self) -> str:
+        return self.event.event_name
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Validate the extra people input
-        if not self.extra_people.value.isdigit() or not (
-            0 <= int(self.extra_people.value) <= 5
-        ):
-            await interaction.response.send_message(
-                "❌ Please enter a number between 0 and 5.", ephemeral=True
-            )
-            return
-
-        if (
-            self.behave_checkbox.value.lower() != "yes"
-            or self.arrival_checkbox.value.lower() != "yes"
-        ):
-            await interaction.response.send_message(
-                "❌ You must type 'Yes' in the required fields.", ephemeral=True
-            )
-            return
-
-        # Prepare the response data to log
-        response_data = {
-            "user_id": str(interaction.user.id),  # Store the user ID as a string
-            "username": interaction.user.name,
-            "extra_people": self.extra_people.value,
-            "behavior_confirmed": self.behave_checkbox.value,
-            "arrival_confirmed": self.arrival_checkbox.value,
-            "event_name": self.event_name,  # Store the event name
-            "timestamp": datetime.now(
-                UTC
-            ).isoformat(),  # Save the timestamp in ISO format
-        }
-
-        data = load_response_data()
-
-        # Append the new response to the list
-        try:
-            # Check if the user_id already exists in the responses for the current event
-            existing_responses = data[self.event_name]
-
-            # Check if the user_id exists in the current event responses
-            if any(
-                response["user_id"] == str(interaction.user.id)
-                for response in existing_responses
-            ):
-                await interaction.response.send_message(
-                    "❌ You have already submitted a response for this event.",
-                    ephemeral=True,
-                )
-                return  # Prevent further processing if the user already submitted a response
-
-            # If the user hasn't submitted yet, append the new response
-            existing_responses.append(response_data)
-            data[self.event_name] = (
-                existing_responses  # Save the updated responses back to the event
-            )
-        except KeyError:
-            data[self.event_name] = [response_data]
-
-        save_response_data(data)
-
-        # Confirm submission with a response message
-        await interaction.response.send_message(
-            f"✅ You confirmed attendance!\n"
-            f"👥 Extra people: {self.extra_people.value}\n"
-            f"✔ Behavior confirmed: {self.behave_checkbox.value}\n"
-            f"✔ Arrival confirmed: {self.arrival_checkbox.value}",
-            ephemeral=True,
+        # --- Validation ---
+        extra_people_str = self.extra_people_input.value
+        behave_confirm_str = self.behave_checkbox_input.value
+        arrival_confirm_str = self.arrival_checkbox_input.value
+        drink_choice_str = (
+            self.drink_choice_input.value if self.drink_choice_input else "N/A"
         )
-        await interaction.channel.add_user(interaction.user)
+
+        if not extra_people_str.isdigit() or not (0 <= int(extra_people_str) <= 5):
+            await error_message(
+                interaction, "Extra people must be a number between 0 and 5."
+            )
+            return
+        num_extra_people = int(extra_people_str)
+        total_people = 1 + num_extra_people  # Submitter + extras
+
+        if behave_confirm_str.lower() != "yes" or arrival_confirm_str.lower() != "yes":
+            await error_message(
+                interaction, "Please confirm behavior and arrival by typing 'Yes'."
+            )
+            return
+
+        selected_drinks = []
+        if self.event.has_drinks:
+            if not drink_choice_str:
+                await error_message(interaction, "Please specify your drink choice(s).")
+                return
+            
+            # --- Case-Insensitive Drink Validation ---
+            # 1. Convert user input to lowercase, strip whitespace, and remove empty entries
+            raw_drinks_input = [
+                drink.lower().strip() for drink in drink_choice_str.split(",")
+            ]
+            raw_drinks_input = [d for d in raw_drinks_input if d] # Filter out empty strings
+
+            # 2. Convert allowed drinks to lowercase for comparison
+            allowed_drinks_lower = [d.lower() for d in self.event.drinks]
+
+            # 3. Check for invalid drinks (case-insensitive comparison)
+            invalid_drinks = [
+                d for d in raw_drinks_input if d not in allowed_drinks_lower
+            ]
+            if invalid_drinks:
+                # Show original case allowed drinks in the error message for clarity
+                await error_message(
+                    interaction,
+                    f"Invalid drink choices: {', '.join(invalid_drinks)}. Choose from: {', '.join(self.event.drinks)}", # Show original case
+                )
+                return
+            # --- End Case-Insensitive Validation ---
+
+            # Check count matches total people
+            if len(raw_drinks_input) != total_people:
+                await error_message(
+                    interaction,
+                    f"Please provide exactly {total_people} drink choice(s) (one for you and each extra person), separated by commas.",
+                )
+                return
+            selected_drinks = raw_drinks_input
+        else:
+            # If drinks aren't needed, allow empty or "N/A"
+            if drink_choice_str and drink_choice_str.lower() != "n/a":
+                await error_message(
+                    interaction,
+                    "Drinks are not required for this event. Please enter 'N/A' or leave the drink field blank.",
+                )
+                return
+            selected_drinks = []  # Ensure it's an empty list
+
+        # --- Create Response Object ---
+        try:
+            new_response = Response(
+                user_id=interaction.user.id,
+                username=interaction.user.name,
+                extra_people=num_extra_people,
+                behavior_confirmed=(behave_confirm_str.lower() == "yes"),
+                arrival_confirmed=(arrival_confirm_str.lower() == "yes"),
+                event_name=self.event.event_name,
+                timestamp=datetime.now(UTC),  # Use timezone-aware UTC time
+                drinks=selected_drinks,
+            )
+        except Exception as e:
+            logging.error(f"Error creating Response object: {e}", exc_info=True)
+            await error_message(
+                interaction, "An internal error occurred creating your response."
+            )
+            return
+
+        # --- Add Response using Util function ---
+        success = add_response(self.event.event_name, new_response)
+
+        if success:
+            # Confirm submission
+            drinks_msg = (
+                f"\n🍺 Drinks: {', '.join(selected_drinks)}" if selected_drinks else ""
+            )
+            await interaction.response.send_message(
+                f"✅ Attendance confirmed for **{self.event.event_name}**!\n"
+                f"👥 Bringing: {num_extra_people} extra guest(s)\n"
+                f"✔ Behavior Confirmed\n"
+                f"✔ Arrival Confirmed"
+                f"{drinks_msg}",
+                ephemeral=True,
+            )
+            # Add user to the thread
+            try:
+                if interaction.channel and isinstance(
+                    interaction.channel, discord.Thread
+                ):
+                    await interaction.channel.add_user(interaction.user)
+                else:
+                    logging.warning(
+                        f"Could not add user {interaction.user.id} to channel {interaction.channel_id} (not a thread?)."
+                    )
+            except discord.HTTPException as e:
+                logging.error(
+                    f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}"
+                )
+        else:
+            # User already responded
+            await error_message(
+                interaction, "You have already submitted a response for this event."
+            )
 
 
+# --- Views ---
 class EventView(ui.View):
-    def __init__(self, event_name: str):
+    def __init__(self, event: Event):  # Expect Event object
         super().__init__(timeout=None)
-        self.event_name = event_name
+        self.event = event  # Store the Event object
 
     @discord.ui.button(
-        label="Attendance Count", style=discord.ButtonStyle.primary, row=2
+        label="Attendance Count",
+        style=discord.ButtonStyle.secondary,
+        row=2,
+        custom_id="count_button",  # Use secondary style
     )
     async def count(self, interaction: discord.Interaction, button: discord.ui.Button):
-        responses = load_response_data_cached()
+        # Use get_responses from util
+        event_responses = get_responses(self.event.event_name)
 
-        try:
-            num = sum(
-                1 + int(response["extra_people"])
-                for response in responses[self.event_name]
-            )
-        except KeyError:
-            num = 0
+        num = sum(1 + response.extra_people for response in event_responses)
 
         await interaction.response.send_message(
-            f"📝 Registration count: {num}", ephemeral=True
+            f"📝 Current registration count for **{self.event.event_name}**: {num}",
+            ephemeral=True,
         )
 
 
-# Class to create a button that opens the modal
 class OpenEvent(EventView):
+    def __init__(self, event: Event):  # Expect Event object
+        super().__init__(event=event)  # Pass event to parent
+
     @discord.ui.button(
-        label="Confirm Attendance", style=discord.ButtonStyle.primary, row=0
+        label="Confirm Attendance",
+        style=discord.ButtonStyle.success,
+        row=0,
+        custom_id="confirm_button",  # Use success style
     )
     async def respond(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        await interaction.response.send_modal(
-            GatheringModal(title=self.event_name, event_name=self.event_name)
-        )
+        # Pass the Event object to the modal
+        await interaction.response.send_modal(GatheringModal(event=self.event))
 
     @discord.ui.button(
-        label="Withdraw Attendance", style=discord.ButtonStyle.primary, row=1
+        label="Withdraw Attendance",
+        style=discord.ButtonStyle.danger,
+        row=1,
+        custom_id="withdraw_button",  # Use danger style
     )
     async def withdraw(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        responses = load_response_data_cached()
-        event_responses = responses[self.event_name]
+        # Use remove_response from util
+        removed = remove_response(self.event.event_name, interaction.user.id)
 
-        new_responses = [entry for entry in event_responses if entry["user_id"] != str(interaction.user.id)]
-
-        if len(new_responses) != len(event_responses):
-            responses[self.event_name] =  new_responses
-            save_response_data(responses)
-
+        if removed:
             await interaction.response.send_message(
-                "👋 Your attendance has been withdrawn. We're sad to see you go!", ephemeral=True
+                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.",
+                ephemeral=True,
             )
+            # Remove user from the thread
+            try:
+                if interaction.channel and isinstance(
+                    interaction.channel, discord.Thread
+                ):
+                    await interaction.channel.remove_user(interaction.user)
+                else:
+                    logging.warning(
+                        f"Could not remove user {interaction.user.id} from channel {interaction.channel_id} (not a thread?)."
+                    )
+            except discord.HTTPException as e:
+                logging.error(
+                    f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}"
+                )
         else:
-            await interaction.response.send_message(
-                "❌ You cannot withdraw from an event which you did not register for.", ephemeral=True
+            await error_message(
+                interaction,
+                "You have not registered for this event, so you cannot withdraw.",
             )
 
 
-# Class to create a button that opens the modal
 class ClosedEvent(EventView):
+    def __init__(self, event: Event):  # Expect Event object
+        super().__init__(event=event)  # Pass event to parent
+
     @discord.ui.button(
         label="Responses Closed",
         style=discord.ButtonStyle.secondary,
         disabled=True,
         row=0,
+        custom_id="closed_button",
     )
     async def respond(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        await interaction.response.send_modal(
-            GatheringModal(title=self.event_name, event_name=self.event_name)
+        # This button is disabled, so this callback shouldn't trigger
+        # If it somehow does, send an ephemeral message
+        await interaction.response.send_message(
+            "Responses are currently closed for this event.", ephemeral=True
         )
 
 
-# Function to send the event message with button interaction
-async def send_event_message(channel: discord.Thread, event):
-    if event["open"]:
-        view = OpenEvent(event["event_name"])
-    else:
-        view = ClosedEvent(event["event_name"])
-    message = await channel.send(event["message"], view=view)
-    event["message_id"] = str(message.id)  # Save the message ID back to event data
-    save_event_data(load_event_data())  # Save the updated event data
+# --- Event Message Handling ---
 
 
-# Function to update the event message if the message ID exists
-async def update_event_message(client: discord.Client, event):
-    channel = client.get_channel(int(event["channel_id"]))
-    if channel:
+async def send_event_message(channel: discord.Thread, event: Event):
+    """Sends a new event message and saves the message ID."""
+    if not isinstance(event, Event):
+        logging.error(f"send_event_message received non-Event object: {type(event)}")
+        return
+
+    view = OpenEvent(event) if event.open else ClosedEvent(event)
+    try:
+        message_content = create_event_message(event)  # Use util function
+        message = await channel.send(message_content, view=view)
+        event.message_id = message.id  # Update the Event object directly
+        save_event_data()  # Save the list containing the updated event
+        logging.info(
+            f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}"
+        )
+    except discord.HTTPException as e:
+        logging.error(
+            f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}"
+        )
+    except Exception as e:
+        logging.exception(
+            f"Unexpected error sending event message for {event.event_name}: {e}"
+        )
+
+
+async def update_event_message(client: discord.Client, event: Event):
+    """Updates an existing event message or sends a new one if not found."""
+    if not isinstance(event, Event):
+        logging.error(f"update_event_message received non-Event object: {type(event)}")
+        return
+    if not event.channel_id:  # Simplified check, message_id handled below
+        logging.warning(
+            f"Cannot update message for event '{event.event_name}': missing channel_id."
+        )
+        return
+
+    channel = client.get_channel(event.channel_id)
+    if not isinstance(channel, discord.Thread):
+        logging.error(
+            f"Could not find thread channel with ID {event.channel_id} for event '{event.event_name}'."
+        )
+        return
+
+    # If message_id is missing OR message not found, send a new one
+    message = None
+    if event.message_id:
         try:
-            message = await channel.fetch_message(int(event["message_id"]))
-            if event["open"]:
-                view = OpenEvent(event["event_name"])
-            else:
-                view = ClosedEvent(event["event_name"])
-            await message.edit(content=event["message"], view=view)
+            message = await channel.fetch_message(event.message_id)
         except discord.errors.NotFound:
-            print(
-                f"Message with ID {event['message_id']} not found, sending a new message."
+            logging.warning(
+                f"Message with ID {event.message_id} not found for event '{event.event_name}', sending a new message."
             )
-            await send_event_message(channel, event)
+            event.message_id = None  # Clear invalid ID
+        except discord.HTTPException as e:
+            logging.error(
+                f"Failed to fetch event message for {event.event_name} (ID: {event.message_id}): {e}"
+            )
+            # Potentially try sending a new one or just return
+            return
+        except Exception as e:
+            logging.exception(
+                f"Unexpected error fetching event message for {event.event_name}: {e}"
+            )
+            return
+
+    if message:
+        # Edit existing message
+        try:
+            view = OpenEvent(event) if event.open else ClosedEvent(event)
+            message_content = create_event_message(event)
+            await message.edit(content=message_content, view=view)
+            logging.info(
+                f"Updated event message for '{event.event_name}' (ID: {message.id})"
+            )
+        except discord.HTTPException as e:
+            logging.error(
+                f"Failed to update event message for {event.event_name} (ID: {event.message_id}): {e}"
+            )
+        except Exception as e:
+            logging.exception(
+                f"Unexpected error updating event message for {event.name}: {e}"
+            )
+    else:
+        # Send a new message (handles missing ID or NotFound error)
+        # This call will now handle saving internally
+        await send_event_message(channel, event)
 
 
-# Function to load events on bot startup
 async def load_and_update_events(client: discord.Client):
-    events = load_event_data()  # Load event data from file
-    for event in events:
-        if "message_id" in event:  # If message ID exists, update the message
-            await update_event_message(client, event)
-        else:  # If message ID does not exist, send a message and save it
-            channel = client.get_channel(int(event["channel_id"]))
-            if channel:
-                await send_event_message(channel, event)  # Send the message
+    """Loads events on startup and ensures their messages/views are up-to-date."""
+    logging.info("Loading and updating event messages...")
+    events = load_event_data()
+    if not events:
+        logging.info("No events found to load.")
+        return
 
-                save_event_data(events)
+    for event in events:
+        if not event.archived:
+            # Pass only the client and event
+            await update_event_message(client, event)
+
+    logging.info("Finished loading and updating event messages.")

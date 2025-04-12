@@ -9,7 +9,6 @@ with open(f"config.json") as f:
 
 
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
-DEFAULT_CHANNEL_ID = config["DEFAULT_CHANNEL_ID"]
 EVENTS_FILE = config["EVENTS_FILE"]
 RESPONSES_FILE = config["RESPONSES_FILE"]
-GUILDS = [discord.Object(id=id) for id in config["GUILDS"]]
+GUILD_IDS = config["GUILDS"]
