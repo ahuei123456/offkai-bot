@@ -1,4 +1,7 @@
+
 import argparse
+import contextlib
+import functools
 import logging
 import sys
 from datetime import datetime
@@ -8,6 +11,25 @@ import discord
 from discord import app_commands
 
 from . import config
+from .errors import (
+    BotCommandError,
+    BroadcastPermissionError,
+    BroadcastSendError,
+    DuplicateEventError,
+    EventAlreadyArchivedError,
+    EventAlreadyClosedError,
+    EventAlreadyOpenError,
+    EventArchivedError,
+    EventNotFoundError,
+    InvalidChannelTypeError,
+    InvalidDateTimeFormatError,
+    MissingChannelIDError,
+    NoChangesProvidedError,
+    NoResponsesFoundError,
+    ResponseNotFoundError,
+    ThreadCreationError,
+    ThreadNotFoundError,
+)
 from .interactions import (
     load_and_update_events,
     send_event_message,
@@ -53,6 +75,43 @@ intents.message_content = True
 
 client = OffkaiClient(intents=intents)
 
+# --- Logging ---
+
+
+def log_command_usage(func):
+    """Decorator to log command usage details, including 'event_name' if present."""
+
+    @functools.wraps(func)  # Preserves original function metadata (name, docstring)
+    async def wrapper(interaction: discord.Interaction, *args, **kwargs):
+        command_name = interaction.command.name if interaction.command else "Unknown"
+        user_info = f"{interaction.user} ({interaction.user.id})"
+        guild_info = f"Guild: {interaction.guild_id}" if interaction.guild_id else "DM"
+        channel_info = f"Channel: {interaction.channel_id}"
+
+        # --- Add event_name logging ---
+        event_name_arg = kwargs.get("event_name")  # Safely get 'event_name' from kwargs
+        event_info = ""
+        if event_name_arg is not None:
+            # Ensure it's a string before logging, just in case
+            event_info = f" for Event: '{str(event_name_arg)}'"
+        # --- End event_name logging ---
+
+        _log.info(
+            # Append event_info to the existing log message if it was found
+            f"Command triggered: '{command_name}' by {user_info} in {guild_info} {channel_info}{event_info}"
+        )
+
+        # Call the original command function
+        try:
+            result = await func(interaction, *args, **kwargs)
+            return result
+        except Exception as e:
+            # Let the global error handler catch and log/report the error
+            raise e
+
+    return wrapper
+
+
 # --- Commands ---
 
 
@@ -70,6 +129,7 @@ client = OffkaiClient(intents=intents)
     announce_msg="Optional: A message to post in the main channel.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
+@log_command_usage
 async def create_offkai(
     interaction: discord.Interaction,
     event_name: str,
@@ -82,8 +142,7 @@ async def create_offkai(
 ):
     # Check for duplicate event name
     if get_event(event_name):
-        await interaction.response.send_message(f"❌ An event named '{event_name}' already exists.", ephemeral=True)
-        return
+        raise DuplicateEventError(event_name)
 
     try:
         # TODO: Handle timezone properly. Assuming JST for now.
@@ -97,25 +156,19 @@ async def create_offkai(
         # For simplicity without external libs/newer Python, store naive or UTC
         event_datetime = event_dt_naive  # Store naive time, display assumes JST
     except ValueError:
-        await interaction.response.send_message("❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True)
-        return
+        raise InvalidDateTimeFormatError()
 
-    if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
-        await interaction.response.send_message(
-            "❌ This command can only be used in a server text channel.", ephemeral=True
-        )
-        return
+    if not interaction.guild or not isinstance(
+        interaction.channel, discord.TextChannel
+    ):
+        raise InvalidChannelTypeError()
 
     # Create the thread
     try:
         thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
     except discord.HTTPException as e:
         _log.error(f"Failed to create thread for '{event_name}': {e}")
-        await interaction.response.send_message(
-            "❌ Failed to create the event thread. Check bot permissions.",
-            ephemeral=True,
-        )
-        return
+        raise ThreadCreationError(event_name, e)
 
     # Prepare drinks list
     drinks_list = []
@@ -168,6 +221,7 @@ async def create_offkai(
     update_msg="Message to post in the event thread announcing the update.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
+@log_command_usage
 async def modify_offkai(
     interaction: discord.Interaction,
     event_name: str,
@@ -180,11 +234,9 @@ async def modify_offkai(
 ):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
-        return
+        raise EventNotFoundError(event_name)
     if event.archived:
-        await interaction.response.send_message(f"❌ Cannot modify an archived event ('{event_name}').", ephemeral=True)
-        return
+        raise EventArchivedError(event_name, "modify")
 
     # Update fields if provided
     modified = False
@@ -204,16 +256,14 @@ async def modify_offkai(
             event.event_datetime = event_dt_naive  # Store naive
             modified = True
         except ValueError:
-            await interaction.response.send_message("❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True)
-            return
+            raise InvalidDateTimeFormatError()
     if drinks is not None:
         # Empty string means clear drinks, otherwise parse
         event.drinks = [d.strip().lower() for d in drinks.split(",") if d.strip()] if drinks else []
         modified = True
 
     if not modified:
-        await interaction.response.send_message("❌ No changes provided to modify.", ephemeral=True)
-        return
+        raise NoChangesProvidedError()
 
     # Save the modified event data
     save_event_data()  # Just save the current cache state
@@ -246,17 +296,17 @@ async def modify_offkai(
     close_msg="Optional: Message for the event thread.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def close_offkai(interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
+@log_command_usage
+async def close_offkai(
+    interaction: discord.Interaction, event_name: str, close_msg: str | None = None
+):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
-        return
+        raise EventNotFoundError(event_name)
     if event.archived:
-        await interaction.response.send_message(f"❌ Cannot close an archived event ('{event_name}').", ephemeral=True)
-        return
+        raise EventArchivedError(event_name, "close")
     if not event.open:
-        await interaction.response.send_message(f"❌ Event '{event_name}' is already closed.", ephemeral=True)
-        return
+        raise EventAlreadyClosedError(event_name)
 
     event.open = False
     save_event_data()  # Save the change
@@ -286,17 +336,17 @@ async def close_offkai(interaction: discord.Interaction, event_name: str, close_
     reopen_msg="Optional: Message for the event thread.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def reopen_offkai(interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
+@log_command_usage
+async def reopen_offkai(
+    interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None
+):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
-        return
+        raise EventNotFoundError(event_name)
     if event.archived:
-        await interaction.response.send_message(f"❌ Cannot reopen an archived event ('{event_name}').", ephemeral=True)
-        return
+        raise EventArchivedError(event_name, "reopen")
     if event.open:
-        await interaction.response.send_message(f"❌ Event '{event_name}' is already open.", ephemeral=True)
-        return
+        raise EventAlreadyOpenError(event_name)
 
     event.open = True
     save_event_data()  # Save the change
@@ -325,14 +375,13 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str, reope
     event_name="The name of the event.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
+@log_command_usage
 async def archive_offkai(interaction: discord.Interaction, event_name: str):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
-        return
+        raise EventNotFoundError(event_name)
     if event.archived:
-        await interaction.response.send_message(f"❌ Event '{event_name}' is already archived.", ephemeral=True)
-        return
+        raise EventAlreadyArchivedError(event_name)
 
     event.archived = True
     # Optionally close the event if archiving
@@ -363,33 +412,27 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 )
 @app_commands.describe(event_name="The name of the event.", message="Message to broadcast.")
 @app_commands.checks.has_role("Offkai Organizer")
+@log_command_usage
 async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
-        return
+        raise EventNotFoundError(event_name)
     if not event.channel_id:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' does not have a channel ID set.", ephemeral=True
-        )
-        return
+        raise MissingChannelIDError(event_name)
 
     channel = client.get_channel(event.channel_id)
     if not isinstance(channel, discord.Thread):
-        await interaction.response.send_message(f"❌ Could not find thread channel for '{event_name}'.", ephemeral=True)
-        return
+        raise ThreadNotFoundError(event_name, event.channel_id)
 
     try:
         await channel.send(f"{message}")
-        await interaction.response.send_message(f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True)
-    except discord.Forbidden:
         await interaction.response.send_message(
-            f"❌ Bot lacks permission to send messages in {channel.mention}.",
-            ephemeral=True,
+            f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True
         )
+    except discord.Forbidden as e:
+        raise BroadcastPermissionError(channel, e)
     except discord.HTTPException as e:
-        _log.error(f"Failed to send broadcast to {channel.id}: {e}")
-        await interaction.response.send_message(f"❌ Failed to send message to {channel.mention}.", ephemeral=True)
+        raise BroadcastSendError(channel, e)
 
 
 @client.tree.command(
@@ -399,7 +442,10 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 )
 @app_commands.describe(event_name="The name of the event.", member="The member whose response to remove.")
 @app_commands.checks.has_role("Offkai Organizer")
-async def delete_response(interaction: discord.Interaction, event_name: str, member: discord.Member):
+@log_command_usage
+async def delete_response(
+    interaction: discord.Interaction, event_name: str, member: discord.Member
+):
     # Use the util function
     removed = remove_response(event_name, member.id)
 
@@ -413,15 +459,10 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
         if event and event.channel_id:
             thread = client.get_channel(event.channel_id)
             if isinstance(thread, discord.Thread):
-                try:
+                with contextlib.suppress(discord.HTTPException):
                     await thread.remove_user(member)
-                except discord.HTTPException:
-                    pass  # Ignore if user wasn't in thread or other issue
     else:
-        await interaction.response.send_message(
-            f"❌ Could not find a response from user {member.mention} for '{event_name}'.",
-            ephemeral=True,
-        )
+        raise ResponseNotFoundError(event_name, member.mention)
 
 
 @client.tree.command(
@@ -431,17 +472,16 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
 )
 @app_commands.describe(event_name="The name of the event.")
 @app_commands.checks.has_role("Offkai Organizer")
+@log_command_usage
 async def attendance(interaction: discord.Interaction, event_name: str):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
-        return
+        raise EventNotFoundError(event_name)
 
     responses = get_responses(event_name)  # Returns list[Response]
 
     if not responses:
-        await interaction.response.send_message(f"No responses found for '{event_name}'.", ephemeral=True)
-        return
+        raise NoResponsesFoundError(event_name)
 
     attendee_list = []
     total_count = 0
@@ -469,38 +509,78 @@ async def attendance(interaction: discord.Interaction, event_name: str):
 # --- Error Handler ---
 
 
-@close_offkai.error
-@reopen_offkai.error
-@create_offkai.error
-@modify_offkai.error
-@archive_offkai.error
-@delete_response.error
-@attendance.error
-@broadcast.error
-async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+@client.tree.error
+async def on_command_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    """Handles application command errors globally."""
+    user_info = f"User: {interaction.user} ({interaction.user.id})"
+    command_name = interaction.command.name if interaction.command else "Unknown"
+
+    # First, handle discord.py's specific check failures directly from 'error'
+    match error:
+        case app_commands.MissingRole():
+            message = "❌ You need the Offkai Organizer role to use this command."
+            # Keep specific logging here as it's not a BotCommandError
+            _log.warning(
+                f"{user_info} - Missing Offkai Organizer role for command '{command_name}'."
+            )
+            await interaction.response.send_message(message, ephemeral=True)
+            return  # Handled
+
+        case app_commands.CheckFailure():
+            message = "❌ You do not have permission to use this command."
+             # Keep specific logging here
+            _log.warning(f"{user_info} - CheckFailure for command '{command_name}'.")
+            await interaction.response.send_message(message, ephemeral=True)
+            return  # Handled
+
+    # For other errors, work with the 'original' error if it exists
     original_error = getattr(error, "original", error)
-    if isinstance(error, app_commands.MissingRole):
-        # Fetch role name if possible for a friendlier message
-        role_name = f"ID {settings['ORGANIZER_ROLE_ID']}"
-        if interaction.guild:
-            role = interaction.guild.get_role(settings["ORGANIZER_ROLE_ID"])
-            if role:
-                role_name = f"'{role.name}'"
-        await interaction.response.send_message(
-            f"❌ You need the {role_name} role to use this command.", ephemeral=True
-        )
-    elif isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
-    # Add more specific error handling if needed
-    elif isinstance(original_error, discord.Forbidden):
-        await interaction.response.send_message("❌ The bot lacks permissions to perform this action.", ephemeral=True)
-    else:
-        _log.error(f"Unhandled command error: {error}", exc_info=error)
-        # Avoid sending detailed internal errors to users
-        await interaction.response.send_message(
-            "❌ An unexpected error occurred. Please try again later or contact an admin.",
-            ephemeral=True,
-        )
+    message = ""
+
+    # Now, match against the original error type
+    match original_error:
+        # --- Unified Case for ALL handled custom errors ---
+        case BotCommandError() as e:
+            message = str(e)
+            # Use the log level defined in the error class
+            log_level = getattr(e, 'log_level', logging.INFO) # Get level, default INFO if missing
+            _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {message}")
+
+        # --- Specific Discord Errors (Keep separate) ---
+        case discord.Forbidden():
+            message = "❌ The bot lacks permissions to perform this action."
+            # Keep specific logging here
+            _log.warning(
+                f"{user_info} - Encountered discord.Forbidden for command '{command_name}'."
+            )
+
+        # --- Default Case for Unhandled Errors (Keep separate) ---
+        case _:
+            # Keep specific logging here
+            _log.error(
+                f"{user_info} - Unhandled command error for '{command_name}': {error}",
+                exc_info=original_error,
+            )
+            message = "❌ An unexpected error occurred. Please try again later or contact an admin."
+
+    # Send the response (if a message was set)
+    if message:
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.followup.send(message, ephemeral=True)
+        except discord.HTTPException as http_err:
+            _log.error(
+                f"{user_info} - Failed to send error response message: {http_err}"
+            )
+        except Exception as e:
+            _log.error(
+                f"{user_info} - Exception sending error response message: {e}",
+                exc_info=e,
+            )
 
 
 # --- Autocomplete Functions ---
