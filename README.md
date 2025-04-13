@@ -4,6 +4,19 @@ A bot designed to simplify the process of attendance gathering for big gathering
 
 This bot is aimed to replace the previous manual methods of collating attendance for offkais, including and not limited to Google Forms surveys, collecting reactions on a Discord message, and waiting for replies of "I'm attending". Previous challenges faced have included errors in keeping track of attendees and attendees not receiving updates for various reasons, which this bot hopes to solve.
 
+## Installation
+
+Offkai bot uses uv for managing the environment and dependencies
+please refer to uv website for installation and more information
+
+https://docs.astral.sh/uv/getting-started/installation/
+
+To run the bot simply run the command
+
+```
+uv run offkai-bot --config-path /path/to/config/file
+```
+
 ## Configuration
 
 The bot requires a `config.json` file in the project's root directory to store essential settings. The `bot/config.py` script loads these settings.
