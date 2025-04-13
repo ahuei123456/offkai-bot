@@ -416,7 +416,7 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
     event = get_event(event_name)
     if not event:
-        raise EventNotFoundError()
+        raise EventNotFoundError(event_name)
     if not event.channel_id:
         raise MissingChannelIDError(event_name)
 
