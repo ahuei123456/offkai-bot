@@ -1,5 +1,4 @@
 
-import datetime
 import discord
 import functools
 import argparse
@@ -9,12 +8,28 @@ import sys
 from datetime import datetime
 from typing import Any # Or use a dict, or define a simple class
 
-import discord
-
 from . import config
 
 from discord import app_commands
-from .errors import *
+from .errors import (
+    BotCommandError,
+    EventNotFound,
+    DuplicateEventError,
+    EventArchivedError,
+    EventAlreadyArchived,
+    EventAlreadyClosed,
+    EventAlreadyOpen,
+    MissingChannelIDError,
+    ThreadNotFoundError,
+    ResponseNotFound,
+    NoResponsesFound,
+    InvalidDateTimeFormat,
+    InvalidChannelTypeError,
+    NoChangesProvidedError,
+    ThreadCreationError,
+    BroadcastPermissionError,
+    BroadcastSendError,
+)
 from .interactions import (
     load_and_update_events,
     send_event_message,
@@ -530,7 +545,7 @@ async def on_command_error(
     # First, handle discord.py's specific check failures directly from 'error'
     match error:
         case app_commands.MissingRole():
-            message = f"❌ You need the Offkai Organizer role to use this command."
+            message = "❌ You need the Offkai Organizer role to use this command."
             # Keep specific logging here as it's not a BotCommandError
             _log.warning(
                 f"{user_info} - Missing Offkai Organizer role for command '{command_name}'."
