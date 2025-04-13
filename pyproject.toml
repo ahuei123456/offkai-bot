@@ -1,0 +1,29 @@
+[project]
+name = "offkai-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Eyal Mazuz", email = "mazuzeyal@protonmail.com" }
+]
+requires-python = ">=3.12.2"
+dependencies = [
+    "aiohappyeyeballs==2.6.0",
+    "aiohttp==3.11.13",
+    "aiosignal==1.3.2",
+    "attrs==25.1.0",
+    "discord-py==2.5.2",
+    "frozenlist==1.5.0",
+    "idna==3.10",
+    "multidict==6.1.0",
+    "propcache==0.3.0",
+    "python-dotenv==1.0.1",
+    "yarl==1.18.3",
+]
+
+[project.scripts]
+offkai-bot = "offkai_bot.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
