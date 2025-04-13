@@ -1,9 +1,8 @@
 import argparse
 import logging
 import sys
-
 from datetime import datetime
-from typing import Any # Or use a dict, or define a simple class
+from typing import Any  # Or use a dict, or define a simple class
 
 import discord
 from discord import app_commands
@@ -15,18 +14,19 @@ from .interactions import (
     update_event_message,
 )
 from .util import (
-    # Use cached loaders by default
-    load_event_data,  # This now uses the cache
-    save_event_data,
-    load_responses,  # This now uses the cache
+    Event,  # Import the dataclass
     get_event,  # Returns Event object or None
     get_responses,  # Returns list[Response]
+    # Use cached loaders by default
+    load_event_data,  # This now uses the cache
+    load_responses,  # This now uses the cache
     remove_response,  # Use for delete_response command
-    Event,  # Import the dataclass
+    save_event_data,
 )
 
 _log = logging.getLogger(__name__)
 settings: dict[str, Any] = {}
+
 
 class OffkaiClient(discord.Client):
     def __init__(self, *, intents: discord.Intents):
@@ -82,9 +82,7 @@ async def create_offkai(
 ):
     # Check for duplicate event name
     if get_event(event_name):
-        await interaction.response.send_message(
-            f"❌ An event named '{event_name}' already exists.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ An event named '{event_name}' already exists.", ephemeral=True)
         return
 
     try:
@@ -99,14 +97,10 @@ async def create_offkai(
         # For simplicity without external libs/newer Python, store naive or UTC
         event_datetime = event_dt_naive  # Store naive time, display assumes JST
     except ValueError:
-        await interaction.response.send_message(
-            "❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True
-        )
+        await interaction.response.send_message("❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True)
         return
 
-    if not interaction.guild or not isinstance(
-        interaction.channel, discord.TextChannel
-    ):
+    if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
         await interaction.response.send_message(
             "❌ This command can only be used in a server text channel.", ephemeral=True
         )
@@ -114,9 +108,7 @@ async def create_offkai(
 
     # Create the thread
     try:
-        thread = await interaction.channel.create_thread(
-            name=event_name, type=discord.ChannelType.public_thread
-        )
+        thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
     except discord.HTTPException as e:
         _log.error(f"Failed to create thread for '{event_name}': {e}")
         await interaction.response.send_message(
@@ -188,14 +180,10 @@ async def modify_offkai(
 ):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' not found.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
         return
     if event.archived:
-        await interaction.response.send_message(
-            f"❌ Cannot modify an archived event ('{event_name}').", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Cannot modify an archived event ('{event_name}').", ephemeral=True)
         return
 
     # Update fields if provided
@@ -216,23 +204,15 @@ async def modify_offkai(
             event.event_datetime = event_dt_naive  # Store naive
             modified = True
         except ValueError:
-            await interaction.response.send_message(
-                "❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Invalid date format. Use YYYY-MM-DD HH:MM.", ephemeral=True)
             return
     if drinks is not None:
         # Empty string means clear drinks, otherwise parse
-        event.drinks = (
-            [d.strip().lower() for d in drinks.split(",") if d.strip()]
-            if drinks
-            else []
-        )
+        event.drinks = [d.strip().lower() for d in drinks.split(",") if d.strip()] if drinks else []
         modified = True
 
     if not modified:
-        await interaction.response.send_message(
-            "❌ No changes provided to modify.", ephemeral=True
-        )
+        await interaction.response.send_message("❌ No changes provided to modify.", ephemeral=True)
         return
 
     # Save the modified event data
@@ -248,13 +228,9 @@ async def modify_offkai(
             try:
                 await thread.send(f"**Event Updated:**\n{update_msg}")
             except discord.HTTPException as e:
-                _log.warning(
-                    f"Could not send update message to thread {thread.id}: {e}"
-                )
+                _log.warning(f"Could not send update message to thread {thread.id}: {e}")
         else:
-            _log.warning(
-                f"Could not find thread {event.channel_id} to send update message."
-            )
+            _log.warning(f"Could not find thread {event.channel_id} to send update message.")
 
     await interaction.response.send_message(
         f"✅ Event '{event_name}' modified successfully. Announcement posted in thread."
@@ -270,24 +246,16 @@ async def modify_offkai(
     close_msg="Optional: Message for the event thread.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def close_offkai(
-    interaction: discord.Interaction, event_name: str, close_msg: str | None = None
-):
+async def close_offkai(interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' not found.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
         return
     if event.archived:
-        await interaction.response.send_message(
-            f"❌ Cannot close an archived event ('{event_name}').", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Cannot close an archived event ('{event_name}').", ephemeral=True)
         return
     if not event.open:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' is already closed.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' is already closed.", ephemeral=True)
         return
 
     event.open = False
@@ -303,13 +271,9 @@ async def close_offkai(
             try:
                 await thread.send(f"**Responses Closed:**\n{close_msg}")
             except discord.HTTPException as e:
-                _log.warning(
-                    f"Could not send closing message to thread {thread.id}: {e}"
-                )
+                _log.warning(f"Could not send closing message to thread {thread.id}: {e}")
 
-    await interaction.response.send_message(
-        f"✅ Responses for '{event_name}' have been closed."
-    )
+    await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
 
 
 @client.tree.command(
@@ -322,24 +286,16 @@ async def close_offkai(
     reopen_msg="Optional: Message for the event thread.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
-async def reopen_offkai(
-    interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None
-):
+async def reopen_offkai(interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' not found.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
         return
     if event.archived:
-        await interaction.response.send_message(
-            f"❌ Cannot reopen an archived event ('{event_name}').", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Cannot reopen an archived event ('{event_name}').", ephemeral=True)
         return
     if event.open:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' is already open.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' is already open.", ephemeral=True)
         return
 
     event.open = True
@@ -355,13 +311,9 @@ async def reopen_offkai(
             try:
                 await thread.send(f"**Responses Reopened:**\n{reopen_msg}")
             except discord.HTTPException as e:
-                _log.warning(
-                    f"Could not send reopening message to thread {thread.id}: {e}"
-                )
+                _log.warning(f"Could not send reopening message to thread {thread.id}: {e}")
 
-    await interaction.response.send_message(
-        f"✅ Responses for '{event_name}' have been reopened."
-    )
+    await interaction.response.send_message(f"✅ Responses for '{event_name}' have been reopened.")
 
 
 @client.tree.command(
@@ -376,14 +328,10 @@ async def reopen_offkai(
 async def archive_offkai(interaction: discord.Interaction, event_name: str):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' not found.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
         return
     if event.archived:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' is already archived.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' is already archived.", ephemeral=True)
         return
 
     event.archived = True
@@ -405,9 +353,7 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
             except discord.HTTPException as e:
                 _log.warning(f"Could not archive thread {thread.id}: {e}")
 
-    await interaction.response.send_message(
-        f"✅ Event '{event_name}' has been archived."
-    )
+    await interaction.response.send_message(f"✅ Event '{event_name}' has been archived.")
 
 
 @client.tree.command(
@@ -415,16 +361,12 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
     description="Sends a message to the offkai channel.",
     # guilds=config.GUILDS,
 )
-@app_commands.describe(
-    event_name="The name of the event.", message="Message to broadcast."
-)
+@app_commands.describe(event_name="The name of the event.", message="Message to broadcast.")
 @app_commands.checks.has_role("Offkai Organizer")
 async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' not found.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
         return
     if not event.channel_id:
         await interaction.response.send_message(
@@ -434,16 +376,12 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 
     channel = client.get_channel(event.channel_id)
     if not isinstance(channel, discord.Thread):
-        await interaction.response.send_message(
-            f"❌ Could not find thread channel for '{event_name}'.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Could not find thread channel for '{event_name}'.", ephemeral=True)
         return
 
     try:
         await channel.send(f"{message}")
-        await interaction.response.send_message(
-            f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True
-        )
+        await interaction.response.send_message(f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message(
             f"❌ Bot lacks permission to send messages in {channel.mention}.",
@@ -451,9 +389,7 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
         )
     except discord.HTTPException as e:
         _log.error(f"Failed to send broadcast to {channel.id}: {e}")
-        await interaction.response.send_message(
-            f"❌ Failed to send message to {channel.mention}.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Failed to send message to {channel.mention}.", ephemeral=True)
 
 
 @client.tree.command(
@@ -461,13 +397,9 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
     description="Deletes a specific user's response to an offkai.",
     # guilds=config.GUILDS,
 )
-@app_commands.describe(
-    event_name="The name of the event.", member="The member whose response to remove."
-)
+@app_commands.describe(event_name="The name of the event.", member="The member whose response to remove.")
 @app_commands.checks.has_role("Offkai Organizer")
-async def delete_response(
-    interaction: discord.Interaction, event_name: str, member: discord.Member
-):
+async def delete_response(interaction: discord.Interaction, event_name: str, member: discord.Member):
     # Use the util function
     removed = remove_response(event_name, member.id)
 
@@ -502,17 +434,13 @@ async def delete_response(
 async def attendance(interaction: discord.Interaction, event_name: str):
     event = get_event(event_name)
     if not event:
-        await interaction.response.send_message(
-            f"❌ Event '{event_name}' not found.", ephemeral=True
-        )
+        await interaction.response.send_message(f"❌ Event '{event_name}' not found.", ephemeral=True)
         return
 
     responses = get_responses(event_name)  # Returns list[Response]
 
     if not responses:
-        await interaction.response.send_message(
-            f"No responses found for '{event_name}'.", ephemeral=True
-        )
+        await interaction.response.send_message(f"No responses found for '{event_name}'.", ephemeral=True)
         return
 
     attendee_list = []
@@ -523,13 +451,13 @@ async def attendance(interaction: discord.Interaction, event_name: str):
         total_count += 1
         # Add extra people
         for i in range(response.extra_people):
-            attendee_list.append(f"{response.username} +{i+1}")
+            attendee_list.append(f"{response.username} +{i + 1}")
             total_count += 1
 
     # Format output
     output = f"**Attendance for {event_name}**\n\n"
     output += f"Total Attendees: **{total_count}**\n\n"
-    output += "\n".join(f"{i+1}. {name}" for i, name in enumerate(attendee_list))
+    output += "\n".join(f"{i + 1}. {name}" for i, name in enumerate(attendee_list))
 
     # Handle potential message length limits for Discord
     if len(output) > 1900:  # Leave buffer for ephemeral message header
@@ -549,10 +477,7 @@ async def attendance(interaction: discord.Interaction, event_name: str):
 @delete_response.error
 @attendance.error
 @broadcast.error
-async def on_command_error(
-    interaction: discord.Interaction, error: app_commands.AppCommandError
-):
-    
+async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     original_error = getattr(error, "original", error)
     if isinstance(error, app_commands.MissingRole):
         # Fetch role name if possible for a friendlier message
@@ -565,14 +490,10 @@ async def on_command_error(
             f"❌ You need the {role_name} role to use this command.", ephemeral=True
         )
     elif isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message(
-            "❌ You do not have permission to use this command.", ephemeral=True
-        )
+        await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
     # Add more specific error handling if needed
     elif isinstance(original_error, discord.Forbidden):
-        await interaction.response.send_message(
-            "❌ The bot lacks permissions to perform this action.", ephemeral=True
-        )
+        await interaction.response.send_message("❌ The bot lacks permissions to perform this action.", ephemeral=True)
     else:
         _log.error(f"Unhandled command error: {error}", exc_info=error)
         # Avoid sending detailed internal errors to users
@@ -597,9 +518,7 @@ async def event_autocomplete_base(
             continue
         # Filter by current input
         if current.lower() in event.event_name.lower():
-            choices.append(
-                app_commands.Choice(name=event.event_name, value=event.event_name)
-            )
+            choices.append(app_commands.Choice(name=event.event_name, value=event.event_name))
     # Limit choices to Discord's max (25)
     return choices[:25]
 
@@ -609,9 +528,7 @@ async def event_autocomplete_base(
 @broadcast.autocomplete("event_name")
 @delete_response.autocomplete("event_name")
 @attendance.autocomplete("event_name")
-async def offkai_autocomplete_active(
-    interaction: discord.Interaction, current: str
-) -> list[app_commands.Choice[str]]:
+async def offkai_autocomplete_active(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """Autocomplete for active (non-archived) events."""
     return await event_autocomplete_base(interaction, current, open_status=None)
 
@@ -657,11 +574,9 @@ def main() -> None:
 
     # Now access the config via the accessor function
     settings = config.get_config()
-    
+
     # Setup logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
     discord_logger = logging.getLogger("discord")
     discord_logger.setLevel(logging.WARNING)  # Reduce discord lib noise
 
@@ -672,8 +587,6 @@ def main() -> None:
         _log.critical("GUILDS is not set")
     else:
         try:
-            client.run(
-                settings["DISCORD_TOKEN"], log_handler=None
-            )  # Use basicConfig handler
+            client.run(settings["DISCORD_TOKEN"], log_handler=None)  # Use basicConfig handler
         except Exception as e:
             _log.exception(f"Fatal error running bot: {e}")
