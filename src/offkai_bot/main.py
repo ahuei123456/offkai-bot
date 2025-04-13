@@ -1,4 +1,4 @@
-import config
+
 import datetime
 import discord
 import functools
@@ -10,8 +10,11 @@ from datetime import datetime
 from typing import Any # Or use a dict, or define a simple class
 
 import discord
+
+from . import config
+
 from discord import app_commands
-from errors import *
+from .errors import *
 from .interactions import (
     load_and_update_events,
     send_event_message,
@@ -528,6 +531,7 @@ async def on_command_error(
     match error:
         case app_commands.MissingRole():
             message = f"❌ You need the Offkai Organizer role to use this command."
+            # Keep specific logging here as it's not a BotCommandError
             _log.warning(
                 f"{user_info} - Missing Offkai Organizer role for command '{command_name}'."
             )
@@ -536,6 +540,7 @@ async def on_command_error(
 
         case app_commands.CheckFailure():
             message = "❌ You do not have permission to use this command."
+             # Keep specific logging here
             _log.warning(f"{user_info} - CheckFailure for command '{command_name}'.")
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
@@ -543,40 +548,27 @@ async def on_command_error(
     # For other errors, work with the 'original' error if it exists
     original_error = getattr(error, "original", error)
     message = ""
-    log_handled_error = True  # Flag to control logging for handled cases
 
     # Now, match against the original error type
-    # Specific cases needing special handling (e.g., WARNING log) FIRST
     match original_error:
-        # --- Cases needing WARNING level logging ---
-        case (
-            MissingChannelIDError()
-            | ThreadNotFoundError()
-            | ThreadCreationError()  # Already logged error when raised, but log context here
-            | BroadcastPermissionError()
-            | BroadcastSendError()  # Already logged error when raised, but log context here
-            | InvalidChannelTypeError()
-        ) as e:  # Added InvalidChannelTypeError here as potential setup issue
+        # --- Unified Case for ALL handled custom errors ---
+        case BotCommandError() as e:
             message = str(e)
-            _log.warning(
-                f"{user_info} - Handled Warning ({type(e).__name__}): {message}"
-            )
+            # Use the log level defined in the error class
+            log_level = getattr(e, 'log_level', logging.INFO) # Get level, default INFO if missing
+            _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {message}")
 
-        # --- General Case for most handled custom errors (INFO level) ---
-        case BotCommandError() as e:  # Catches any OTHER BotCommandError subclass
-            message = str(e)
-            _log.info(f"{user_info} - Handled Info ({type(e).__name__}): {message}")
-
-        # --- Specific Discord Errors ---
+        # --- Specific Discord Errors (Keep separate) ---
         case discord.Forbidden():
             message = "❌ The bot lacks permissions to perform this action."
+            # Keep specific logging here
             _log.warning(
                 f"{user_info} - Encountered discord.Forbidden for command '{command_name}'."
             )
 
-        # --- Default Case for Unhandled Errors ---
+        # --- Default Case for Unhandled Errors (Keep separate) ---
         case _:
-            log_handled_error = False  # Don't log again below, already logged here
+            # Keep specific logging here
             _log.error(
                 f"{user_info} - Unhandled command error for '{command_name}': {error}",
                 exc_info=original_error,

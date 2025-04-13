@@ -1,8 +1,10 @@
-# In a new file like errors.py or within util.py
+import logging
 from discord import app_commands, Thread, HTTPException, Forbidden
 
 class BotCommandError(app_commands.AppCommandError):
     """Base class for custom command errors specific to this bot."""
+    log_level: int = logging.INFO
+
     def __init__(self, message: str):
         super().__init__(message)
 
@@ -48,12 +50,16 @@ class EventAlreadyOpen(BotCommandError):
 
 class MissingChannelIDError(BotCommandError):
     """Raised when an event is missing its associated channel ID."""
+    log_level = logging.WARNING
+
     def __init__(self, event_name: str):
         self.event_name = event_name
         super().__init__(f"❌ Event '{event_name}' does not have a channel ID set.")
 
 class ThreadNotFoundError(BotCommandError):
     """Raised when the thread channel associated with an event cannot be found."""
+    log_level = logging.WARNING
+
     def __init__(self, event_name: str, channel_id: int | None):
         self.event_name = event_name
         self.channel_id = channel_id
@@ -85,6 +91,8 @@ class InvalidDateTimeFormat(BotCommandError):
 
 class InvalidChannelTypeError(BotCommandError):
     """Raised when a command is used in an unsupported channel type."""
+    log_level = logging.WARNING
+
     def __init__(self, expected_type: str = "server text channel"):
         self.expected_type = expected_type
         super().__init__(f"❌ This command can only be used in a {expected_type}.")
@@ -100,18 +108,24 @@ class NoChangesProvidedError(BotCommandError):
 
 class ThreadCreationError(BotCommandError):
     """Raised specifically when thread creation fails."""
+    log_level = logging.WARNING
+
     def __init__(self, event_name: str, original_exception: Exception):
         self.event_name = event_name
         self.original_exception = original_exception
         super().__init__(f"❌ Failed to create the event thread for '{event_name}'. Check bot permissions.")
 
 class BroadcastPermissionError(BotCommandError):
+    log_level = logging.WARNING
+
     def __init__(self, channel: Thread, original_exception: Forbidden):
         self.channel = channel
         self.original_exception = original_exception
         super().__init__(f"❌ Bot lacks permission to send messages in {channel.mention}.")
 
 class BroadcastSendError(BotCommandError):
+    log_level = logging.WARNING
+    
     def __init__(self, channel: Thread, original_exception: HTTPException):
         self.channel = channel
         self.original_exception = original_exception
