@@ -1,4 +1,5 @@
 
+import contextlib
 import discord
 import functools
 import argparse
@@ -458,10 +459,8 @@ async def delete_response(
         if event and event.channel_id:
             thread = client.get_channel(event.channel_id)
             if isinstance(thread, discord.Thread):
-                try:
+                with contextlib.suppress(discord.HTTPException):
                     await thread.remove_user(member)
-                except discord.HTTPException:
-                    pass  # Ignore if user wasn't in thread or other issue
     else:
         raise ResponseNotFound(event_name, member.mention)
 
