@@ -130,7 +130,7 @@ async def test_on_command_error_check_failure(mock_interaction):
             errors.EventNotFoundError,
             ("MyMissingEvent",),
             logging.INFO,
-            "Handled (EventNotFound)",
+            "Handled (EventNotFoundError)",
         ),
         (
             errors.DuplicateEventError,
@@ -142,7 +142,7 @@ async def test_on_command_error_check_failure(mock_interaction):
             errors.InvalidDateTimeFormatError,
             (),
             logging.INFO,
-            "Handled (InvalidDateTimeFormat)",
+            "Handled (InvalidDateTimeFormatError)",
         ),
         (
             errors.NoChangesProvidedError,
@@ -301,7 +301,7 @@ async def test_on_command_error_interaction_already_done(mock_interaction):
         assert call_args[0] == logging.INFO  # Check the level
         log_message = call_args[1]
         assert (
-            f"Handled (EventNotFound): {expected_message}" in log_message
+            f"Handled (EventNotFoundError): {expected_message}" in log_message
         )  # Check content
 
 
@@ -322,7 +322,7 @@ async def test_on_command_error_fails_sending_response(mock_interaction):
         call_args, _ = mock_log.log.call_args
         assert call_args[0] == logging.INFO  # Check level for handled error
         log_message = call_args[1]
-        assert f"Handled (EventNotFound): {str(original_error)}" in log_message
+        assert f"Handled (EventNotFoundError): {str(original_error)}" in log_message
 
         # Assert: Check that the failure during sending was logged (still uses direct .error())
         mock_log.error.assert_called_once()
