@@ -15,9 +15,13 @@ DATETIME_ISO_FORMAT = "isoformat"  # How we'll store datetimes in JSON going for
 OFFKAI_MESSAGE = (
     "Please take note of the following:\n"
     "1. We will not accomodate any allergies or dietary restrictions.\n"
-    "2. Please register yourself and all your +1s by the deadline if you are planning on attending. Anyone who shows up uninvited or with uninvited guests can and will be turned away.\n"
-    "3. Please show up on time. Restaurants tend to be packed after live events and we have been asked to give up table space in the past.\n"
-    "4. To simplify accounting, we will split the bill evenly among all participants, regardless of how much you eat or drink. Expect to pay around 4000 yen, maybe more if some people decide to drink a lot.\n"
+    "2. Please register yourself and all your +1s by the deadline if you are planning on attending. "
+    "Anyone who shows up uninvited or with uninvited guests can and will be turned away.\n"
+    "3. Please show up on time. Restaurants tend to be packed after live events "
+    "and we have been asked to give up table space in the past.\n"
+    "4. To simplify accounting, we will split the bill evenly among all participants, "
+    "regardless of how much you eat or drink. Expect to pay around 4000 yen, "
+    "maybe more if some people decide to drink a lot.\n"
     "5. Depending on turnout or venue restrictions, we might need to change the location of the offkai.\n"
     "6. Please pay attention to this thread for day-of announcements before the offkai starts.\n"
 )
@@ -73,7 +77,8 @@ def _load_event_data() -> list[Event]:
                     dt = datetime.fromisoformat(event_dict["event_datetime"])
                 except (ValueError, TypeError):
                     logging.warning(
-                        f"Could not parse ISO datetime '{event_dict.get('event_datetime')}' for {event_dict.get('event_name')}"
+                        f"Could not parse ISO datetime '{event_dict.get('event_datetime')}' "
+                        f"for {event_dict.get('event_name')}"
                     )
                     dt = None
 
@@ -191,7 +196,8 @@ def _load_responses() -> dict[str, list[Response]]:
         # Proceed with parsing if raw_data is a dict (basic validation)
         if not isinstance(raw_data, dict):
             logging.error(
-                f"Invalid format in {file_path}: Expected a JSON object (dict), got {type(raw_data)}. Loading empty responses."
+                f"Invalid format in {file_path}: "
+                f"Expected a JSON object (dict), got {type(raw_data)}. Loading empty responses."
             )
             raw_data = {}  # Treat as empty
 
@@ -200,7 +206,8 @@ def _load_responses() -> dict[str, list[Response]]:
             # Ensure response_list is actually a list
             if not isinstance(response_list, list):
                 logging.warning(
-                    f"Invalid format for event '{event_name}' in {file_path}: Expected a list of responses, got {type(response_list)}. Skipping."
+                    f"Invalid format for event '{event_name}' in {file_path}: "
+                    f"Expected a list of responses, got {type(response_list)}. Skipping."
                 )
                 continue
 
@@ -208,7 +215,8 @@ def _load_responses() -> dict[str, list[Response]]:
                 # Ensure resp_dict is a dictionary
                 if not isinstance(resp_dict, dict):
                     logging.warning(
-                        f"Invalid response item for event '{event_name}' in {file_path}: Expected a dict, got {type(resp_dict)}. Skipping."
+                        f"Invalid response item for event '{event_name}' in {file_path}: "
+                        f"Expected a dict, got {type(resp_dict)}. Skipping."
                     )
                     continue
 
@@ -219,7 +227,8 @@ def _load_responses() -> dict[str, list[Response]]:
                         ts = datetime.fromisoformat(resp_dict["timestamp"])
                     except (ValueError, TypeError):
                         logging.warning(
-                            f"Could not parse ISO timestamp '{resp_dict.get('timestamp')}' for {event_name}, user {resp_dict.get('user_id')}"
+                            f"Could not parse ISO timestamp '{resp_dict.get('timestamp')}' "
+                            f"for {event_name}, user {resp_dict.get('user_id')}"
                         )
                         ts = None
 

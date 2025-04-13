@@ -1,5 +1,7 @@
 import logging
-from discord import app_commands, Thread, HTTPException, Forbidden
+
+from discord import Forbidden, HTTPException, Thread, app_commands
+
 
 class BotCommandError(app_commands.AppCommandError):
     """Base class for custom command errors specific to this bot."""
@@ -10,7 +12,7 @@ class BotCommandError(app_commands.AppCommandError):
 
 # --- Event Specific Errors ---
 
-class EventNotFound(BotCommandError):
+class EventNotFoundError(BotCommandError):
     """Raised when an event with the specified name cannot be found."""
     def __init__(self, event_name: str):
         self.event_name = event_name
@@ -30,19 +32,19 @@ class EventArchivedError(BotCommandError):
         # You can customize the message further in the handler if needed
         super().__init__(f"❌ Cannot {action} an archived event ('{event_name}').")
 
-class EventAlreadyArchived(BotCommandError):
+class EventAlreadyArchivedError(BotCommandError):
     """Raised when trying to archive an event that is already archived."""
     def __init__(self, event_name: str):
         self.event_name = event_name
         super().__init__(f"❌ Event '{event_name}' is already archived.")
 
-class EventAlreadyClosed(BotCommandError):
+class EventAlreadyClosedError(BotCommandError):
     """Raised when trying to close an event that is already closed."""
     def __init__(self, event_name: str):
         self.event_name = event_name
         super().__init__(f"❌ Event '{event_name}' is already closed.")
 
-class EventAlreadyOpen(BotCommandError):
+class EventAlreadyOpenError(BotCommandError):
     """Raised when trying to reopen an event that is already open."""
     def __init__(self, event_name: str):
         self.event_name = event_name
@@ -67,14 +69,14 @@ class ThreadNotFoundError(BotCommandError):
 
 # --- Response Specific Errors ---
 
-class ResponseNotFound(BotCommandError):
+class ResponseNotFoundError(BotCommandError):
     """Raised when a specific user's response cannot be found for an event."""
     def __init__(self, event_name: str, user_mention: str):
         self.event_name = event_name
         self.user_mention = user_mention
         super().__init__(f"❌ Could not find a response from user {user_mention} for '{event_name}'.")
 
-class NoResponsesFound(BotCommandError):
+class NoResponsesFoundError(BotCommandError):
     """Raised by attendance command when no responses exist for an event."""
     def __init__(self, event_name: str):
         self.event_name = event_name
@@ -83,7 +85,7 @@ class NoResponsesFound(BotCommandError):
 
 # --- Input / Command Usage Errors ---
 
-class InvalidDateTimeFormat(BotCommandError):
+class InvalidDateTimeFormatError(BotCommandError):
     """Raised when a provided date/time string is not in the expected format."""
     def __init__(self, expected_format: str = "YYYY-MM-DD HH:MM"):
         self.expected_format = expected_format
@@ -125,7 +127,7 @@ class BroadcastPermissionError(BotCommandError):
 
 class BroadcastSendError(BotCommandError):
     log_level = logging.WARNING
-    
+
     def __init__(self, channel: Thread, original_exception: HTTPException):
         self.channel = channel
         self.original_exception = original_exception

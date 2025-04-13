@@ -1,14 +1,17 @@
 # tests/test_error_handler.py
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import discord
-from discord import app_commands
 import logging
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import discord
+import pytest
+from discord import app_commands
 
 # --- Updated Imports ---
 # Import from the 'offkai_bot' package located within 'src'
-from offkai_bot import main  # Import the module containing on_command_error
-from offkai_bot import errors  # Import your custom error classes
+from offkai_bot import (
+    errors,  # Import your custom error classes
+    main,  # Import the module containing on_command_error
+)
 
 # --- End Updated Imports ---
 
@@ -124,7 +127,7 @@ async def test_on_command_error_check_failure(mock_interaction):
     [
         # INFO level examples
         (
-            errors.EventNotFound,
+            errors.EventNotFoundError,
             ("MyMissingEvent",),
             logging.INFO,
             "Handled (EventNotFound)",
@@ -136,7 +139,7 @@ async def test_on_command_error_check_failure(mock_interaction):
             "Handled (DuplicateEventError)",
         ),
         (
-            errors.InvalidDateTimeFormat,
+            errors.InvalidDateTimeFormatError,
             (),
             logging.INFO,
             "Handled (InvalidDateTimeFormat)",
@@ -275,7 +278,7 @@ async def test_on_command_error_unhandled_exception(mock_interaction):
 async def test_on_command_error_interaction_already_done(mock_interaction):
     """Test error handling when interaction.response.is_done() is True."""
     # Arrange
-    original_error = errors.EventNotFound(
+    original_error = errors.EventNotFoundError(
         "AnotherMissingEvent"
     )  # Example using INFO level
     error = app_commands.CommandInvokeError(mock_interaction.command, original_error)
@@ -305,7 +308,7 @@ async def test_on_command_error_interaction_already_done(mock_interaction):
 async def test_on_command_error_fails_sending_response(mock_interaction):
     """Test when sending the error response itself fails."""
     # Arrange
-    original_error = errors.EventNotFound("EventToSendFail")  # Example using INFO level
+    original_error = errors.EventNotFoundError("EventToSendFail")  # Example using INFO level
     error = app_commands.CommandInvokeError(mock_interaction.command, original_error)
     send_error = discord.HTTPException(MagicMock(), "Failed to send")
     mock_interaction.response.send_message.side_effect = send_error

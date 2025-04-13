@@ -121,7 +121,7 @@ class GatheringModal(ui.Modal):
                 # Show original case allowed drinks in the error message for clarity
                 await error_message(
                     interaction,
-                    f"Invalid drink choices: {', '.join(invalid_drinks)}. Choose from: {', '.join(self.event.drinks)}",  # Show original case
+                    f"Invalid drink choices: {', '.join(invalid_drinks)}. Choose from: {', '.join(self.event.drinks)}",
                 )
                 return
             # --- End Case-Insensitive Validation ---
@@ -130,7 +130,10 @@ class GatheringModal(ui.Modal):
             if len(raw_drinks_input) != total_people:
                 await error_message(
                     interaction,
-                    f"Please provide exactly {total_people} drink choice(s) (one for you and each extra person), separated by commas.",
+                    (
+                        f"Please provide exactly {total_people} drink choice(s)"
+                        "(one for you and each extra person), separated by commas."
+                    ),
                 )
                 return
             selected_drinks = raw_drinks_input
@@ -249,7 +252,8 @@ class OpenEvent(EventView):
                     await interaction.channel.remove_user(interaction.user)
                 else:
                     logging.warning(
-                        f"Could not remove user {interaction.user.id} from channel {interaction.channel_id} (not a thread?)."
+                        f"Could not remove user {interaction.user.id} "
+                        f"from channel {interaction.channel_id} (not a thread?)."
                     )
             except discord.HTTPException as e:
                 logging.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")

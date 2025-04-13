@@ -1,34 +1,34 @@
 
-import contextlib
-import discord
-import functools
 import argparse
+import contextlib
+import functools
 import logging
 import sys
 from datetime import datetime
 from typing import Any  # Or use a dict, or define a simple class
 
-from . import config
-
+import discord
 from discord import app_commands
+
+from . import config
 from .errors import (
     BotCommandError,
-    EventNotFound,
-    DuplicateEventError,
-    EventArchivedError,
-    EventAlreadyArchived,
-    EventAlreadyClosed,
-    EventAlreadyOpen,
-    MissingChannelIDError,
-    ThreadNotFoundError,
-    ResponseNotFound,
-    NoResponsesFound,
-    InvalidDateTimeFormat,
-    InvalidChannelTypeError,
-    NoChangesProvidedError,
-    ThreadCreationError,
     BroadcastPermissionError,
     BroadcastSendError,
+    DuplicateEventError,
+    EventAlreadyArchivedError,
+    EventAlreadyClosedError,
+    EventAlreadyOpenError,
+    EventArchivedError,
+    EventNotFoundError,
+    InvalidChannelTypeError,
+    InvalidDateTimeFormatError,
+    MissingChannelIDError,
+    NoChangesProvidedError,
+    NoResponsesFoundError,
+    ResponseNotFoundError,
+    ThreadCreationError,
+    ThreadNotFoundError,
 )
 from .interactions import (
     load_and_update_events,
@@ -156,7 +156,7 @@ async def create_offkai(
         # For simplicity without external libs/newer Python, store naive or UTC
         event_datetime = event_dt_naive  # Store naive time, display assumes JST
     except ValueError:
-        raise InvalidDateTimeFormat()
+        raise InvalidDateTimeFormatError()
 
     if not interaction.guild or not isinstance(
         interaction.channel, discord.TextChannel
@@ -234,7 +234,7 @@ async def modify_offkai(
 ):
     event = get_event(event_name)
     if not event:
-        raise EventNotFound(event_name)
+        raise EventNotFoundError(event_name)
     if event.archived:
         raise EventArchivedError(event_name, "modify")
 
@@ -256,7 +256,7 @@ async def modify_offkai(
             event.event_datetime = event_dt_naive  # Store naive
             modified = True
         except ValueError:
-            raise InvalidDateTimeFormat()
+            raise InvalidDateTimeFormatError()
     if drinks is not None:
         # Empty string means clear drinks, otherwise parse
         event.drinks = [d.strip().lower() for d in drinks.split(",") if d.strip()] if drinks else []
@@ -302,11 +302,11 @@ async def close_offkai(
 ):
     event = get_event(event_name)
     if not event:
-        raise EventNotFound(event_name)
+        raise EventNotFoundError(event_name)
     if event.archived:
         raise EventArchivedError(event_name, "close")
     if not event.open:
-        raise EventAlreadyClosed(event_name)
+        raise EventAlreadyClosedError(event_name)
 
     event.open = False
     save_event_data()  # Save the change
@@ -342,11 +342,11 @@ async def reopen_offkai(
 ):
     event = get_event(event_name)
     if not event:
-        raise EventNotFound(event_name)
+        raise EventNotFoundError(event_name)
     if event.archived:
         raise EventArchivedError(event_name, "reopen")
     if event.open:
-        raise EventAlreadyOpen(event_name)
+        raise EventAlreadyOpenError(event_name)
 
     event.open = True
     save_event_data()  # Save the change
@@ -379,9 +379,9 @@ async def reopen_offkai(
 async def archive_offkai(interaction: discord.Interaction, event_name: str):
     event = get_event(event_name)
     if not event:
-        raise EventNotFound(event_name)
+        raise EventNotFoundError(event_name)
     if event.archived:
-        raise EventAlreadyArchived(event_name)
+        raise EventAlreadyArchivedError(event_name)
 
     event.archived = True
     # Optionally close the event if archiving
@@ -416,7 +416,7 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
     event = get_event(event_name)
     if not event:
-        raise EventNotFound()
+        raise EventNotFoundError()
     if not event.channel_id:
         raise MissingChannelIDError(event_name)
 
@@ -462,7 +462,7 @@ async def delete_response(
                 with contextlib.suppress(discord.HTTPException):
                     await thread.remove_user(member)
     else:
-        raise ResponseNotFound(event_name, member.mention)
+        raise ResponseNotFoundError(event_name, member.mention)
 
 
 @client.tree.command(
@@ -476,12 +476,12 @@ async def delete_response(
 async def attendance(interaction: discord.Interaction, event_name: str):
     event = get_event(event_name)
     if not event:
-        raise EventNotFound(event_name)
+        raise EventNotFoundError(event_name)
 
     responses = get_responses(event_name)  # Returns list[Response]
 
     if not responses:
-        raise NoResponsesFound(event_name)
+        raise NoResponsesFoundError(event_name)
 
     attendee_list = []
     total_count = 0
