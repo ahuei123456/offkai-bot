@@ -1,0 +1,7 @@
+services:
+  discord-offkai-bot:
+    build: .
+    container_name: discord-offkai-bot
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

@@ -2,36 +2,34 @@ import config
 import datetime
 import discord
 import functools
+import argparse
 import logging
+import sys
 
-from datetime import datetime, UTC
+from datetime import datetime
+from typing import Any # Or use a dict, or define a simple class
+
+import discord
 from discord import app_commands
 from errors import *
-from interactions import (
+from .interactions import (
     load_and_update_events,
     send_event_message,
     update_event_message,
-    OpenEvent,
-    ClosedEvent,
 )
-from util import (
+from .util import (
     # Use cached loaders by default
     load_event_data,  # This now uses the cache
     save_event_data,
     load_responses,  # This now uses the cache
-    save_responses,
     get_event,  # Returns Event object or None
     get_responses,  # Returns list[Response]
-    add_response,  # Use if needed directly (usually not)
     remove_response,  # Use for delete_response command
-    create_event_message,  # Use for creating/updating messages
-    OFFKAI_MESSAGE,  # Keep if needed separately
     Event,  # Import the dataclass
-    Response,  # Import the dataclass
 )
 
 _log = logging.getLogger(__name__)
-
+settings: dict[str, Any] = {}
 
 class OffkaiClient(discord.Client):
     def __init__(self, *, intents: discord.Intents):
@@ -44,7 +42,7 @@ class OffkaiClient(discord.Client):
         load_responses()
         _log.info("Initial data loaded into cache.")
 
-        for guild_id in config.GUILD_IDS:
+        for guild_id in settings["GUILDS"]:
             guild = discord.Object(id=guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
@@ -660,7 +658,25 @@ async def on_ready():
     _log.info(f"Logged in as {client.user}")
 
 
-if __name__ == "__main__":
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Offkai Bot")
+    parser.add_argument("--config-path", type=str, default="config.py")
+    return parser.parse_args()
+
+
+def main() -> None:
+    global settings
+    args = parse_args()
+    try:
+        # Explicitly load the configuration ONCE at startup
+        config.load_config(args.config_path)
+    except config.ConfigError as e:
+        print(f"Fatal Error: Failed to load configuration - {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Now access the config via the accessor function
+    settings = config.get_config()
+    
     # Setup logging
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s"
@@ -669,14 +685,14 @@ if __name__ == "__main__":
     discord_logger.setLevel(logging.WARNING)  # Reduce discord lib noise
 
     # Validate config before running
-    if not config.DISCORD_TOKEN:
-        _log.critical("DISCORD_TOKEN is not set in config.py")
-    elif not config.GUILD_IDS:
-        _log.critical("GUILD_IDS is not set or empty in config.py")
+    if not settings["DISCORD_TOKEN"]:
+        _log.critical("DISCORD_TOKEN is not set")
+    elif not settings["GUILDS"]:
+        _log.critical("GUILDS is not set")
     else:
         try:
             client.run(
-                config.DISCORD_TOKEN, log_handler=None
+                settings["DISCORD_TOKEN"], log_handler=None
             )  # Use basicConfig handler
         except Exception as e:
             _log.exception(f"Fatal error running bot: {e}")
