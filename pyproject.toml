@@ -28,7 +28,15 @@ offkai-bot = "offkai_bot.main:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# --- Add this section ---
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0", # Use appropriate version constraints
+    "pytest-asyncio>=0.23.0",
+]
+
 [tool.pytest.ini_options]
 pythonpath = [
     "src",
 ]
+asyncio_mode = "auto" # Good practice for pytest-asyncio
