@@ -1,17 +1,17 @@
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import discord
 from discord import ui
 
 from .event import Event, Response
 from .util import (
-    save_event_data,
-    load_event_data,  # Keep for load_and_update_events initial load if needed
-    get_responses,
     add_response,  # Import new function
-    remove_response,  # Import new function
     create_event_message,  # Import message creation helper
+    get_responses,
+    load_event_data,  # Keep for load_and_update_events initial load if needed
+    remove_response,  # Import new function
+    save_event_data,
 )
 
 
@@ -89,22 +89,16 @@ class GatheringModal(ui.Modal):
         extra_people_str = self.extra_people_input.value
         behave_confirm_str = self.behave_checkbox_input.value
         arrival_confirm_str = self.arrival_checkbox_input.value
-        drink_choice_str = (
-            self.drink_choice_input.value if self.drink_choice_input else "N/A"
-        )
+        drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
 
         if not extra_people_str.isdigit() or not (0 <= int(extra_people_str) <= 5):
-            await error_message(
-                interaction, "Extra people must be a number between 0 and 5."
-            )
+            await error_message(interaction, "Extra people must be a number between 0 and 5.")
             return
         num_extra_people = int(extra_people_str)
         total_people = 1 + num_extra_people  # Submitter + extras
 
         if behave_confirm_str.lower() != "yes" or arrival_confirm_str.lower() != "yes":
-            await error_message(
-                interaction, "Please confirm behavior and arrival by typing 'Yes'."
-            )
+            await error_message(interaction, "Please confirm behavior and arrival by typing 'Yes'.")
             return
 
         selected_drinks = []
@@ -112,26 +106,22 @@ class GatheringModal(ui.Modal):
             if not drink_choice_str:
                 await error_message(interaction, "Please specify your drink choice(s).")
                 return
-            
+
             # --- Case-Insensitive Drink Validation ---
             # 1. Convert user input to lowercase, strip whitespace, and remove empty entries
-            raw_drinks_input = [
-                drink.lower().strip() for drink in drink_choice_str.split(",")
-            ]
-            raw_drinks_input = [d for d in raw_drinks_input if d] # Filter out empty strings
+            raw_drinks_input = [drink.lower().strip() for drink in drink_choice_str.split(",")]
+            raw_drinks_input = [d for d in raw_drinks_input if d]  # Filter out empty strings
 
             # 2. Convert allowed drinks to lowercase for comparison
             allowed_drinks_lower = [d.lower() for d in self.event.drinks]
 
             # 3. Check for invalid drinks (case-insensitive comparison)
-            invalid_drinks = [
-                d for d in raw_drinks_input if d not in allowed_drinks_lower
-            ]
+            invalid_drinks = [d for d in raw_drinks_input if d not in allowed_drinks_lower]
             if invalid_drinks:
                 # Show original case allowed drinks in the error message for clarity
                 await error_message(
                     interaction,
-                    f"Invalid drink choices: {', '.join(invalid_drinks)}. Choose from: {', '.join(self.event.drinks)}", # Show original case
+                    f"Invalid drink choices: {', '.join(invalid_drinks)}. Choose from: {', '.join(self.event.drinks)}",  # Show original case
                 )
                 return
             # --- End Case-Insensitive Validation ---
@@ -168,9 +158,7 @@ class GatheringModal(ui.Modal):
             )
         except Exception as e:
             logging.error(f"Error creating Response object: {e}", exc_info=True)
-            await error_message(
-                interaction, "An internal error occurred creating your response."
-            )
+            await error_message(interaction, "An internal error occurred creating your response.")
             return
 
         # --- Add Response using Util function ---
@@ -178,9 +166,7 @@ class GatheringModal(ui.Modal):
 
         if success:
             # Confirm submission
-            drinks_msg = (
-                f"\n🍺 Drinks: {', '.join(selected_drinks)}" if selected_drinks else ""
-            )
+            drinks_msg = f"\n🍺 Drinks: {', '.join(selected_drinks)}" if selected_drinks else ""
             await interaction.response.send_message(
                 f"✅ Attendance confirmed for **{self.event.event_name}**!\n"
                 f"👥 Bringing: {num_extra_people} extra guest(s)\n"
@@ -191,23 +177,17 @@ class GatheringModal(ui.Modal):
             )
             # Add user to the thread
             try:
-                if interaction.channel and isinstance(
-                    interaction.channel, discord.Thread
-                ):
+                if interaction.channel and isinstance(interaction.channel, discord.Thread):
                     await interaction.channel.add_user(interaction.user)
                 else:
                     logging.warning(
                         f"Could not add user {interaction.user.id} to channel {interaction.channel_id} (not a thread?)."
                     )
             except discord.HTTPException as e:
-                logging.error(
-                    f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}"
-                )
+                logging.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
         else:
             # User already responded
-            await error_message(
-                interaction, "You have already submitted a response for this event."
-            )
+            await error_message(interaction, "You have already submitted a response for this event.")
 
 
 # --- Views ---
@@ -244,9 +224,7 @@ class OpenEvent(EventView):
         row=0,
         custom_id="confirm_button",  # Use success style
     )
-    async def respond(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def respond(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Pass the Event object to the modal
         await interaction.response.send_modal(GatheringModal(event=self.event))
 
@@ -256,9 +234,7 @@ class OpenEvent(EventView):
         row=1,
         custom_id="withdraw_button",  # Use danger style
     )
-    async def withdraw(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Use remove_response from util
         removed = remove_response(self.event.event_name, interaction.user.id)
 
@@ -269,18 +245,14 @@ class OpenEvent(EventView):
             )
             # Remove user from the thread
             try:
-                if interaction.channel and isinstance(
-                    interaction.channel, discord.Thread
-                ):
+                if interaction.channel and isinstance(interaction.channel, discord.Thread):
                     await interaction.channel.remove_user(interaction.user)
                 else:
                     logging.warning(
                         f"Could not remove user {interaction.user.id} from channel {interaction.channel_id} (not a thread?)."
                     )
             except discord.HTTPException as e:
-                logging.error(
-                    f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}"
-                )
+                logging.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
         else:
             await error_message(
                 interaction,
@@ -299,14 +271,10 @@ class ClosedEvent(EventView):
         row=0,
         custom_id="closed_button",
     )
-    async def respond(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def respond(self, interaction: discord.Interaction, button: discord.ui.Button):
         # This button is disabled, so this callback shouldn't trigger
         # If it somehow does, send an ephemeral message
-        await interaction.response.send_message(
-            "Responses are currently closed for this event.", ephemeral=True
-        )
+        await interaction.response.send_message("Responses are currently closed for this event.", ephemeral=True)
 
 
 # --- Event Message Handling ---
@@ -324,17 +292,11 @@ async def send_event_message(channel: discord.Thread, event: Event):
         message = await channel.send(message_content, view=view)
         event.message_id = message.id  # Update the Event object directly
         save_event_data()  # Save the list containing the updated event
-        logging.info(
-            f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}"
-        )
+        logging.info(f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}")
     except discord.HTTPException as e:
-        logging.error(
-            f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}"
-        )
+        logging.error(f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}")
     except Exception as e:
-        logging.exception(
-            f"Unexpected error sending event message for {event.event_name}: {e}"
-        )
+        logging.exception(f"Unexpected error sending event message for {event.event_name}: {e}")
 
 
 async def update_event_message(client: discord.Client, event: Event):
@@ -343,16 +305,12 @@ async def update_event_message(client: discord.Client, event: Event):
         logging.error(f"update_event_message received non-Event object: {type(event)}")
         return
     if not event.channel_id:  # Simplified check, message_id handled below
-        logging.warning(
-            f"Cannot update message for event '{event.event_name}': missing channel_id."
-        )
+        logging.warning(f"Cannot update message for event '{event.event_name}': missing channel_id.")
         return
 
     channel = client.get_channel(event.channel_id)
     if not isinstance(channel, discord.Thread):
-        logging.error(
-            f"Could not find thread channel with ID {event.channel_id} for event '{event.event_name}'."
-        )
+        logging.error(f"Could not find thread channel with ID {event.channel_id} for event '{event.event_name}'.")
         return
 
     # If message_id is missing OR message not found, send a new one
@@ -366,15 +324,11 @@ async def update_event_message(client: discord.Client, event: Event):
             )
             event.message_id = None  # Clear invalid ID
         except discord.HTTPException as e:
-            logging.error(
-                f"Failed to fetch event message for {event.event_name} (ID: {event.message_id}): {e}"
-            )
+            logging.error(f"Failed to fetch event message for {event.event_name} (ID: {event.message_id}): {e}")
             # Potentially try sending a new one or just return
             return
         except Exception as e:
-            logging.exception(
-                f"Unexpected error fetching event message for {event.event_name}: {e}"
-            )
+            logging.exception(f"Unexpected error fetching event message for {event.event_name}: {e}")
             return
 
     if message:
@@ -383,17 +337,11 @@ async def update_event_message(client: discord.Client, event: Event):
             view = OpenEvent(event) if event.open else ClosedEvent(event)
             message_content = create_event_message(event)
             await message.edit(content=message_content, view=view)
-            logging.info(
-                f"Updated event message for '{event.event_name}' (ID: {message.id})"
-            )
+            logging.info(f"Updated event message for '{event.event_name}' (ID: {message.id})")
         except discord.HTTPException as e:
-            logging.error(
-                f"Failed to update event message for {event.event_name} (ID: {event.message_id}): {e}"
-            )
+            logging.error(f"Failed to update event message for {event.event_name} (ID: {event.message_id}): {e}")
         except Exception as e:
-            logging.exception(
-                f"Unexpected error updating event message for {event.event_name}: {e}"
-            )
+            logging.exception(f"Unexpected error updating event message for {event.event_name}: {e}")
     else:
         # Send a new message (handles missing ID or NotFound error)
         # This call will now handle saving internally

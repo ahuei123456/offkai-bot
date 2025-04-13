@@ -1,11 +1,10 @@
-from .config import get_config
 import json
 import logging
 import os
-
-from datetime import datetime
 from dataclasses import asdict, is_dataclass  # Import asdict and is_dataclass
+from datetime import datetime
 
+from .config import get_config
 from .event import Event, Response  # Import the dataclasses
 
 EVENT_DATA_CACHE: list[Event] | None = None
@@ -38,6 +37,7 @@ class DataclassJSONEncoder(json.JSONEncoder):
 
 
 # --- Event Data Handling ---
+
 
 # Load raw event data from the JSON file
 def _load_event_data() -> list[Event]:
@@ -97,9 +97,7 @@ def _load_event_data() -> list[Event]:
                 )
                 events_list.append(event)
             except TypeError as e:
-                logging.error(
-                    f"Error creating Event object from dict {event_dict}: {e}"
-                )
+                logging.error(f"Error creating Event object from dict {event_dict}: {e}")
 
     except FileNotFoundError:
         logging.warning(f"{file_path} not found or empty. Creating default empty file.")
@@ -107,21 +105,17 @@ def _load_event_data() -> list[Event]:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump([], file, indent=4)  # Create with empty list
             logging.info(f"Created empty events file at {file_path}")
-        except IOError as e:
+        except OSError as e:
             logging.error(f"Could not create default events file at {file_path}: {e}")
         # Set cache and return empty list even if creation failed
         EVENT_DATA_CACHE = []
         return []
     except json.JSONDecodeError:
-        logging.error(
-            f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty list."
-        )
+        logging.error(f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty list.")
         EVENT_DATA_CACHE = []  # Set cache to empty
         return []
     except Exception as e:
-        logging.exception(
-            f"An unexpected error occurred loading event data from {file_path}: {e}"
-        )
+        logging.exception(f"An unexpected error occurred loading event data from {file_path}: {e}")
         EVENT_DATA_CACHE = []  # Set cache to empty
         return []
 
@@ -158,7 +152,7 @@ def save_event_data():
                 cls=DataclassJSONEncoder,
                 ensure_ascii=False,
             )
-    except IOError as e:
+    except OSError as e:
         logging.error(f"Error writing event data to {settings['EVENTS_FILE']}: {e}")
     except Exception as e:
         logging.exception(f"An unexpected error occurred saving event data: {e}")
@@ -236,14 +230,8 @@ def _load_responses() -> dict[str, list[Response]]:
                     extra_people = int(resp_dict.get("extra_people", 0))
                     behavior_confirmed_raw = resp_dict.get("behavior_confirmed", False)
                     arrival_confirmed_raw = resp_dict.get("arrival_confirmed", False)
-                    behavior_confirmed = (
-                        str(behavior_confirmed_raw).lower() == "yes"
-                        or behavior_confirmed_raw is True
-                    )
-                    arrival_confirmed = (
-                        str(arrival_confirmed_raw).lower() == "yes"
-                        or arrival_confirmed_raw is True
-                    )
+                    behavior_confirmed = str(behavior_confirmed_raw).lower() == "yes" or behavior_confirmed_raw is True
+                    arrival_confirmed = str(arrival_confirmed_raw).lower() == "yes" or arrival_confirmed_raw is True
 
                     response = Response(
                         user_id=int(resp_dict.get("user_id", 0)),
@@ -257,9 +245,7 @@ def _load_responses() -> dict[str, list[Response]]:
                     )
                     processed_responses.append(response)
                 except (TypeError, ValueError) as e:
-                    logging.error(
-                        f"Error creating Response object for event {event_name} from dict {resp_dict}: {e}"
-                    )
+                    logging.error(f"Error creating Response object for event {event_name} from dict {resp_dict}: {e}")
 
             responses_dict[event_name] = processed_responses
 
@@ -269,10 +255,8 @@ def _load_responses() -> dict[str, list[Response]]:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump({}, file, indent=4)  # Create with empty object
             logging.info(f"Created empty responses file at {file_path}")
-        except IOError as e:
-            logging.error(
-                f"Could not create default responses file at {file_path}: {e}"
-            )
+        except OSError as e:
+            logging.error(f"Could not create default responses file at {file_path}: {e}")
         # Set cache and return empty dict even if creation failed
         RESPONSE_DATA_CACHE = {}
         return {}
@@ -283,9 +267,7 @@ def _load_responses() -> dict[str, list[Response]]:
         RESPONSE_DATA_CACHE = {}  # Set cache to empty
         return {}
     except Exception as e:
-        logging.exception(
-            f"An unexpected error occurred loading response data from {file_path}: {e}"
-        )
+        logging.exception(f"An unexpected error occurred loading response data from {file_path}: {e}")
         RESPONSE_DATA_CACHE = {}  # Set cache to empty
         return {}
 
@@ -320,7 +302,7 @@ def save_responses():
                 cls=DataclassJSONEncoder,
                 ensure_ascii=False,
             )
-    except IOError as e:
+    except OSError as e:
         logging.error(f"Error writing response data to {settings['RESPONSES_FILE']}: {e}")
     except Exception as e:
         logging.exception(f"An unexpected error occurred saving response data: {e}")
@@ -349,9 +331,7 @@ def add_response(event_name: str, response: Response) -> bool:
 
     # Check if user already exists
     if any(r.user_id == response.user_id for r in event_responses):
-        logging.warning(
-            f"User {response.user_id} already responded to event {event_name}."
-        )
+        logging.warning(f"User {response.user_id} already responded to event {event_name}.")
         return False  # Indicate failure (already exists)
 
     # Add the new response object
@@ -391,9 +371,7 @@ def remove_response(event_name: str, user_id: int) -> bool:
         logging.info(f"Removed response from user {user_id} for event {event_name}.")
         return True  # Indicate success
     else:
-        logging.warning(
-            f"No response found for user {user_id} in event {event_name} to remove."
-        )
+        logging.warning(f"No response found for user {user_id} in event {event_name} to remove.")
         return False  # Indicate failure (response not found)
 
 

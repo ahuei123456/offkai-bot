@@ -2,11 +2,14 @@ import json
 import os
 from typing import Any
 
-_config_cache: dict[str, Any] | None = None # Store the loaded config here
+_config_cache: dict[str, Any] | None = None  # Store the loaded config here
+
 
 class ConfigError(Exception):
     """Custom exception for configuration errors."""
+
     pass
+
 
 def load_config(path: str = "config.json") -> dict[str, Any]:
     """Loads configuration from a JSON file."""
@@ -33,7 +36,7 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
         # -----------------------------------------------------
 
         _config_cache = data
-        print(f"Configuration loaded successfully from {path}") # Optional logging
+        print(f"Configuration loaded successfully from {path}")  # Optional logging
         return _config_cache
     except json.JSONDecodeError as e:
         raise ConfigError(f"Error decoding JSON from {path}: {e}")
@@ -49,13 +52,14 @@ def get_config() -> dict[str, Any]:
         # Alternatively, raise an error if explicit load hasn't happened
         # raise ConfigError("Configuration has not been loaded. Call load_config() first.")
         print("Warning: Config accessed before explicit load. Loading with default path.")
-        load_config() # Load with default path "config.json"
+        load_config()  # Load with default path "config.json"
 
     if _config_cache is None:
-         # This should ideally not be reachable if load_config works or raises
-         raise ConfigError("Configuration is not available.")
+        # This should ideally not be reachable if load_config works or raises
+        raise ConfigError("Configuration is not available.")
 
     return _config_cache
+
 
 # --- Remove the top-level loading and constants ---
 # with open("config.json") as f:

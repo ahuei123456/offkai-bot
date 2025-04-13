@@ -22,11 +22,7 @@ class Event:
         return len(self.drinks) > 0
 
     def format_details(self):
-        dt_str = (
-            self.event_datetime.strftime(r"%Y-%m-%d %H:%M") + " JST"
-            if self.event_datetime
-            else "Not Set"
-        )
+        dt_str = self.event_datetime.strftime(r"%Y-%m-%d %H:%M") + " JST" if self.event_datetime else "Not Set"
         drinks_str = ", ".join(self.drinks) if self.drinks else "No selection needed!"
         return (
             f"📅 **Event Name**: {self.event_name}\n"
