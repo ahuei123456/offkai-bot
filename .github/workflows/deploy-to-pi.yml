@@ -1,0 +1,32 @@
+name: Deploy to Raspberry Pi
+
+# Trigger this workflow on pushes to the master branch
+on:
+  push:
+    branches:
+      - master # Or 'master' depending on your default branch name
+
+jobs:
+  deploy:
+    # Job name
+    name: Deploy to Pi
+    # IMPORTANT: Target your self-hosted runner using the labels you configured
+    runs-on: [self-hosted, linux, arm64, pi-deploy] # Adjust labels to match yours!
+
+    steps:
+    - name: Checkout code (optional but good practice)
+      # This ensures the workflow runner itself has context, although script handles git pull
+      uses: actions/checkout@v4
+
+    - name: Execute deployment script on Pi
+      run: /home/eyal/deploy_app.sh # Path to the script you created on the Pi
+      # Alternatively, if you didn't create a script, put the commands here directly:
+      # run: |
+      #   cd /path/to/your/project/on/pi
+      #   git fetch origin
+      #   git reset --hard origin/master
+      #   git clean -fdx
+      #   docker-compose build --pull
+      #   docker-compose down
+      #   docker-compose up -d
+      #   docker image prune -f
