@@ -316,7 +316,14 @@ async def update_event_message(client: discord.Client, event: Event):
     try:
         # Use get_channel which might return None or a cached object
         channel = client.get_channel(event.channel_id)
-
+        if channel is None:
+            channel = await client.fetch_channel(event.channel_id)
+    except discord.errors.NotFound:
+        _log.error(f"Channel/Thread ID {event.channel_id} for event '{event.event_name}' not found via fetch_channel.")
+        return
+    except discord.errors.Forbidden:
+        _log.error(f"Bot lacks permissions to fetch channel/thread {event.channel_id} for event '{event.event_name}'.")
+        return
     except Exception as e:
         # Catch unexpected errors during channel retrieval
         _log.exception(
@@ -325,14 +332,6 @@ async def update_event_message(client: discord.Client, event: Event):
         return
 
     # --- Step 2: Validate Channel ---
-    if channel is None:
-        # Log more specifically when get_channel returns None
-        _log.error(
-            f"Could not find channel/thread with ID {event.channel_id} for event '{event.event_name}'. "
-            f"Possible reasons: Thread deleted, bot permissions changed, or cache issue."
-        )
-        return
-
     if not isinstance(channel, discord.Thread):
         # Log more specifically when the type is wrong
         _log.error(
