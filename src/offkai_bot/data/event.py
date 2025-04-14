@@ -204,7 +204,7 @@ def save_event_data():
         _log.exception(f"An unexpected error occurred saving event data: {e}")
 
 
-def get_event(event_name: str) -> Event | None:
+def get_event(event_name: str) -> Event:
     """Gets a specific event by name from the cached data."""
     events = load_event_data()
     for event in events:
@@ -284,7 +284,7 @@ def update_event_details(
         # This will raise InvalidDateTimeFormatError immediately if parsing fails
         parsed_datetime = parse_event_datetime(date_time_str)
 
-    parsed_drinks: list[str] | None = None
+    parsed_drinks: list[str] = []
     if drinks_str is not None:
         # Assuming parse_drinks doesn't raise errors, just returns a list
         parsed_drinks = parse_drinks(drinks_str)

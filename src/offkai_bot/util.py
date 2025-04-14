@@ -36,10 +36,3 @@ def validate_interaction_context(interaction: discord.Interaction):
     """Checks if the command is used in a valid guild text channel."""
     if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
         raise InvalidChannelTypeError()
-
-
-# --- REMOVED CODE ---
-# - DataclassJSONEncoder (moved to data.encoders)
-# - EVENT_DATA_CACHE, RESPONSE_DATA_CACHE (moved to data.event, data.response)
-# - _load_event_data, load_event_data, save_event_data, get_event (moved to data.event)
-# - _load_responses, load_responses, save_responses, get_responses, add_response, remove_response (moved to data.response)
