@@ -178,3 +178,6 @@ data/*.json
 config.json
 
 ^.dockerignore
+
+# VSCode stuff
+.vscode/
