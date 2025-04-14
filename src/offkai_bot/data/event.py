@@ -1,0 +1,385 @@
+# src/offkai_bot/data/event.py
+import json
+import logging
+import os
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from offkai_bot.errors import (
+    EventAlreadyArchivedError,
+    EventAlreadyClosedError,
+    EventAlreadyOpenError,
+    EventArchivedError,
+    EventNotFoundError,
+    NoChangesProvidedError,
+)
+from offkai_bot.util import parse_drinks, parse_event_datetime
+
+# Use relative imports for sibling modules within the package
+from ..config import get_config
+from .encoders import DataclassJSONEncoder
+
+_log = logging.getLogger(__name__)
+
+# Constants can stay here if general, or move if specific
+OFFKAI_MESSAGE = (
+    "Please take note of the following:\n"
+    "1. We will not accomodate any allergies or dietary restrictions.\n"
+    "2. Please register yourself and all your +1s by the deadline if you are planning on attending. "
+    "Anyone who shows up uninvited or with uninvited guests can and will be turned away.\n"
+    "3. Please show up on time. Restaurants tend to be packed after live events "
+    "and we have been asked to give up table space in the past.\n"
+    "4. To simplify accounting, we will split the bill evenly among all participants, "
+    "regardless of how much you eat or drink. Expect to pay around 4000 yen, "
+    "maybe more if some people decide to drink a lot.\n"
+    "5. Depending on turnout or venue restrictions, we might need to change the location of the offkai.\n"
+    "6. Please pay attention to this thread for day-of announcements before the offkai starts.\n"
+)
+
+
+# --- Event Dataclass ---
+@dataclass
+class Event:
+    event_name: str
+    venue: str
+    address: str
+    google_maps_link: str
+    event_datetime: datetime | None = None
+    message: str | None = None  # Optional message for the event itself
+
+    channel_id: int | None = None
+    message_id: int | None = None
+    open: bool = False
+    archived: bool = False
+    drinks: list[str] = field(default_factory=list)
+
+    @property
+    def has_drinks(self):
+        return len(self.drinks) > 0
+
+    def format_details(self):
+        dt_str = self.event_datetime.strftime(r"%Y-%m-%d %H:%M") + " JST" if self.event_datetime else "Not Set"
+        drinks_str = ", ".join(self.drinks) if self.drinks else "No selection needed!"
+        return (
+            f"📅 **Event Name**: {self.event_name}\n"
+            f"🍽️ **Venue**: {self.venue}\n"
+            f"📍 **Address**: {self.address}\n"
+            f"🌎 **Google Maps Link**: {self.google_maps_link}\n"
+            f"🕑 **Date and Time**: {dt_str}\n"
+            f"🍺 **Drinks**: {drinks_str}"
+        )
+
+    def __str__(self):
+        return self.format_details()
+
+
+def create_event_message(event: Event) -> str:
+    """Creates the full Discord message content for an event announcement."""
+    # Use the format_details method from the Event dataclass
+    event_details = event.format_details()
+
+    return (
+        f"{event_details}\n\n"  # Event details first
+        f"{OFFKAI_MESSAGE}\n"  # Standard rules
+        "Click the button below to confirm your attendance!"  # Call to action
+    )
+
+
+# --- Event Data Handling ---
+
+EVENT_DATA_CACHE: list[Event] | None = None
+
+
+def _load_event_data() -> list[Event]:
+    """
+    Loads event data from JSON, converts to Event dataclasses,
+    and handles missing or empty files. (Internal use)
+    """
+    settings = get_config()
+    global EVENT_DATA_CACHE
+    events_list = []
+    file_path = settings["EVENTS_FILE"]
+
+    try:
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            raise FileNotFoundError
+
+        with open(file_path, "r", encoding="utf-8") as file:
+            raw_data = json.load(file)
+
+        if not isinstance(raw_data, list):
+            _log.error(
+                f"Invalid format in {file_path}: Expected a JSON list, got {type(raw_data)}. Loading empty list."
+            )
+            raw_data = []
+
+        for event_dict in raw_data:
+            # --- Check for required 'event_name' BEFORE trying to create Event ---
+            if "event_name" not in event_dict or not event_dict["event_name"]:
+                _log.error(f"Skipping event entry due to missing or empty 'event_name'. Data: {event_dict}")
+                continue  # Skip this dictionary and move to the next one
+
+            dt = None
+            if "event_datetime" in event_dict and event_dict["event_datetime"]:
+                try:
+                    dt = datetime.fromisoformat(event_dict["event_datetime"])
+                except (ValueError, TypeError):
+                    _log.warning(
+                        f"Could not parse ISO datetime '{event_dict.get('event_datetime')}' "
+                        f"for {event_dict.get('event_name')}"
+                    )
+                    dt = None
+
+            drinks = event_dict.get("drinks", [])
+
+            try:
+                event = Event(
+                    event_name=event_dict["event_name"],
+                    venue=event_dict.get("venue", "Unknown Venue"),
+                    address=event_dict.get("address", "Unknown Address"),
+                    google_maps_link=event_dict.get("google_maps_link", ""),
+                    event_datetime=dt,
+                    message=event_dict.get("message"),
+                    channel_id=event_dict.get("channel_id"),
+                    message_id=event_dict.get("message_id"),
+                    open=event_dict.get("open", False),
+                    archived=event_dict.get("archived", False),
+                    drinks=drinks,
+                )
+                events_list.append(event)
+            except TypeError as e:
+                _log.error(f"Error creating Event object from dict {event_dict}: {e}")
+
+    except FileNotFoundError:
+        _log.warning(f"{file_path} not found or empty. Creating default empty file.")
+        try:
+            with open(file_path, "w", encoding="utf-8") as file:
+                json.dump([], file, indent=4)
+            _log.info(f"Created empty events file at {file_path}")
+        except OSError as e:
+            _log.error(f"Could not create default events file at {file_path}: {e}")
+        EVENT_DATA_CACHE = []
+        return []
+    except json.JSONDecodeError:
+        _log.error(f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty list.")
+        EVENT_DATA_CACHE = []
+        return []
+    except Exception as e:
+        _log.exception(f"An unexpected error occurred loading event data from {file_path}: {e}")
+        EVENT_DATA_CACHE = []
+        return []
+
+    EVENT_DATA_CACHE = events_list
+    return events_list
+
+
+def load_event_data() -> list[Event]:
+    """Returns cached event data or loads it if cache is empty."""
+    if EVENT_DATA_CACHE is not None:
+        return EVENT_DATA_CACHE
+    else:
+        return _load_event_data()
+
+
+def save_event_data():
+    """Saves the current state of EVENT_DATA_CACHE to the JSON file."""
+    global EVENT_DATA_CACHE
+    settings = get_config()
+    if EVENT_DATA_CACHE is None:
+        _log.error("Attempted to save event data before loading.")
+        return
+
+    try:
+        with open(settings["EVENTS_FILE"], "w", encoding="utf-8") as file:
+            json.dump(
+                EVENT_DATA_CACHE,
+                file,
+                indent=4,
+                cls=DataclassJSONEncoder,
+                ensure_ascii=False,
+            )
+    except OSError as e:
+        _log.error(f"Error writing event data to {settings['EVENTS_FILE']}: {e}")
+    except Exception as e:
+        _log.exception(f"An unexpected error occurred saving event data: {e}")
+
+
+def get_event(event_name: str) -> Event | None:
+    """Gets a specific event by name from the cached data."""
+    events = load_event_data()
+    for event in events:
+        # Case-insensitive comparison for robustness
+        if event_name.lower() == event.event_name.lower():
+            return event
+    raise EventNotFoundError(event_name)
+
+
+def add_event(
+    event_name: str,
+    venue: str,
+    address: str,
+    google_maps_link: str,
+    event_datetime: datetime,
+    thread_id: int,
+    drinks_list: list[str],
+    announce_msg: str | None = None,  # Pass announce_msg if you want to store it on Event
+) -> Event:
+    """Creates an Event object and adds it to the in-memory cache."""
+
+    # Step 4: Data Object Creation (moved here)
+    new_event = Event(
+        event_name=event_name,
+        venue=venue,
+        address=address,
+        google_maps_link=google_maps_link,
+        event_datetime=event_datetime,
+        channel_id=thread_id,
+        message_id=None,  # Will be set later by send_event_message
+        open=True,
+        archived=False,
+        drinks=drinks_list,
+        message=announce_msg,  # Store announce_msg if desired
+    )
+
+    # Step 5: State Modification (moved here)
+    events_cache = load_event_data()  # Get or load the cache
+    events_cache.append(new_event)
+    _log.info(f"Event '{event_name}' added to cache.")
+
+    # DO NOT SAVE HERE - Saving is handled later
+
+    return new_event  # Return the created event object
+
+
+def update_event_details(
+    event_name: str,
+    venue: str | None = None,
+    address: str | None = None,
+    google_maps_link: str | None = None,
+    date_time_str: str | None = None,
+    drinks_str: str | None = None,
+) -> Event:
+    """
+    Finds an event by name, validates inputs, applies modifications if changes exist,
+    and returns the updated event object.
+
+    Modifies the event object directly within the EVENT_DATA_CACHE only after all
+    validations pass and changes are detected. Does NOT save the data to disk.
+
+    Raises:
+        EventNotFoundError: If the event cannot be found.
+        EventArchivedError: If the event is already archived.
+        InvalidDateTimeFormatError: If the provided date_time_str is invalid.
+        NoChangesProvidedError: If no actual changes were made to the event.
+    """
+    # 1. Find Event and Check Archive Status
+    event = get_event(event_name)
+
+    if event.archived:
+        raise EventArchivedError(event_name, "modify")
+
+    # 2. Parse Inputs and Validate Formats (before checking for changes)
+    parsed_datetime: datetime | None = None
+    if date_time_str is not None:
+        # This will raise InvalidDateTimeFormatError immediately if parsing fails
+        parsed_datetime = parse_event_datetime(date_time_str)
+
+    parsed_drinks: list[str] | None = None
+    if drinks_str is not None:
+        # Assuming parse_drinks doesn't raise errors, just returns a list
+        parsed_drinks = parse_drinks(drinks_str)
+
+    # 3. Determine if Any Changes Would Occur
+    modified = False
+    if venue is not None and event.venue != venue:
+        modified = True
+    if address is not None and event.address != address:
+        modified = True
+    if google_maps_link is not None and event.google_maps_link != google_maps_link:
+        modified = True
+    # Check parsed datetime only if input string was provided
+    if date_time_str is not None and event.event_datetime != parsed_datetime:
+        modified = True
+    # Check parsed drinks only if input string was provided
+    if drinks_str is not None and set(event.drinks) != set(parsed_drinks):  # Use set comparison
+        modified = True
+
+    # 4. Raise Error if No Changes Detected
+    if not modified:
+        raise NoChangesProvidedError()
+
+    # 5. Apply Changes (only if validation passed and changes exist)
+    if venue is not None:
+        event.venue = venue
+    if address is not None:
+        event.address = address
+    if google_maps_link is not None:
+        event.google_maps_link = google_maps_link
+    if date_time_str is not None:  # Apply the parsed datetime
+        event.event_datetime = parsed_datetime
+    if drinks_str is not None:  # Apply the parsed drinks
+        event.drinks = parsed_drinks
+
+    # 6. Log and Return
+    _log.info(f"Event '{event_name}' details updated in cache.")
+    return event
+
+
+def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
+    """
+    Finds an event by name, validates its status, and sets its 'open' status.
+
+    Modifies the event object directly within the EVENT_DATA_CACHE.
+    Does NOT save the data to disk.
+
+    Args:
+        event_name: The name of the event.
+        target_open_status: True to open the event, False to close it.
+
+    Raises:
+        EventNotFoundError: If the event cannot be found.
+        EventArchivedError: If the event is already archived.
+        EventAlreadyOpenError: If trying to open an already open event.
+        EventAlreadyClosedError: If trying to close an already closed event.
+    """
+    event = get_event(event_name)
+
+    if event.archived:
+        action = "open" if target_open_status else "close"
+        raise EventArchivedError(event_name, action)
+
+    # Check if already in the desired state
+    if target_open_status and event.open:
+        raise EventAlreadyOpenError(event_name)
+    if not target_open_status and not event.open:
+        raise EventAlreadyClosedError(event_name)
+
+    # Apply the change
+    event.open = target_open_status
+    status_text = "open" if target_open_status else "closed"
+    _log.info(f"Event '{event_name}' marked as {status_text} in cache.")
+    return event
+
+
+def archive_event(event_name: str) -> Event:
+    """
+    Finds an event by name, validates its status, and marks it as archived.
+    Also ensures the event is marked as closed.
+
+    Modifies the event object directly within the EVENT_DATA_CACHE.
+    Does NOT save the data to disk.
+
+    Raises:
+        EventNotFoundError: If the event cannot be found.
+        EventAlreadyArchivedError: If the event is already archived.
+    """
+    event = get_event(event_name)
+
+    if event.archived:
+        # Raise specific error even if just checking status
+        raise EventAlreadyArchivedError(event_name)
+
+    event.archived = True
+    event.open = False  # Archiving always closes the event
+    _log.info(f"Event '{event_name}' marked as archived (and closed) in cache.")
+    return event

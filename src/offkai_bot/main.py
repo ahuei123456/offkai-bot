@@ -1,50 +1,46 @@
-
+# src/offkai_bot/main.py
 import argparse
 import contextlib
 import functools
 import logging
 import sys
-from datetime import datetime
-from typing import Any  # Or use a dict, or define a simple class
+from typing import Any
 
 import discord
 from discord import app_commands
 
+# --- Updated Imports ---
 from . import config
+
+# Import data handling functions from the new 'data' package
+from .data.event import (
+    add_event,
+    archive_event,
+    get_event,
+    load_event_data,
+    save_event_data,
+    set_event_open_status,
+    update_event_details,
+)
+from .data.response import calculate_attendance, load_responses, remove_response
 from .errors import (
     BotCommandError,
     BroadcastPermissionError,
     BroadcastSendError,
     DuplicateEventError,
-    EventAlreadyArchivedError,
-    EventAlreadyClosedError,
-    EventAlreadyOpenError,
-    EventArchivedError,
     EventNotFoundError,
     InvalidChannelTypeError,
-    InvalidDateTimeFormatError,
     MissingChannelIDError,
-    NoChangesProvidedError,
-    NoResponsesFoundError,
     ResponseNotFoundError,
     ThreadCreationError,
     ThreadNotFoundError,
 )
-from .interactions import (
-    load_and_update_events,
-    send_event_message,
-    update_event_message,
-)
-from .util import (
-    Event,  # Import the dataclass
-    get_event,  # Returns Event object or None
-    get_responses,  # Returns list[Response]
-    # Use cached loaders by default
-    load_event_data,  # This now uses the cache
-    load_responses,  # This now uses the cache
-    remove_response,  # Use for delete_response command
-    save_event_data,
-)
+from .interactions import load_and_update_events, send_event_message, update_event_message
+
+# Import remaining general utils
+from .util import parse_drinks, parse_event_datetime, validate_interaction_context
+
+# --- End Updated Imports ---
 
 _log = logging.getLogger(__name__)
 settings: dict[str, Any] = {}
@@ -137,73 +133,55 @@ async def create_offkai(
     address: str,
     google_maps_link: str,
     date_time: str,
-    drinks: str | None = None,  # Make optional
+    drinks: str | None = None,
     announce_msg: str | None = None,
 ):
-    # Check for duplicate event name
-    if get_event(event_name):
-        raise DuplicateEventError(event_name)
+    # 1. Business Logic Validation
+    with contextlib.suppress(EventNotFoundError):
+        if get_event(event_name):
+            raise DuplicateEventError(event_name)
 
+    # 2. Input Parsing/Transformation
+    event_datetime = parse_event_datetime(date_time)
+    drinks_list = parse_drinks(drinks)
+
+    # 3. Context Validation
+    validate_interaction_context(interaction)
+
+    # --- Discord Interaction Block ---
     try:
-        # TODO: Handle timezone properly. Assuming JST for now.
-        # Consider using discord's timestamp format or requiring timezone.
-        event_dt_naive = datetime.strptime(date_time, r"%Y-%m-%d %H:%M")
-        # If assuming JST (UTC+9), create an aware datetime object
-        # This requires `pytz` or Python 3.9+ `zoneinfo`
-        # from zoneinfo import ZoneInfo # Python 3.9+
-        # jst = ZoneInfo("Asia/Tokyo")
-        # event_datetime = event_dt_naive.replace(tzinfo=jst)
-        # For simplicity without external libs/newer Python, store naive or UTC
-        event_datetime = event_dt_naive  # Store naive time, display assumes JST
-    except ValueError:
-        raise InvalidDateTimeFormatError()
-
-    if not interaction.guild or not isinstance(
-        interaction.channel, discord.TextChannel
-    ):
-        raise InvalidChannelTypeError()
-
-    # Create the thread
-    try:
+        assert isinstance(interaction.channel, discord.TextChannel)
         thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
     except discord.HTTPException as e:
         _log.error(f"Failed to create thread for '{event_name}': {e}")
         raise ThreadCreationError(event_name, e)
+    except AssertionError:
+        _log.error("Interaction channel was unexpectedly not a TextChannel after validation.")
+        raise InvalidChannelTypeError()
+    # --- End Discord Interaction Block ---
 
-    # Prepare drinks list
-    drinks_list = []
-    if drinks:
-        drinks_list = [d.strip() for d in drinks.split(",") if d.strip()]
-
-    # Create Event object
-    new_event = Event(
+    # --- Steps 4 & 5 Replaced ---
+    # Call the new function in the data layer
+    new_event = add_event(
         event_name=event_name,
         venue=venue,
         address=address,
         google_maps_link=google_maps_link,
         event_datetime=event_datetime,
-        channel_id=thread.id,
-        message_id=None,  # Will be set by send_event_message
-        open=True,
-        archived=False,
-        drinks=drinks_list,
-        message=None,  # message field in Event is less useful now, format_details is key
+        thread_id=thread.id,
+        drinks_list=drinks_list,
+        announce_msg=announce_msg,  # Pass announce_msg if stored on Event
     )
+    # --- End Replacement ---
 
-    # Add to cache and save
-    events = load_event_data()  # Load cached
-    events.append(new_event)
-    # Note: message_id is not set yet. send_event_message will handle saving after sending.
+    # 6. Further Discord Interaction
+    await send_event_message(thread, new_event)  # Handles saving after message send
 
-    # Send initial message (this will also save the event list with the message ID)
-    await send_event_message(thread, new_event)  # Pass the list to save
-
-    # Send confirmation/announcement in original channel
+    # 7. User Feedback
     announce_text = f"# Offkai Created: {event_name}\n\n"
-    if announce_msg:
+    if announce_msg:  # Use original announce_msg for the response
         announce_text += f"{announce_msg}\n\n"
     announce_text += f"Join the discussion and RSVP here: {thread.mention}"
-
     await interaction.response.send_message(announce_text)
 
 
@@ -229,61 +207,45 @@ async def modify_offkai(
     venue: str | None = None,
     address: str | None = None,
     google_maps_link: str | None = None,
-    date_time: str | None = None,
-    drinks: str | None = None,
+    date_time: str | None = None,  # Keep as string input
+    drinks: str | None = None,  # Keep as string input
 ):
-    event = get_event(event_name)
-    if not event:
-        raise EventNotFoundError(event_name)
-    if event.archived:
-        raise EventArchivedError(event_name, "modify")
+    # 1. Call the data layer function to handle validation and modification
+    #    This function will raise exceptions on failure (e.g., not found, archived, no changes)
+    modified_event = update_event_details(
+        event_name=event_name,
+        venue=venue,
+        address=address,
+        google_maps_link=google_maps_link,
+        date_time_str=date_time,  # Pass the raw string
+        drinks_str=drinks,  # Pass the raw string
+    )
 
-    # Update fields if provided
-    modified = False
-    if venue is not None:
-        event.venue = venue
-        modified = True
-    if address is not None:
-        event.address = address
-        modified = True
-    if google_maps_link is not None:
-        event.google_maps_link = google_maps_link
-        modified = True
-    if date_time is not None:
-        try:
-            # Apply same timezone logic as create_offkai if needed
-            event_dt_naive = datetime.strptime(date_time, r"%Y-%m-%d %H:%M")
-            event.event_datetime = event_dt_naive  # Store naive
-            modified = True
-        except ValueError:
-            raise InvalidDateTimeFormatError()
-    if drinks is not None:
-        # Empty string means clear drinks, otherwise parse
-        event.drinks = [d.strip().lower() for d in drinks.split(",") if d.strip()] if drinks else []
-        modified = True
+    # 2. Save the changes to disk (if modification was successful)
+    save_event_data()
 
-    if not modified:
-        raise NoChangesProvidedError()
+    # 3. Update the persistent message in the Discord thread
+    await update_event_message(client, modified_event)
 
-    # Save the modified event data
-    save_event_data()  # Just save the current cache state
-
-    # Update the message in the thread
-    await update_event_message(client, event)  # Pass list for potential resend
-
-    # Send update announcement to thread
-    if event.channel_id:
-        thread = client.get_channel(event.channel_id)
+    # 4. Send the update announcement message to the thread
+    if modified_event.channel_id:
+        thread = client.get_channel(modified_event.channel_id)
         if isinstance(thread, discord.Thread):
             try:
                 await thread.send(f"**Event Updated:**\n{update_msg}")
             except discord.HTTPException as e:
-                _log.warning(f"Could not send update message to thread {thread.id}: {e}")
+                # Log warning but don't fail the whole command if announcement send fails
+                _log.warning(f"Could not send update message to thread {thread.id} for event '{event_name}': {e}")
         else:
-            _log.warning(f"Could not find thread {event.channel_id} to send update message.")
+            _log.warning(
+                f"Could not find thread {modified_event.channel_id} to send update message for event '{event_name}'."
+            )
+    else:
+        _log.warning(f"Event '{event_name}' is missing channel_id, cannot send update message.")
 
+    # 5. Send confirmation response to the interaction
     await interaction.response.send_message(
-        f"✅ Event '{event_name}' modified successfully. Announcement posted in thread."
+        f"✅ Event '{event_name}' modified successfully. Announcement posted in thread (if possible)."
     )
 
 
@@ -297,32 +259,33 @@ async def modify_offkai(
 )
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
-async def close_offkai(
-    interaction: discord.Interaction, event_name: str, close_msg: str | None = None
-):
-    event = get_event(event_name)
-    if not event:
-        raise EventNotFoundError(event_name)
-    if event.archived:
-        raise EventArchivedError(event_name, "close")
-    if not event.open:
-        raise EventAlreadyClosedError(event_name)
+async def close_offkai(interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
+    # 1. Call data layer function for validation and modification
+    closed_event = set_event_open_status(event_name, target_open_status=False)
 
-    event.open = False
-    save_event_data()  # Save the change
+    # 2. Save the change
+    save_event_data()
 
-    # Update the message view
-    await update_event_message(client, event)
+    # 3. Update the message view
+    await update_event_message(client, closed_event)
 
-    # Send closing message to thread
-    if close_msg and event.channel_id:
-        thread = client.get_channel(event.channel_id)
-        if isinstance(thread, discord.Thread):
-            try:
-                await thread.send(f"**Responses Closed:**\n{close_msg}")
-            except discord.HTTPException as e:
-                _log.warning(f"Could not send closing message to thread {thread.id}: {e}")
+    # 4. Send closing message to thread (if provided and possible)
+    if close_msg:
+        if closed_event.channel_id:
+            thread = client.get_channel(closed_event.channel_id)
+            if isinstance(thread, discord.Thread):
+                try:
+                    await thread.send(f"**Responses Closed:**\n{close_msg}")
+                except discord.HTTPException as e:
+                    _log.warning(f"Could not send closing message to thread {thread.id} for event '{event_name}': {e}")
+            else:
+                _log.warning(
+                    f"Could not find thread {closed_event.channel_id} to send closing message for event '{event_name}'."
+                )
+        else:
+            _log.warning(f"Event '{event_name}' is missing channel_id, cannot send closing message.")
 
+    # 5. Send confirmation response
     await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
 
 
@@ -337,32 +300,36 @@ async def close_offkai(
 )
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
-async def reopen_offkai(
-    interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None
-):
-    event = get_event(event_name)
-    if not event:
-        raise EventNotFoundError(event_name)
-    if event.archived:
-        raise EventArchivedError(event_name, "reopen")
-    if event.open:
-        raise EventAlreadyOpenError(event_name)
+async def reopen_offkai(interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
+    # 1. Call data layer function for validation and modification
+    reopened_event = set_event_open_status(event_name, target_open_status=True)
 
-    event.open = True
-    save_event_data()  # Save the change
+    # 2. Save the change
+    save_event_data()
 
-    # Update the message view
-    await update_event_message(client, event)
+    # 3. Update the message view
+    await update_event_message(client, reopened_event)
 
-    # Send reopening message to thread
-    if reopen_msg and event.channel_id:
-        thread = client.get_channel(event.channel_id)
-        if isinstance(thread, discord.Thread):
-            try:
-                await thread.send(f"**Responses Reopened:**\n{reopen_msg}")
-            except discord.HTTPException as e:
-                _log.warning(f"Could not send reopening message to thread {thread.id}: {e}")
+    # 4. Send reopening message to thread (if provided and possible)
+    if reopen_msg:
+        if reopened_event.channel_id:
+            thread = client.get_channel(reopened_event.channel_id)
+            if isinstance(thread, discord.Thread):
+                try:
+                    await thread.send(f"**Responses Reopened:**\n{reopen_msg}")
+                except discord.HTTPException as e:
+                    _log.warning(
+                        f"Could not send reopening message to thread {thread.id} for event '{event_name}': {e}"
+                    )
+            else:
+                _log.warning(
+                    f"Could not find thread {reopened_event.channel_id} "
+                    f"to send reopening message for event '{event_name}'."
+                )
+        else:
+            _log.warning(f"Event '{event_name}' is missing channel_id, cannot send reopening message.")
 
+    # 5. Send confirmation response
     await interaction.response.send_message(f"✅ Responses for '{event_name}' have been reopened.")
 
 
@@ -377,31 +344,28 @@ async def reopen_offkai(
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
 async def archive_offkai(interaction: discord.Interaction, event_name: str):
-    event = get_event(event_name)
-    if not event:
-        raise EventNotFoundError(event_name)
-    if event.archived:
-        raise EventAlreadyArchivedError(event_name)
+    # 1. Call data layer function for validation and modification
+    archived_event = archive_event(event_name)
 
-    event.archived = True
-    # Optionally close the event if archiving
-    if event.open:
-        event.open = False
-        # Update message one last time if it was open
-        await update_event_message(client, event)
+    # 2. Save the change
+    save_event_data()
 
-    save_event_data()  # Save the change
+    # 3. Update the message view (always update after archiving as 'open' is set to False)
+    await update_event_message(client, archived_event)
 
-    # Optionally archive the thread itself
-    if event.channel_id:
-        thread = client.get_channel(event.channel_id)
+    # 4. Optionally archive the Discord thread itself
+    if archived_event.channel_id:
+        thread = client.get_channel(archived_event.channel_id)
         if isinstance(thread, discord.Thread) and not thread.archived:
             try:
                 await thread.edit(archived=True, locked=True)  # Archive and lock
                 _log.info(f"Archived thread {thread.id} for event '{event_name}'.")
             except discord.HTTPException as e:
                 _log.warning(f"Could not archive thread {thread.id}: {e}")
+        elif not isinstance(thread, discord.Thread):
+            _log.warning(f"Could not find thread {archived_event.channel_id} to archive for event '{event_name}'.")
 
+    # 5. Send confirmation response
     await interaction.response.send_message(f"✅ Event '{event_name}' has been archived.")
 
 
@@ -415,8 +379,7 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 @log_command_usage
 async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
     event = get_event(event_name)
-    if not event:
-        raise EventNotFoundError(event_name)
+
     if not event.channel_id:
         raise MissingChannelIDError(event_name)
 
@@ -426,9 +389,7 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 
     try:
         await channel.send(f"{message}")
-        await interaction.response.send_message(
-            f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True
-        )
+        await interaction.response.send_message(f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True)
     except discord.Forbidden as e:
         raise BroadcastPermissionError(channel, e)
     except discord.HTTPException as e:
@@ -443,25 +404,34 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 @app_commands.describe(event_name="The name of the event.", member="The member whose response to remove.")
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
-async def delete_response(
-    interaction: discord.Interaction, event_name: str, member: discord.Member
-):
-    # Use the util function
+async def delete_response(interaction: discord.Interaction, event_name: str, member: discord.Member):
+    # 1. Check if the event exists first
+    event = get_event(event_name)
+
+    # 2. Attempt to remove the response using the data layer function
     removed = remove_response(event_name, member.id)
 
+    # 3. Handle result
     if removed:
         await interaction.response.send_message(
             f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
             ephemeral=True,
         )
-        # Try removing user from thread
-        event = get_event(event_name)
-        if event and event.channel_id:
+        # Try removing user from thread (event object is already available from the check above)
+        if event.channel_id:
             thread = client.get_channel(event.channel_id)
             if isinstance(thread, discord.Thread):
-                with contextlib.suppress(discord.HTTPException):
+                with contextlib.suppress(discord.HTTPException):  # Keep suppress for optional action
                     await thread.remove_user(member)
+                    _log.info(f"Removed user {member.id} from thread {thread.id} for event '{event_name}'.")
+            else:
+                _log.warning(f"Could not find thread {event.channel_id} to remove user for event '{event_name}'.")
+        else:
+            _log.warning(f"Event '{event_name}' is missing channel_id, cannot remove user from thread.")
+
     else:
+        # Now, if 'removed' is False, we know the event exists,
+        # so the user's response must genuinely not have been found.
         raise ResponseNotFoundError(event_name, member.mention)
 
 
@@ -474,35 +444,23 @@ async def delete_response(
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
 async def attendance(interaction: discord.Interaction, event_name: str):
-    event = get_event(event_name)
-    if not event:
-        raise EventNotFoundError(event_name)
+    # 1. Check if event exists
+    get_event(event_name)
 
-    responses = get_responses(event_name)  # Returns list[Response]
+    # 2. Calculate attendance using the data layer function
+    total_count, attendee_list = calculate_attendance(event_name)
 
-    if not responses:
-        raise NoResponsesFoundError(event_name)
-
-    attendee_list = []
-    total_count = 0
-    for response in responses:
-        # Add the main person
-        attendee_list.append(f"{response.username}")
-        total_count += 1
-        # Add extra people
-        for i in range(response.extra_people):
-            attendee_list.append(f"{response.username} +{i + 1}")
-            total_count += 1
-
-    # Format output
+    # 3. Format output string for Discord
     output = f"**Attendance for {event_name}**\n\n"
     output += f"Total Attendees: **{total_count}**\n\n"
+    # Add numbering to the list provided by the data layer
     output += "\n".join(f"{i + 1}. {name}" for i, name in enumerate(attendee_list))
 
-    # Handle potential message length limits for Discord
+    # 4. Handle potential message length limits
     if len(output) > 1900:  # Leave buffer for ephemeral message header
         output = output[:1900] + "\n... (list truncated)"
 
+    # 5. Send response
     await interaction.response.send_message(output, ephemeral=True)
 
 
@@ -510,9 +468,7 @@ async def attendance(interaction: discord.Interaction, event_name: str):
 
 
 @client.tree.error
-async def on_command_error(
-    interaction: discord.Interaction, error: app_commands.AppCommandError
-):
+async def on_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     """Handles application command errors globally."""
     user_info = f"User: {interaction.user} ({interaction.user.id})"
     command_name = interaction.command.name if interaction.command else "Unknown"
@@ -522,15 +478,13 @@ async def on_command_error(
         case app_commands.MissingRole():
             message = "❌ You need the Offkai Organizer role to use this command."
             # Keep specific logging here as it's not a BotCommandError
-            _log.warning(
-                f"{user_info} - Missing Offkai Organizer role for command '{command_name}'."
-            )
+            _log.warning(f"{user_info} - Missing Offkai Organizer role for command '{command_name}'.")
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
 
         case app_commands.CheckFailure():
             message = "❌ You do not have permission to use this command."
-             # Keep specific logging here
+            # Keep specific logging here
             _log.warning(f"{user_info} - CheckFailure for command '{command_name}'.")
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
@@ -545,16 +499,14 @@ async def on_command_error(
         case BotCommandError() as e:
             message = str(e)
             # Use the log level defined in the error class
-            log_level = getattr(e, 'log_level', logging.INFO) # Get level, default INFO if missing
+            log_level = getattr(e, "log_level", logging.INFO)  # Get level, default INFO if missing
             _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {message}")
 
         # --- Specific Discord Errors (Keep separate) ---
         case discord.Forbidden():
             message = "❌ The bot lacks permissions to perform this action."
             # Keep specific logging here
-            _log.warning(
-                f"{user_info} - Encountered discord.Forbidden for command '{command_name}'."
-            )
+            _log.warning(f"{user_info} - Encountered discord.Forbidden for command '{command_name}'.")
 
         # --- Default Case for Unhandled Errors (Keep separate) ---
         case _:
@@ -573,9 +525,7 @@ async def on_command_error(
             else:
                 await interaction.followup.send(message, ephemeral=True)
         except discord.HTTPException as http_err:
-            _log.error(
-                f"{user_info} - Failed to send error response message: {http_err}"
-            )
+            _log.error(f"{user_info} - Failed to send error response message: {http_err}")
         except Exception as e:
             _log.error(
                 f"{user_info} - Exception sending error response message: {e}",

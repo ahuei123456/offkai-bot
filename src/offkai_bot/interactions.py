@@ -4,15 +4,8 @@ from datetime import UTC, datetime
 import discord
 from discord import ui
 
-from .event import Event, Response
-from .util import (
-    add_response,  # Import new function
-    create_event_message,  # Import message creation helper
-    get_responses,
-    load_event_data,  # Keep for load_and_update_events initial load if needed
-    remove_response,  # Import new function
-    save_event_data,
-)
+from .data.event import Event, create_event_message, load_event_data, save_event_data
+from .data.response import Response, add_response, get_responses, remove_response
 
 
 # --- Helper ---
