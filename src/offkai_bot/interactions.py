@@ -7,6 +7,8 @@ from discord import ui
 from .data.event import Event, create_event_message, load_event_data, save_event_data
 from .data.response import Response, add_response, get_responses, remove_response
 
+_log = logging.getLogger(__name__)
+
 
 # --- Helper ---
 async def error_message(interaction: discord.Interaction, message: str):
@@ -153,7 +155,7 @@ class GatheringModal(ui.Modal):
                 drinks=selected_drinks,
             )
         except Exception as e:
-            logging.error(f"Error creating Response object: {e}", exc_info=True)
+            _log.error(f"Error creating Response object: {e}", exc_info=True)
             await error_message(interaction, "An internal error occurred creating your response.")
             return
 
@@ -176,11 +178,11 @@ class GatheringModal(ui.Modal):
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
                     await interaction.channel.add_user(interaction.user)
                 else:
-                    logging.warning(
+                    _log.warning(
                         f"Could not add user {interaction.user.id} to channel {interaction.channel_id} (not a thread?)."
                     )
             except discord.HTTPException as e:
-                logging.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+                _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
         else:
             # User already responded
             await error_message(interaction, "You have already submitted a response for this event.")
@@ -244,12 +246,12 @@ class OpenEvent(EventView):
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
                     await interaction.channel.remove_user(interaction.user)
                 else:
-                    logging.warning(
+                    _log.warning(
                         f"Could not remove user {interaction.user.id} "
                         f"from channel {interaction.channel_id} (not a thread?)."
                     )
             except discord.HTTPException as e:
-                logging.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
+                _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
         else:
             await error_message(
                 interaction,
@@ -280,7 +282,7 @@ class ClosedEvent(EventView):
 async def send_event_message(channel: discord.Thread, event: Event):
     """Sends a new event message and saves the message ID."""
     if not isinstance(event, Event):
-        logging.error(f"send_event_message received non-Event object: {type(event)}")
+        _log.error(f"send_event_message received non-Event object: {type(event)}")
         return
 
     view = OpenEvent(event) if event.open else ClosedEvent(event)
@@ -289,68 +291,119 @@ async def send_event_message(channel: discord.Thread, event: Event):
         message = await channel.send(message_content, view=view)
         event.message_id = message.id  # Update the Event object directly
         save_event_data()  # Save the list containing the updated event
-        logging.info(f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}")
+        _log.info(f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}")
     except discord.HTTPException as e:
-        logging.error(f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}")
+        _log.error(f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}")
     except Exception as e:
-        logging.exception(f"Unexpected error sending event message for {event.event_name}: {e}")
+        _log.exception(f"Unexpected error sending event message for {event.event_name}: {e}")
 
 
+# --- REFACTORED update_event_message ---
 async def update_event_message(client: discord.Client, event: Event):
-    """Updates an existing event message or sends a new one if not found."""
+    """
+    Updates an existing event message or sends a new one if not found.
+    Provides more detailed logging for channel/message fetching issues.
+    """
     if not isinstance(event, Event):
-        logging.error(f"update_event_message received non-Event object: {type(event)}")
+        _log.error(f"update_event_message received non-Event object: {type(event)}")
         return
-    if not event.channel_id:  # Simplified check, message_id handled below
-        logging.warning(f"Cannot update message for event '{event.event_name}': missing channel_id.")
+    if not event.channel_id:
+        _log.warning(f"Cannot update message for event '{event.event_name}': missing channel_id.")
         return
 
-    channel = client.get_channel(event.channel_id)
+    # --- Step 1: Fetch Channel/Thread ---
+    channel = None
+    try:
+        # Use get_channel which might return None or a cached object
+        channel = client.get_channel(event.channel_id)
+
+    except Exception as e:
+        # Catch unexpected errors during channel retrieval
+        _log.exception(
+            f"Unexpected error getting/fetching channel {event.channel_id} for event '{event.event_name}': {e}"
+        )
+        return
+
+    # --- Step 2: Validate Channel ---
+    if channel is None:
+        # Log more specifically when get_channel returns None
+        _log.error(
+            f"Could not find channel/thread with ID {event.channel_id} for event '{event.event_name}'. "
+            f"Possible reasons: Thread deleted, bot permissions changed, or cache issue."
+        )
+        return
+
     if not isinstance(channel, discord.Thread):
-        logging.error(f"Could not find thread channel with ID {event.channel_id} for event '{event.event_name}'.")
+        # Log more specifically when the type is wrong
+        _log.error(
+            f"Channel with ID {event.channel_id} for event '{event.event_name}' is not a Thread. "
+            f"Found type: {type(channel).__name__}."
+        )
         return
 
-    # If message_id is missing OR message not found, send a new one
-    message = None
+    # --- Step 3: Fetch Existing Message (if ID exists) ---
+    message: discord.Message | None = None
     if event.message_id:
         try:
             message = await channel.fetch_message(event.message_id)
+            _log.debug(f"Successfully fetched message {event.message_id} for event '{event.event_name}'.")
         except discord.errors.NotFound:
-            logging.warning(
-                f"Message with ID {event.message_id} not found for event '{event.event_name}', sending a new message."
+            _log.warning(
+                f"Message ID {event.message_id} not found in thread {channel.id} for event '{event.event_name}'. "
+                f"Will send a new message."
             )
-            event.message_id = None  # Clear invalid ID
+            event.message_id = None  # Clear invalid ID so a new one is sent
+        except discord.errors.Forbidden:
+            _log.error(
+                f"Bot lacks permissions to fetch message {event.message_id} in thread {channel.id} "
+                f"for event '{event.event_name}'. Cannot update message."
+            )
+            return  # Cannot proceed without fetching
         except discord.HTTPException as e:
-            logging.error(f"Failed to fetch event message for {event.event_name} (ID: {event.message_id}): {e}")
-            # Potentially try sending a new one or just return
-            return
+            _log.error(
+                f"HTTP error fetching message {event.message_id} in thread {channel.id} "
+                f"for event '{event.event_name}': {e}"
+            )
+            return  # Avoid proceeding if fetch failed unexpectedly
         except Exception as e:
-            logging.exception(f"Unexpected error fetching event message for {event.event_name}: {e}")
-            return
+            _log.exception(f"Unexpected error fetching message {event.message_id} for event '{event.event_name}': {e}")
+            return  # Avoid proceeding on unknown errors
 
+    # --- Step 4: Edit Existing Message or Send New One ---
     if message:
         # Edit existing message
         try:
             view = OpenEvent(event) if event.open else ClosedEvent(event)
             message_content = create_event_message(event)
+            # Check if content/view actually needs updating (optional optimization)
+            # if message.content == message_content and message.view == view: # Equality check for views might be hard
+            #    _log.debug(f"Message {message.id} for event '{event.event_name}' already up-to-date.")
+            #    return
             await message.edit(content=message_content, view=view)
-            logging.info(f"Updated event message for '{event.event_name}' (ID: {message.id})")
+            _log.info(f"Updated event message for '{event.event_name}' (ID: {message.id}) in thread {channel.id}")
+        except discord.errors.Forbidden:
+            _log.error(
+                f"Bot lacks permissions to edit message {message.id} in thread {channel.id} "
+                f"for event '{event.event_name}'."
+            )
+            # Continue, as the event state might be saved later, but log the failure.
         except discord.HTTPException as e:
-            logging.error(f"Failed to update event message for {event.event_name} (ID: {event.message_id}): {e}")
+            _log.error(f"Failed to update event message {message.id} for {event.event_name}: {e}")
         except Exception as e:
-            logging.exception(f"Unexpected error updating event message for {event.event_name}: {e}")
+            _log.exception(f"Unexpected error updating event message {message.id} for {event.event_name}: {e}")
     else:
         # Send a new message (handles missing ID or NotFound error)
-        # This call will now handle saving internally
+        # send_event_message handles its own errors and saving
+        _log.info(f"Sending new event message for '{event.event_name}' to thread {channel.id}.")
         await send_event_message(channel, event)
 
 
 async def load_and_update_events(client: discord.Client):
     """Loads events on startup and ensures their messages/views are up-to-date."""
-    logging.info("Loading and updating event messages...")
+    _log.info("Loading and updating event messages...")
     events = load_event_data()
     if not events:
-        logging.info("No events found to load.")
+        _log.info("No events found to load.")
         return
 
     for event in events:
@@ -358,4 +411,4 @@ async def load_and_update_events(client: discord.Client):
             # Pass only the client and event
             await update_event_message(client, event)
 
-    logging.info("Finished loading and updating event messages.")
+    _log.info("Finished loading and updating event messages.")
