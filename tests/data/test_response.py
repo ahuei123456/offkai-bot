@@ -41,7 +41,16 @@ RESP_3_DICT = {  # For a different event
     "drinks": [],
 }
 
-RESP_1_OBJ = Response(**{k: (NOW if k == "timestamp" else v) for k, v in RESP_1_DICT.items()})
+RESP_1_OBJ = Response(
+    user_id=123,
+    username="User1",
+    extra_people=1,
+    behavior_confirmed=True,
+    arrival_confirmed=True,
+    event_name="Event A",
+    timestamp=NOW,
+    drinks=["Cola"],
+)
 # Need to manually create obj 2 because of bool conversion logic
 RESP_2_OBJ = Response(
     user_id=456,
@@ -53,7 +62,16 @@ RESP_2_OBJ = Response(
     timestamp=NOW,
     drinks=["Water"],
 )
-RESP_3_OBJ = Response(**{k: (NOW if k == "timestamp" else v) for k, v in RESP_3_DICT.items()})
+RESP_3_OBJ = Response(
+    user_id=789,
+    username="User3",
+    extra_people=2,
+    behavior_confirmed=False,
+    arrival_confirmed=False,
+    event_name="Event B",
+    timestamp=NOW,
+    drinks=[],
+)
 
 
 VALID_RESPONSES_DICT = {"Event A": [RESP_1_DICT, RESP_2_DICT], "Event B": [RESP_3_DICT]}

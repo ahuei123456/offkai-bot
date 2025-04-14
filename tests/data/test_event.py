@@ -1,5 +1,6 @@
 # tests/data/test_event.py
 import json
+from typing import Any
 from datetime import UTC, datetime
 from unittest.mock import mock_open, patch
 
@@ -13,7 +14,7 @@ from offkai_bot.errors import EventNotFoundError  # Import the dataclass too
 
 # --- Test Data ---
 NOW = datetime.now(UTC)
-EVENT_1_DICT = {
+EVENT_1_DICT: dict[str, Any] = {
     "event_name": "Test Event 1",
     "venue": "Venue 1",
     "address": "Addr 1",
@@ -26,7 +27,7 @@ EVENT_1_DICT = {
     "archived": False,
     "drinks": ["Beer", "Wine"],
 }
-EVENT_2_DICT = {
+EVENT_2_DICT: dict[str, Any] = {
     "event_name": "Test Event 2",
     "venue": "Venue 2",
     "address": "Addr 2",
@@ -39,9 +40,32 @@ EVENT_2_DICT = {
     "archived": True,
     "drinks": [],
 }
-EVENT_1_OBJ = Event(**{k: (NOW if k == "event_datetime" else v) for k, v in EVENT_1_DICT.items()})
+EVENT_1_OBJ = Event(
+    event_name="Test Event 1",
+    venue="Venue 1",
+    address="Addr 1",
+    google_maps_link="gmap1",
+    event_datetime=NOW,
+    message="Msg 1",
+    channel_id=101,
+    message_id=201,
+    open=True,
+    archived=False,
+    drinks=["Beer", "Wine"],
+)
+
 EVENT_2_OBJ = Event(
-    **{k: v for k, v in EVENT_2_DICT.items() if k != "event_datetime"}, event_datetime=None
+    event_name="Test Event 2",
+    venue="Venue 2",
+    address="Addr 2",
+    google_maps_link="gmap2",
+    event_datetime=None,
+    message=None,
+    channel_id=102,
+    message_id=202,
+    open=False,
+    archived=True,
+    drinks=[],
 )  # Handle None datetime explicitly
 
 VALID_EVENTS_JSON = json.dumps([EVENT_1_DICT, EVENT_2_DICT], indent=4)
