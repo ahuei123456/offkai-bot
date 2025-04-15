@@ -18,6 +18,7 @@ pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def mock_interaction():
     """Fixture to create a mock discord.Interaction with necessary attributes."""
@@ -44,6 +45,7 @@ def mock_interaction():
 
     return interaction
 
+
 @pytest.fixture
 def mock_member():
     """Fixture for the target discord.Member whose response is deleted."""
@@ -53,35 +55,40 @@ def mock_member():
     member.__str__.return_value = "TargetUser#5678"
     return member
 
+
 @pytest.fixture
 def mock_event_obj(sample_event_list):
     """Fixture providing a specific Event object (e.g., Summer Bash)."""
     # Find the 'Summer Bash' event which has channel_id 1001
     return next(e for e in sample_event_list if e.event_name == "Summer Bash")
 
+
 # --- Test Cases ---
 
-@patch('offkai_bot.main.remove_response')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client') # Mock the client object to mock get_channel
-@patch('offkai_bot.main._log')
+
+@patch("offkai_bot.main.remove_response")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.client")  # Mock the client object to mock get_channel
+@patch("offkai_bot.main._log")
 async def test_delete_response_success(
     mock_log,
     mock_client,
     mock_get_event,
-    mock_remove_response_func, # Renamed mock for clarity
+    mock_remove_response_func,  # Renamed mock for clarity
     mock_interaction,
     mock_member,
-    mock_thread, # From conftest.py
-    mock_event_obj, # From this file
-    prepopulated_event_cache # Use fixture to ensure cache is populated
+    mock_thread,  # From conftest.py
+    mock_event_obj,  # From this file
+    prepopulated_event_cache,  # Use fixture to ensure cache is populated
 ):
     """Test the successful path of delete_response including thread removal."""
     # Arrange
     event_name_target = "Summer Bash"
 
     mock_get_event.return_value = mock_event_obj
-    mock_remove_response_func.return_value = True # Simulate successful removal
+    # remove_response now returns None on success, or raises error
+    # No need to set return_value explicitly if None is acceptable
+
     mock_client.get_channel.return_value = mock_thread
     # Ensure thread ID matches event channel ID
     mock_thread.id = mock_event_obj.channel_id
@@ -112,12 +119,13 @@ async def test_delete_response_success(
     mock_log.info.assert_called()
     assert f"Removed user {mock_member.id} from thread {mock_thread.id}" in mock_log.info.call_args[0][0]
     mock_log.warning.assert_not_called()
+    mock_log.error.assert_not_called()  # Check no error logs
 
 
-@patch('offkai_bot.main.remove_response')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.remove_response")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.client")
+@patch("offkai_bot.main._log")
 async def test_delete_response_success_no_channel_id(
     mock_log,
     mock_client,
@@ -125,16 +133,16 @@ async def test_delete_response_success_no_channel_id(
     mock_remove_response_func,
     mock_interaction,
     mock_member,
-    mock_thread, # Still needed for potential calls if logic changed
+    mock_thread,  # Still needed for potential calls if logic changed
     mock_event_obj,
-    prepopulated_event_cache
+    prepopulated_event_cache,
 ):
     """Test successful response deletion when event has no channel_id."""
     # Arrange
     event_name_target = "Summer Bash"
-    mock_event_obj.channel_id = None # Modify event for this test
+    mock_event_obj.channel_id = None  # Modify event for this test
     mock_get_event.return_value = mock_event_obj
-    mock_remove_response_func.return_value = True
+    # remove_response returns None on success
 
     # Act
     await main.delete_response.callback(
@@ -154,13 +162,14 @@ async def test_delete_response_success_no_channel_id(
     mock_thread.remove_user.assert_not_awaited()
     mock_log.warning.assert_called_once()
     assert f"Event '{event_name_target}' is missing channel_id" in mock_log.warning.call_args[0][0]
-    mock_log.info.assert_called() # No info log for successful removal
+    mock_log.info.assert_called_once()
+    mock_log.error.assert_not_called()
 
 
-@patch('offkai_bot.main.remove_response')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.remove_response")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.client")
+@patch("offkai_bot.main._log")
 async def test_delete_response_success_thread_not_found(
     mock_log,
     mock_client,
@@ -170,14 +179,14 @@ async def test_delete_response_success_thread_not_found(
     mock_member,
     mock_thread,
     mock_event_obj,
-    prepopulated_event_cache
+    prepopulated_event_cache,
 ):
     """Test successful response deletion when thread is not found."""
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
-    mock_remove_response_func.return_value = True
-    mock_client.get_channel.return_value = None # Simulate thread not found
+    # remove_response returns None on success
+    mock_client.get_channel.return_value = None  # Simulate thread not found
 
     # Act
     await main.delete_response.callback(
@@ -197,13 +206,14 @@ async def test_delete_response_success_thread_not_found(
     mock_thread.remove_user.assert_not_awaited()
     mock_log.warning.assert_called_once()
     assert f"Could not find thread {mock_event_obj.channel_id}" in mock_log.warning.call_args[0][0]
-    mock_log.info.assert_called()
+    mock_log.info.assert_called_once()
+    mock_log.error.assert_not_called()
 
 
-@patch('offkai_bot.main.remove_response')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.remove_response")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.client")
+@patch("offkai_bot.main._log")
 async def test_delete_response_success_remove_user_fails(
     mock_log,
     mock_client,
@@ -213,13 +223,13 @@ async def test_delete_response_success_remove_user_fails(
     mock_member,
     mock_thread,
     mock_event_obj,
-    prepopulated_event_cache
+    prepopulated_event_cache,
 ):
-    """Test successful response deletion when thread.remove_user fails (suppressed)."""
+    """Test successful response deletion when thread.remove_user fails (error logged)."""
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
-    mock_remove_response_func.return_value = True
+    # remove_response returns None on success
     mock_client.get_channel.return_value = mock_thread
     # Simulate error removing user
     remove_error = discord.HTTPException(MagicMock(), "Cannot remove user")
@@ -238,17 +248,19 @@ async def test_delete_response_success_remove_user_fails(
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
     mock_interaction.response.send_message.assert_awaited_once()
     mock_client.get_channel.assert_called_once_with(mock_event_obj.channel_id)
-    mock_thread.remove_user.assert_awaited_once_with(mock_member) # Should still be called
+    mock_thread.remove_user.assert_awaited_once_with(mock_member)  # Should still be called
 
-    # Error should be suppressed, no warning/info logs expected for this specific part
+    # Error should be logged, no warning/info logs expected for this specific part
+    mock_log.error.assert_called_once()
+    assert f"Failed to remove user {mock_member.id}" in mock_log.error.call_args[0][0]
     mock_log.warning.assert_not_called()
-    mock_log.info.assert_called()
+    mock_log.info.assert_called_once()
 
 
-@patch('offkai_bot.main.remove_response')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.remove_response")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.client")
+@patch("offkai_bot.main._log")
 async def test_delete_response_event_not_found(
     mock_log,
     mock_client,
@@ -256,7 +268,7 @@ async def test_delete_response_event_not_found(
     mock_remove_response_func,
     mock_interaction,
     mock_member,
-    prepopulated_event_cache # Still useful for setup/teardown
+    prepopulated_event_cache,  # Still useful for setup/teardown
 ):
     """Test delete_response when the initial get_event fails."""
     # Arrange
@@ -278,10 +290,10 @@ async def test_delete_response_event_not_found(
     mock_client.get_channel.assert_not_called()
 
 
-@patch('offkai_bot.main.remove_response')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.remove_response")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.client")
+@patch("offkai_bot.main._log")
 async def test_delete_response_response_not_found_in_data(
     mock_log,
     mock_client,
@@ -290,13 +302,15 @@ async def test_delete_response_response_not_found_in_data(
     mock_interaction,
     mock_member,
     mock_event_obj,
-    prepopulated_event_cache
+    mock_thread,
+    prepopulated_event_cache,
 ):
-    """Test delete_response when remove_response returns False."""
+    """Test delete_response when remove_response raises ResponseNotFoundError."""
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
-    mock_remove_response_func.return_value = False # Simulate response not found
+    # Simulate remove_response raising the error
+    mock_remove_response_func.side_effect = ResponseNotFoundError(event_name_target, mock_member.id)
 
     # Act & Assert
     with pytest.raises(ResponseNotFoundError) as exc_info:
@@ -306,9 +320,9 @@ async def test_delete_response_response_not_found_in_data(
             member=mock_member,
         )
 
-    # Assert error details
+    # Assert error details (check user_id now)
     assert exc_info.value.event_name == event_name_target
-    assert exc_info.value.user_mention == mock_member.mention
+    assert exc_info.value.user_id == mock_member.id  # Check user_id
 
     # Assert calls up to remove_response
     mock_get_event.assert_called_once_with(event_name_target)
@@ -317,4 +331,4 @@ async def test_delete_response_response_not_found_in_data(
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
     mock_client.get_channel.assert_not_called()
-
+    mock_thread.remove_user.assert_not_awaited()  # Ensure thread removal wasn't attempted

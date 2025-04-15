@@ -1,6 +1,6 @@
 # tests/commands/test_broadcast.py
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -13,6 +13,7 @@ from offkai_bot.errors import (
     BroadcastSendError,
     EventNotFoundError,
     MissingChannelIDError,
+    ThreadAccessError,
     ThreadNotFoundError,
 )
 
@@ -20,6 +21,7 @@ from offkai_bot.errors import (
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
 
 @pytest.fixture
 def mock_interaction():
@@ -47,32 +49,33 @@ def mock_interaction():
 
     return interaction
 
+
 # --- Test Cases ---
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client') # Mock the client object to mock get_channel
-@patch('offkai_bot.main._log')
+
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_broadcast_success(
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
-    mock_thread, # From conftest.py
-    prepopulated_event_cache # Use fixture to ensure cache is populated
+    mock_thread,  # From conftest.py
+    prepopulated_event_cache,  # Use fixture to ensure cache is populated
 ):
     """Test the successful path of broadcast."""
     # Arrange
     event_name_to_broadcast = "Summer Bash"
     broadcast_message = "Important update!"
-    # Find the event from the prepopulated cache to get expected channel_id
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_broadcast)
 
     mock_get_event.return_value = target_event
-    mock_client.get_channel.return_value = mock_thread
+    # Mock the helper function returning the thread
+    mock_fetch_thread.return_value = mock_thread
     # Ensure mock_thread ID matches target_event.channel_id if necessary
     mock_thread.id = target_event.channel_id
     mock_thread.mention = f"<#{mock_thread.id}>"
-
 
     # Act
     await main.broadcast.callback(
@@ -84,8 +87,8 @@ async def test_broadcast_success(
     # Assert
     # 1. Check data layer call
     mock_get_event.assert_called_once_with(event_name_to_broadcast)
-    # 2. Check getting the channel
-    mock_client.get_channel.assert_called_once_with(target_event.channel_id)
+    # 2. Check fetching the thread via helper
+    mock_fetch_thread.assert_awaited_once_with(ANY, target_event)  # ANY for client
     # 3. Check sending message to thread
     mock_thread.send.assert_awaited_once_with(f"{broadcast_message}")
     # 4. Check final interaction response
@@ -97,15 +100,15 @@ async def test_broadcast_success(
     mock_log.error.assert_not_called()
 
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_broadcast_event_not_found(
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Added mock
     mock_interaction,
-    prepopulated_event_cache # Still useful to ensure cache is cleared etc.
+    prepopulated_event_cache,
 ):
     """Test broadcast when the event is not found."""
     # Arrange
@@ -124,28 +127,29 @@ async def test_broadcast_event_not_found(
     # Assert get_event was called
     mock_get_event.assert_called_once_with(event_name)
     # Assert subsequent steps were NOT called
-    mock_client.get_channel.assert_not_called()
+    mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_broadcast_missing_channel_id(
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Added mock
     mock_interaction,
-    prepopulated_event_cache
+    prepopulated_event_cache,
 ):
-    """Test broadcast when the found event has no channel_id."""
+    """Test broadcast when fetch_thread_for_event raises MissingChannelIDError."""
     # Arrange
     event_name = "Summer Bash"
     broadcast_message = "Test message"
-    # Get event and modify it
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name)
-    target_event.channel_id = None # Remove channel_id
+    # Don't need to modify target_event anymore, just mock the helper's behavior
     mock_get_event.return_value = target_event
+    # Mock the helper raising the error
+    mock_fetch_thread.side_effect = MissingChannelIDError(event_name)
 
     # Act & Assert
     with pytest.raises(MissingChannelIDError) as exc_info:
@@ -157,28 +161,30 @@ async def test_broadcast_missing_channel_id(
 
     assert exc_info.value.event_name == event_name
     mock_get_event.assert_called_once_with(event_name)
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
     # Assert subsequent steps were NOT called
-    mock_client.get_channel.assert_not_called()
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
-async def test_broadcast_thread_not_found(
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_broadcast_thread_not_found_error(  # Renamed test slightly
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Added mock
     mock_interaction,
-    prepopulated_event_cache
+    prepopulated_event_cache,
 ):
-    """Test broadcast when client.get_channel returns None."""
+    """Test broadcast when fetch_thread_for_event raises ThreadNotFoundError."""
     # Arrange
     event_name = "Summer Bash"
     broadcast_message = "Test message"
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name)
     mock_get_event.return_value = target_event
-    mock_client.get_channel.return_value = None # Simulate thread not found
+    # Mock the helper raising the error
+    mock_fetch_thread.side_effect = ThreadNotFoundError(event_name, target_event.channel_id)
 
     # Act & Assert
     with pytest.raises(ThreadNotFoundError) as exc_info:
@@ -191,33 +197,34 @@ async def test_broadcast_thread_not_found(
     assert exc_info.value.event_name == event_name
     assert exc_info.value.channel_id == target_event.channel_id
     mock_get_event.assert_called_once_with(event_name)
-    mock_client.get_channel.assert_called_once_with(target_event.channel_id)
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
-async def test_broadcast_channel_not_thread(
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_broadcast_thread_access_error(  # New test for access error
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Added mock
     mock_interaction,
-    prepopulated_event_cache
+    prepopulated_event_cache,
 ):
-    """Test broadcast when client.get_channel returns a non-Thread channel."""
+    """Test broadcast when fetch_thread_for_event raises ThreadAccessError."""
     # Arrange
     event_name = "Summer Bash"
     broadcast_message = "Test message"
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name)
     mock_get_event.return_value = target_event
-    # Simulate returning a TextChannel instead of a Thread
-    mock_text_channel = MagicMock(spec=discord.TextChannel)
-    mock_client.get_channel.return_value = mock_text_channel
+    # Mock the helper raising the error
+    original_discord_error = discord.Forbidden(MagicMock(), "Cannot fetch")
+    mock_fetch_thread.side_effect = ThreadAccessError(event_name, target_event.channel_id, original_discord_error)
 
     # Act & Assert
-    with pytest.raises(ThreadNotFoundError) as exc_info: # Still raises ThreadNotFound based on isinstance check
+    with pytest.raises(ThreadAccessError) as exc_info:
         await main.broadcast.callback(
             mock_interaction,
             event_name=event_name,
@@ -226,22 +233,24 @@ async def test_broadcast_channel_not_thread(
 
     assert exc_info.value.event_name == event_name
     assert exc_info.value.channel_id == target_event.channel_id
+    assert exc_info.value.original_exception is original_discord_error
     mock_get_event.assert_called_once_with(event_name)
-    mock_client.get_channel.assert_called_once_with(target_event.channel_id)
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_broadcast_send_permission_error(
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Added mock
     mock_interaction,
-    mock_thread, # Need thread mock
-    prepopulated_event_cache
+    mock_thread,  # Need thread mock
+    prepopulated_event_cache,
 ):
     """Test broadcast when thread.send raises discord.Forbidden."""
     # Arrange
@@ -249,8 +258,9 @@ async def test_broadcast_send_permission_error(
     broadcast_message = "Test message"
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name)
     mock_get_event.return_value = target_event
-    mock_client.get_channel.return_value = mock_thread
-    # Simulate permission error
+    # Mock helper returning the thread successfully
+    mock_fetch_thread.return_value = mock_thread
+    # Simulate permission error on send
     forbidden_error = discord.Forbidden(MagicMock(), "Missing Permissions")
     mock_thread.send.side_effect = forbidden_error
 
@@ -265,22 +275,24 @@ async def test_broadcast_send_permission_error(
     assert exc_info.value.channel is mock_thread
     assert exc_info.value.original_exception is forbidden_error
     mock_get_event.assert_called_once_with(event_name)
-    mock_client.get_channel.assert_called_once_with(target_event.channel_id)
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
+    # Assert send was called
     mock_thread.send.assert_awaited_once_with(f"{broadcast_message}")
     # Assert final response was NOT called
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main.client')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_broadcast_send_http_error(
     mock_log,
-    mock_client,
     mock_get_event,
+    mock_fetch_thread,  # Added mock
     mock_interaction,
-    mock_thread, # Need thread mock
-    prepopulated_event_cache
+    mock_thread,  # Need thread mock
+    prepopulated_event_cache,
 ):
     """Test broadcast when thread.send raises discord.HTTPException."""
     # Arrange
@@ -288,8 +300,9 @@ async def test_broadcast_send_http_error(
     broadcast_message = "Test message"
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name)
     mock_get_event.return_value = target_event
-    mock_client.get_channel.return_value = mock_thread
-    # Simulate generic HTTP error
+    # Mock helper returning the thread successfully
+    mock_fetch_thread.return_value = mock_thread
+    # Simulate generic HTTP error on send
     http_error = discord.HTTPException(MagicMock(), "Network Error")
     mock_thread.send.side_effect = http_error
 
@@ -304,8 +317,9 @@ async def test_broadcast_send_http_error(
     assert exc_info.value.channel is mock_thread
     assert exc_info.value.original_exception is http_error
     mock_get_event.assert_called_once_with(event_name)
-    mock_client.get_channel.assert_called_once_with(target_event.channel_id)
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
+    # Assert send was called
     mock_thread.send.assert_awaited_once_with(f"{broadcast_message}")
     # Assert final response was NOT called
     mock_interaction.response.send_message.assert_not_awaited()
-

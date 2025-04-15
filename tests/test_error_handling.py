@@ -42,9 +42,7 @@ def mock_interaction():
     # Mock the response methods (crucially, make them AsyncMock)
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
-    interaction.response.is_done.return_value = (
-        False  # Default: interaction not yet responded to
-    )
+    interaction.response.is_done.return_value = False  # Default: interaction not yet responded to
 
     # Mock the followup methods
     interaction.followup = MagicMock()
@@ -68,9 +66,7 @@ async def test_on_command_error_missing_role(mock_interaction):
     # Assuming the check uses the role name/ID directly from config,
     # but the error handler might try to fetch the role name for the message.
     # The fixture now mocks interaction.guild.get_role.
-    error = app_commands.MissingRole(
-        "Offkai Organizer"
-    )  # Role name/ID used by the check
+    error = app_commands.MissingRole("Offkai Organizer")  # Role name/ID used by the check
 
     # --- Updated Patch Target ---
     with patch("offkai_bot.main._log") as mock_log:
@@ -80,19 +76,13 @@ async def test_on_command_error_missing_role(mock_interaction):
         # Assert: Check response
         # The error handler uses the role name "Offkai Organizer" directly
         expected_message = "❌ You need the Offkai Organizer role to use this command."
-        mock_interaction.response.send_message.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_awaited_once_with(expected_message, ephemeral=True)
         mock_interaction.followup.send.assert_not_called()  # Should not use followup
 
         # Assert: Check logging
         mock_log.warning.assert_called_once()
-        log_call_args = mock_log.warning.call_args[0][
-            0
-        ]  # Get the first positional arg of the call
-        assert (
-            "Missing Offkai Organizer role" in log_call_args
-        )  # Check specific role name
+        log_call_args = mock_log.warning.call_args[0][0]  # Get the first positional arg of the call
+        assert "Missing Offkai Organizer role" in log_call_args  # Check specific role name
         assert "User: TestUser#1234 (1234567890)" in log_call_args
         assert "command 'mock_command'" in log_call_args
 
@@ -109,9 +99,7 @@ async def test_on_command_error_check_failure(mock_interaction):
 
         # Assert: Check response
         expected_message = "❌ You do not have permission to use this command."
-        mock_interaction.response.send_message.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_awaited_once_with(expected_message, ephemeral=True)
         mock_interaction.followup.send.assert_not_called()
 
         # Assert: Check logging
@@ -178,6 +166,12 @@ async def test_on_command_error_check_failure(mock_interaction):
             logging.WARNING,
             "Handled (BroadcastPermissionError)",
         ),
+        (
+            errors.ThreadAccessError,
+            ("EventWithPermsIssue", 555666777, MagicMock(spec=discord.Forbidden)),
+            logging.ERROR,
+            "Handled (ThreadAccessError)",
+        ),
     ],
 )
 async def test_on_command_error_custom_bot_error(
@@ -198,9 +192,7 @@ async def test_on_command_error_custom_bot_error(
 
         # Assert: Check response
         expected_message = str(original_error)
-        mock_interaction.response.send_message.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_awaited_once_with(expected_message, ephemeral=True)
         mock_interaction.followup.send.assert_not_called()
 
         # Assert: Check logging using _log.log()
@@ -212,9 +204,7 @@ async def test_on_command_error_custom_bot_error(
 
         # Assert the content of the log message
         log_message = call_args[1]
-        assert (
-            expected_log_level_name_in_msg in log_message
-        )  # Check type name indication
+        assert expected_log_level_name_in_msg in log_message  # Check type name indication
         assert f": {expected_message}" in log_message  # Check the error's message
         assert "User: TestUser#1234 (1234567890)" in log_message
 
@@ -239,9 +229,7 @@ async def test_on_command_error_discord_forbidden(mock_interaction):
 
         # Assert: Check response
         expected_message = "❌ The bot lacks permissions to perform this action."
-        mock_interaction.response.send_message.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_awaited_once_with(expected_message, ephemeral=True)
 
         # Assert: Check logging (still uses direct .warning())
         mock_log.warning.assert_called_once()
@@ -262,9 +250,7 @@ async def test_on_command_error_unhandled_exception(mock_interaction):
 
         # Assert: Check response
         expected_message = "❌ An unexpected error occurred. Please try again later or contact an admin."
-        mock_interaction.response.send_message.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_awaited_once_with(expected_message, ephemeral=True)
 
         # Assert: Check logging (still uses direct .error())
         mock_log.error.assert_called_once()
@@ -278,9 +264,7 @@ async def test_on_command_error_unhandled_exception(mock_interaction):
 async def test_on_command_error_interaction_already_done(mock_interaction):
     """Test error handling when interaction.response.is_done() is True."""
     # Arrange
-    original_error = errors.EventNotFoundError(
-        "AnotherMissingEvent"
-    )  # Example using INFO level
+    original_error = errors.EventNotFoundError("AnotherMissingEvent")  # Example using INFO level
     error = app_commands.CommandInvokeError(mock_interaction.command, original_error)
     mock_interaction.response.is_done.return_value = True
 
@@ -290,9 +274,7 @@ async def test_on_command_error_interaction_already_done(mock_interaction):
 
         # Assert: Check response uses followup
         expected_message = str(original_error)
-        mock_interaction.followup.send.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.followup.send.assert_awaited_once_with(expected_message, ephemeral=True)
         mock_interaction.response.send_message.assert_not_called()
 
         # Assert: Check logging still happens correctly using _log.log()
@@ -300,9 +282,7 @@ async def test_on_command_error_interaction_already_done(mock_interaction):
         call_args, _ = mock_log.log.call_args
         assert call_args[0] == logging.INFO  # Check the level
         log_message = call_args[1]
-        assert (
-            f"Handled (EventNotFoundError): {expected_message}" in log_message
-        )  # Check content
+        assert f"Handled (EventNotFoundError): {expected_message}" in log_message  # Check content
 
 
 async def test_on_command_error_fails_sending_response(mock_interaction):
@@ -346,14 +326,10 @@ async def test_on_command_error_no_command_context(mock_interaction):
 
         # Assert: Check response is still sent
         expected_message = "❌ You do not have permission to use this command."
-        mock_interaction.response.send_message.assert_awaited_once_with(
-            expected_message, ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_awaited_once_with(expected_message, ephemeral=True)
 
         # Assert: Check logging uses "Unknown"
         mock_log.warning.assert_called_once()
         log_call_args = mock_log.warning.call_args[0][0]
-        assert (
-            "CheckFailure for command 'Unknown'" in log_call_args
-        )  # Verify fallback name
+        assert "CheckFailure for command 'Unknown'" in log_call_args  # Verify fallback name
         assert "User: TestUser#1234 (1234567890)" in log_call_args

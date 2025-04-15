@@ -1,7 +1,8 @@
 # tests/commands/test_modify_offkai.py
 
+import logging
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -14,7 +15,10 @@ from offkai_bot.errors import (
     EventArchivedError,
     EventNotFoundError,
     InvalidDateTimeFormatError,
+    MissingChannelIDError,
     NoChangesProvidedError,
+    ThreadAccessError,
+    ThreadNotFoundError,
 )
 
 # pytest marker for async tests
@@ -71,22 +75,24 @@ def mock_modified_event():
 # --- Test Cases ---
 
 
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.client")  # Mock the client object to mock get_channel
 @patch("offkai_bot.main._log")
 async def test_modify_offkai_success(
     mock_log,
-    mock_client,
     mock_update_details,
     mock_save_data,
-    mock_update_msg,
+    mock_update_msg_view,  # Renamed from mock_update_msg
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
-    mock_thread,
-    mock_modified_event,
-    prepopulated_event_cache,  # Use fixture to ensure cache is populated
+    mock_thread,  # From conftest.py
+    mock_modified_event,  # From this file
+    prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test the successful path of modify_offkai."""
     # Arrange
     event_name_to_modify = "Summer Bash"
@@ -96,10 +102,12 @@ async def test_modify_offkai_success(
     new_dt_str = "2024-08-10 20:00"
     new_drinks_str = "Water"
 
-    # Mock the data layer function returning the modified event
     mock_update_details.return_value = mock_modified_event
-    # Mock client.get_channel finding the thread
-    mock_client.get_channel.return_value = mock_thread
+    # Mock the helper returning the thread
+    mock_fetch_thread.return_value = mock_thread
+    # Ensure thread ID matches event ID if needed
+    mock_thread.id = mock_modified_event.channel_id
+    mock_thread.mention = f"<#{mock_thread.id}>"
 
     # Act
     await main.modify_offkai.callback(
@@ -107,14 +115,13 @@ async def test_modify_offkai_success(
         event_name=event_name_to_modify,
         update_msg=update_text,
         venue=new_venue,
-        address=None,  # Not changing address
+        address=None,
         google_maps_link=new_gmaps,
         date_time=new_dt_str,
         drinks=new_drinks_str,
     )
 
     # Assert
-    # 1. Check data layer call
     mock_update_details.assert_called_once_with(
         event_name=event_name_to_modify,
         venue=new_venue,
@@ -123,19 +130,16 @@ async def test_modify_offkai_success(
         date_time_str=new_dt_str,
         drinks_str=new_drinks_str,
     )
-    # 2. Check save call
     mock_save_data.assert_called_once()
-    # 3. Check Discord message update call
-    mock_update_msg.assert_awaited_once_with(mock_client, mock_modified_event)
-    # 4. Check getting the channel
-    mock_client.get_channel.assert_called_once_with(mock_modified_event.channel_id)
-    # 5. Check sending update message to thread
+    mock_update_msg_view.assert_awaited_once_with(ANY, mock_modified_event)  # ANY for client
+    # Check fetching the thread via helper
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)  # ANY for client
+    # Check sending update message to thread
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
-    # 6. Check final interaction response
+    # Check final interaction response
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
-    # 7. Check logs (optional)
     mock_log.warning.assert_not_called()
 
 
@@ -148,25 +152,27 @@ async def test_modify_offkai_success(
         (NoChangesProvidedError, ()),
     ],
 )
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.client")
 @patch("offkai_bot.main._log")
 async def test_modify_offkai_data_layer_errors(
     mock_log,
-    mock_client,
     mock_update_details,
     mock_save_data,
-    mock_update_msg,
+    mock_update_msg_view,  # Renamed
+    mock_fetch_thread,  # Renamed
     mock_interaction,
     error_type,
     error_args,
     prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test handling of errors raised by update_event_details."""
     # Arrange
-    event_name = error_args[0] if error_args else "Summer Bash"  # Use relevant event name
+    event_name = error_args[0] if error_args else "Summer Bash"
     mock_update_details.side_effect = error_type(*error_args)
 
     # Act & Assert
@@ -175,59 +181,60 @@ async def test_modify_offkai_data_layer_errors(
             mock_interaction,
             event_name=event_name,
             update_msg="Update attempt",
-            venue="Attempt Venue",  # Provide some args
+            venue="Attempt Venue",
         )
 
-    # Assert data layer call was made
     mock_update_details.assert_called_once()
-    # Assert subsequent steps were NOT called
     mock_save_data.assert_not_called()
-    mock_update_msg.assert_not_awaited()
-    mock_client.get_channel.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()  # Error handler deals with response
+    mock_update_msg_view.assert_not_awaited()
+    mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
+    mock_interaction.response.send_message.assert_not_awaited()
 
 
+# --- UPDATED TEST ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.client")
 @patch("offkai_bot.main._log")
-async def test_modify_offkai_thread_not_found(
+async def test_modify_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_log,
-    mock_client,
     mock_update_details,
     mock_save_data,
-    mock_update_msg,
+    mock_update_msg_view,  # Renamed
+    mock_fetch_thread,  # Renamed
     mock_interaction,
-    mock_modified_event,  # Use the modified event state
+    mock_modified_event,
     prepopulated_event_cache,
 ):
-    """Test modify_offkai when the thread channel is not found."""
+    """Test modify_offkai when fetch_thread_for_event raises ThreadNotFoundError."""
     # Arrange
     event_name_to_modify = "Summer Bash"
     update_text = "Details updated!"
     mock_update_details.return_value = mock_modified_event
-    mock_client.get_channel.return_value = None  # Simulate thread not found
+    # Mock the helper raising the error
+    mock_fetch_thread.side_effect = ThreadNotFoundError(event_name_to_modify, mock_modified_event.channel_id)
 
     # Act
     await main.modify_offkai.callback(
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
-        venue="New Venue",  # Need some modification args
+        venue="New Venue",
     )
 
     # Assert
-    # Steps up to finding channel should succeed
+    # Steps up to fetching thread should succeed
     mock_update_details.assert_called_once()
     mock_save_data.assert_called_once()
-    mock_update_msg.assert_awaited_once()
-    mock_client.get_channel.assert_called_once_with(mock_modified_event.channel_id)
+    mock_update_msg_view.assert_awaited_once()
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
 
     # Sending update message should be skipped, warning logged
-    # mock_thread.send is not available as get_channel returned None
-    mock_log.warning.assert_called_once()
-    assert f"Could not find thread {mock_modified_event.channel_id}" in mock_log.warning.call_args[0][0]
+    mock_log.log.assert_called_once()
+    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for ThreadNotFoundError
+    assert f"Could not send update message for event '{event_name_to_modify}'" in mock_log.log.call_args[0][1]
+    assert "Could not find thread channel" in mock_log.log.call_args[0][1]
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -235,28 +242,136 @@ async def test_modify_offkai_thread_not_found(
     )
 
 
+# --- END UPDATED TEST ---
+
+
+# --- NEW TEST ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.client")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_fetch_thread_missing_id_error(
+    mock_log,
+    mock_update_details,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_modified_event,
+    prepopulated_event_cache,
+):
+    """Test modify_offkai when fetch_thread_for_event raises MissingChannelIDError."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Details updated!"
+    mock_update_details.return_value = mock_modified_event
+    mock_fetch_thread.side_effect = MissingChannelIDError(event_name_to_modify)
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        venue="New Venue",
+    )
+
+    # Assert
+    mock_update_details.assert_called_once()
+    mock_save_data.assert_called_once()
+    mock_update_msg_view.assert_awaited_once()
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
+
+    # Sending update message should be skipped, warning logged
+    mock_log.log.assert_called_once()
+    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for MissingChannelIDError
+    assert f"Could not send update message for event '{event_name_to_modify}'" in mock_log.log.call_args[0][1]
+    assert "does not have a channel ID" in mock_log.log.call_args[0][1]
+
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
+    )
+
+
+# --- END NEW TEST ---
+
+
+# --- NEW TEST ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_fetch_thread_access_error(
+    mock_log,
+    mock_update_details,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_modified_event,
+    prepopulated_event_cache,
+):
+    """Test modify_offkai when fetch_thread_for_event raises ThreadAccessError."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Details updated!"
+    mock_update_details.return_value = mock_modified_event
+    mock_fetch_thread.side_effect = ThreadAccessError(event_name_to_modify, mock_modified_event.channel_id)
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        venue="New Venue",
+    )
+
+    # Assert
+    mock_update_details.assert_called_once()
+    mock_save_data.assert_called_once()
+    mock_update_msg_view.assert_awaited_once()
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
+
+    # Sending update message should be skipped, error logged
+    mock_log.log.assert_called_once()
+    assert mock_log.log.call_args[0][0] == logging.ERROR  # Check level for ThreadAccessError
+    assert f"Could not send update message for event '{event_name_to_modify}'" in mock_log.log.call_args[0][1]
+    assert "Bot lacks permissions" in mock_log.log.call_args[0][1]
+
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
+    )
+
+
+# --- END NEW TEST ---
+
+
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
 @patch("offkai_bot.main._log")
 async def test_modify_offkai_send_update_fails(
     mock_log,
-    mock_client,
     mock_update_details,
     mock_save_data,
-    mock_update_msg,
+    mock_update_msg_view,  # Renamed
+    mock_fetch_thread,  # Renamed
     mock_interaction,
     mock_thread,  # Need the thread mock here
     mock_modified_event,
     prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test modify_offkai when sending the update message fails."""
     # Arrange
     event_name_to_modify = "Summer Bash"
     update_text = "Details updated!"
     mock_update_details.return_value = mock_modified_event
-    mock_client.get_channel.return_value = mock_thread
+    # Mock helper returning thread successfully
+    mock_fetch_thread.return_value = mock_thread
     # Simulate error sending message
     send_error = discord.HTTPException(MagicMock(), "Cannot send messages")
     mock_thread.send.side_effect = send_error
@@ -270,64 +385,17 @@ async def test_modify_offkai_send_update_fails(
     )
 
     # Assert
-    # Steps up to sending message should succeed
     mock_update_details.assert_called_once()
     mock_save_data.assert_called_once()
-    mock_update_msg.assert_awaited_once()
-    mock_client.get_channel.assert_called_once_with(mock_modified_event.channel_id)
+    mock_update_msg_view.assert_awaited_once()
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
+    # Assert send was called
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
 
     # Warning should be logged for send failure
     mock_log.warning.assert_called_once()
     assert f"Could not send update message to thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
-
-    # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
-    )
-
-
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.client")
-@patch("offkai_bot.main._log")
-async def test_modify_offkai_missing_channel_id(
-    mock_log,
-    mock_client,
-    mock_update_details,
-    mock_save_data,
-    mock_update_msg,
-    mock_interaction,
-    mock_modified_event,  # Use the modified event state
-    prepopulated_event_cache,
-):
-    """Test modify_offkai when the event object is missing a channel_id."""
-    # Arrange
-    event_name_to_modify = "Summer Bash"
-    update_text = "Details updated!"
-    # Modify the event fixture to lack channel_id for this test
-    mock_modified_event.channel_id = None
-    mock_update_details.return_value = mock_modified_event
-
-    # Act
-    await main.modify_offkai.callback(
-        mock_interaction,
-        event_name=event_name_to_modify,
-        update_msg=update_text,
-        venue="New Venue",
-    )
-
-    # Assert
-    # Steps up to Discord interactions should succeed
-    mock_update_details.assert_called_once()
-    mock_save_data.assert_called_once()
-    mock_update_msg.assert_awaited_once()
-
-    # Getting channel and sending update should be skipped, warning logged
-    mock_client.get_channel.assert_not_called()
-    mock_log.warning.assert_called_once()
-    assert f"Event '{event_name_to_modify}' is missing channel_id" in mock_log.warning.call_args[0][0]
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
