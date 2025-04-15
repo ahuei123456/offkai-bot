@@ -31,7 +31,6 @@ from .errors import (
     EventNotFoundError,
     InvalidChannelTypeError,
     MissingChannelIDError,
-    ResponseNotFoundError,
     ThreadAccessError,
     ThreadCreationError,
     ThreadNotFoundError,

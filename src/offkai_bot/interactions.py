@@ -1,6 +1,5 @@
 import logging
 from datetime import UTC, datetime
-from typing import cast
 
 import discord
 from discord import ui
@@ -487,7 +486,8 @@ async def update_event_message(client: discord.Client, event: Event):
             _log.info(f"Updated event message for '{event.event_name}' (ID: {message.id}) in thread {thread.id}")
         except discord.errors.Forbidden:
             _log.error(
-                f"Bot lacks permissions to edit message {message.id} in thread {thread.id} for event '{event.event_name}'."
+                f"Bot lacks permissions to edit message {message.id} in thread {thread.id} "
+                f"for event '{event.event_name}'."
             )
         except discord.HTTPException as e:
             _log.error(f"Failed to update event message {message.id} for {event.event_name}: {e}")
