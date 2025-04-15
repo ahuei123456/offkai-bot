@@ -31,11 +31,11 @@ from .errors import (
     EventNotFoundError,
     InvalidChannelTypeError,
     MissingChannelIDError,
-    ResponseNotFoundError,
+    ThreadAccessError,
     ThreadCreationError,
     ThreadNotFoundError,
 )
-from .interactions import load_and_update_events, send_event_message, update_event_message
+from .interactions import fetch_thread_for_event, load_and_update_events, send_event_message, update_event_message
 
 # Import remaining general utils
 from .util import parse_drinks, parse_event_datetime, validate_interaction_context
@@ -110,11 +110,12 @@ def log_command_usage(func):
 
 # --- Commands ---
 
+
 @app_commands.checks.has_role("Offkai Organizer")
 @client.tree.command()
 async def hello(interaction: discord.Interaction):
     """Says hello!"""
-    await interaction.response.send_message(f'Hi, {interaction.user.mention}')
+    await interaction.response.send_message(f"Hi, {interaction.user.mention}")
 
 
 @client.tree.command(
@@ -233,21 +234,28 @@ async def modify_offkai(
     # 3. Update the persistent message in the Discord thread
     await update_event_message(client, modified_event)
 
-    # 4. Send the update announcement message to the thread
-    if modified_event.channel_id:
-        thread = client.get_channel(modified_event.channel_id)
-        if isinstance(thread, discord.Thread):
-            try:
-                await thread.send(f"**Event Updated:**\n{update_msg}")
-            except discord.HTTPException as e:
-                # Log warning but don't fail the whole command if announcement send fails
-                _log.warning(f"Could not send update message to thread {thread.id} for event '{event_name}': {e}")
-        else:
-            _log.warning(
-                f"Could not find thread {modified_event.channel_id} to send update message for event '{event_name}'."
-            )
-    else:
-        _log.warning(f"Event '{event_name}' is missing channel_id, cannot send update message.")
+    # 4. Send the update announcement message (REFACTORED BLOCK)
+    try:
+        # Fetch the thread using the helper.
+        # This handles missing ID, not found, wrong type, and access errors by raising.
+        thread = await fetch_thread_for_event(client, modified_event)
+
+        # If fetch_thread_for_event succeeded, 'thread' is a valid discord.Thread
+        try:
+            await thread.send(f"**Event Updated:**\n{update_msg}")
+        except discord.HTTPException as e:
+            # Log warning for send failure, but don't fail the command
+            _log.warning(f"Could not send update message to thread {thread.id} for event '{event_name}': {e}")
+
+    except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
+        # Log specific errors related to getting the thread, but don't fail the command
+        # Use the error's defined log level if available, otherwise default to WARNING
+        log_level = getattr(e, "log_level", logging.WARNING)
+        _log.log(log_level, f"Could not send update message for event '{event_name}': {e}")
+    except Exception as e:
+        # Log unexpected errors during the thread fetching/sending process
+        _log.exception(f"Unexpected error sending update message for event '{event_name}': {e}")
+    # --- END REFACTORED BLOCK ---
 
     # 5. Send confirmation response to the interaction
     await interaction.response.send_message(
@@ -275,21 +283,29 @@ async def close_offkai(interaction: discord.Interaction, event_name: str, close_
     # 3. Update the message view
     await update_event_message(client, closed_event)
 
-    # 4. Send closing message to thread (if provided and possible)
+    # 4. Send closing message to thread (if provided and possible) (REFACTORED BLOCK)
     if close_msg:
-        if closed_event.channel_id:
-            thread = client.get_channel(closed_event.channel_id)
-            if isinstance(thread, discord.Thread):
-                try:
-                    await thread.send(f"**Responses Closed:**\n{close_msg}")
-                except discord.HTTPException as e:
-                    _log.warning(f"Could not send closing message to thread {thread.id} for event '{event_name}': {e}")
-            else:
-                _log.warning(
-                    f"Could not find thread {closed_event.channel_id} to send closing message for event '{event_name}'."
-                )
-        else:
-            _log.warning(f"Event '{event_name}' is missing channel_id, cannot send closing message.")
+        try:
+            # Fetch the thread using the helper.
+            # This handles missing ID, not found, wrong type, and access errors by raising.
+            thread = await fetch_thread_for_event(client, closed_event)
+
+            # If fetch_thread_for_event succeeded, 'thread' is a valid discord.Thread
+            try:
+                await thread.send(f"**Responses Closed:**\n{close_msg}")
+            except discord.HTTPException as e:
+                # Log warning for send failure, but don't fail the command
+                _log.warning(f"Could not send closing message to thread {thread.id} for event '{event_name}': {e}")
+
+        except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
+            # Log specific errors related to getting the thread, but don't fail the command
+            # Use the error's defined log level if available, otherwise default to WARNING
+            log_level = getattr(e, "log_level", logging.WARNING)
+            _log.log(log_level, f"Could not send closing message for event '{event_name}': {e}")
+        except Exception as e:
+            # Log unexpected errors during the thread fetching/sending process
+            _log.exception(f"Unexpected error sending closing message for event '{event_name}': {e}")
+    # --- END REFACTORED BLOCK ---
 
     # 5. Send confirmation response
     await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
@@ -316,24 +332,29 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str, reope
     # 3. Update the message view
     await update_event_message(client, reopened_event)
 
-    # 4. Send reopening message to thread (if provided and possible)
+    # 4. Send reopening message to thread (if provided and possible) (REFACTORED BLOCK)
     if reopen_msg:
-        if reopened_event.channel_id:
-            thread = client.get_channel(reopened_event.channel_id)
-            if isinstance(thread, discord.Thread):
-                try:
-                    await thread.send(f"**Responses Reopened:**\n{reopen_msg}")
-                except discord.HTTPException as e:
-                    _log.warning(
-                        f"Could not send reopening message to thread {thread.id} for event '{event_name}': {e}"
-                    )
-            else:
-                _log.warning(
-                    f"Could not find thread {reopened_event.channel_id} "
-                    f"to send reopening message for event '{event_name}'."
-                )
-        else:
-            _log.warning(f"Event '{event_name}' is missing channel_id, cannot send reopening message.")
+        try:
+            # Fetch the thread using the helper.
+            # This handles missing ID, not found, wrong type, and access errors by raising.
+            thread = await fetch_thread_for_event(client, reopened_event)
+
+            # If fetch_thread_for_event succeeded, 'thread' is a valid discord.Thread
+            try:
+                await thread.send(f"**Responses Reopened:**\n{reopen_msg}")
+            except discord.HTTPException as e:
+                # Log warning for send failure, but don't fail the command
+                _log.warning(f"Could not send reopening message to thread {thread.id} for event '{event_name}': {e}")
+
+        except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
+            # Log specific errors related to getting the thread, but don't fail the command
+            # Use the error's defined log level if available, otherwise default to WARNING
+            log_level = getattr(e, "log_level", logging.WARNING)
+            _log.log(log_level, f"Could not send reopening message for event '{event_name}': {e}")
+        except Exception as e:
+            # Log unexpected errors during the thread fetching/sending process
+            _log.exception(f"Unexpected error sending reopening message for event '{event_name}': {e}")
+    # --- END REFACTORED BLOCK ---
 
     # 5. Send confirmation response
     await interaction.response.send_message(f"✅ Responses for '{event_name}' have been reopened.")
@@ -359,17 +380,32 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
     # 3. Update the message view (always update after archiving as 'open' is set to False)
     await update_event_message(client, archived_event)
 
-    # 4. Optionally archive the Discord thread itself
-    if archived_event.channel_id:
-        thread = client.get_channel(archived_event.channel_id)
-        if isinstance(thread, discord.Thread) and not thread.archived:
+    # 4. Optionally archive the Discord thread itself (REFACTORED BLOCK)
+    try:
+        # Fetch the thread using the helper.
+        # This handles missing ID, not found, wrong type, and access errors by raising.
+        thread = await fetch_thread_for_event(client, archived_event)
+
+        # If fetch succeeded, 'thread' is a valid discord.Thread
+        if not thread.archived:  # Check if already archived before trying to edit
             try:
                 await thread.edit(archived=True, locked=True)  # Archive and lock
                 _log.info(f"Archived thread {thread.id} for event '{event_name}'.")
             except discord.HTTPException as e:
+                # Log warning for edit failure, but don't fail the command
                 _log.warning(f"Could not archive thread {thread.id}: {e}")
-        elif not isinstance(thread, discord.Thread):
-            _log.warning(f"Could not find thread {archived_event.channel_id} to archive for event '{event_name}'.")
+        # else: # Optional: Log if thread was already archived
+        #     _log.info(f"Thread {thread.id} for event '{event_name}' was already archived.")
+
+    except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
+        # Log specific errors related to getting the thread, but don't fail the command
+        # Use the error's defined log level if available, otherwise default to WARNING
+        log_level = getattr(e, "log_level", logging.WARNING)
+        _log.log(log_level, f"Could not archive thread for event '{event_name}': {e}")
+    except Exception as e:
+        # Log unexpected errors during the thread fetching/editing process
+        _log.exception(f"Unexpected error archiving thread for event '{event_name}': {e}")
+    # --- END REFACTORED BLOCK ---
 
     # 5. Send confirmation response
     await interaction.response.send_message(f"✅ Event '{event_name}' has been archived.")
@@ -386,20 +422,15 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 async def broadcast(interaction: discord.Interaction, event_name: str, message: str):
     event = get_event(event_name)
 
-    if not event.channel_id:
-        raise MissingChannelIDError(event_name)
-
-    channel = client.get_channel(event.channel_id)
-    if not isinstance(channel, discord.Thread):
-        raise ThreadNotFoundError(event_name, event.channel_id)
+    thread = await fetch_thread_for_event(client, event)
 
     try:
-        await channel.send(f"{message}")
-        await interaction.response.send_message(f"📣 Sent broadcast to channel {channel.mention}.", ephemeral=True)
+        await thread.send(f"{message}")
+        await interaction.response.send_message(f"📣 Sent broadcast to channel {thread.mention}.", ephemeral=True)
     except discord.Forbidden as e:
-        raise BroadcastPermissionError(channel, e)
+        raise BroadcastPermissionError(thread, e)
     except discord.HTTPException as e:
-        raise BroadcastSendError(channel, e)
+        raise BroadcastSendError(thread, e)
 
 
 @client.tree.command(
@@ -411,34 +442,35 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
 async def delete_response(interaction: discord.Interaction, event_name: str, member: discord.Member):
-    # 1. Check if the event exists first
+    # 1. Check if the event exists first (get_event raises EventNotFoundError if not found)
     event = get_event(event_name)
 
     # 2. Attempt to remove the response using the data layer function
-    removed = remove_response(event_name, member.id)
+    #    This will now raise ResponseNotFoundError if the response doesn't exist.
+    #    No try...except needed here, let the global handler catch ResponseNotFoundError.
+    remove_response(event_name, member.id)
 
-    # 3. Handle result
-    if removed:
-        await interaction.response.send_message(
-            f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
-            ephemeral=True,
-        )
-        # Try removing user from thread (event object is already available from the check above)
-        if event.channel_id:
-            thread = client.get_channel(event.channel_id)
-            if isinstance(thread, discord.Thread):
-                with contextlib.suppress(discord.HTTPException):  # Keep suppress for optional action
-                    await thread.remove_user(member)
-                    _log.info(f"Removed user {member.id} from thread {thread.id} for event '{event_name}'.")
-            else:
-                _log.warning(f"Could not find thread {event.channel_id} to remove user for event '{event_name}'.")
+    # --- Success Path (only runs if remove_response didn't raise error) ---
+    await interaction.response.send_message(
+        f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
+        ephemeral=True,
+    )
+
+    # Try removing user from thread (event object is already available)
+    if event.channel_id:
+        thread = client.get_channel(event.channel_id)
+        if isinstance(thread, discord.Thread):
+            try:
+                await thread.remove_user(member)
+                _log.info(f"Removed user {member.id} from thread {thread.id} for event '{event_name}'.")
+            except discord.HTTPException as e:
+                # Log error but don't fail the command for this optional step
+                _log.error(f"Failed to remove user {member.id} from thread {thread.id}: {e}")
         else:
-            _log.warning(f"Event '{event_name}' is missing channel_id, cannot remove user from thread.")
-
+            _log.warning(f"Could not find thread {event.channel_id} to remove user for event '{event_name}'.")
     else:
-        # Now, if 'removed' is False, we know the event exists,
-        # so the user's response must genuinely not have been found.
-        raise ResponseNotFoundError(event_name, member.mention)
+        _log.warning(f"Event '{event_name}' is missing channel_id, cannot remove user from thread.")
+    # --- End Success Path ---
 
 
 @client.tree.command(

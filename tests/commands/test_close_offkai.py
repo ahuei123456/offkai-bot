@@ -1,6 +1,7 @@
 # tests/commands/test_close_offkai.py
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import logging
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -13,6 +14,9 @@ from offkai_bot.errors import (
     EventAlreadyClosedError,  # Import base class for broader catches if needed
     EventArchivedError,
     EventNotFoundError,
+    MissingChannelIDError,
+    ThreadAccessError,
+    ThreadNotFoundError,
 )
 
 # pytest marker for async tests
@@ -64,31 +68,35 @@ def mock_closed_event(sample_event_list):
 # --- Test Cases ---
 
 
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main.client")  # Mock the client object to mock get_channel
 @patch("offkai_bot.main._log")
 async def test_close_offkai_success_with_message(
     mock_log,
-    mock_client,
     mock_set_status,
     mock_save_data,
     mock_update_msg_view,
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
     mock_thread,  # From conftest.py
     mock_closed_event,  # From this file
-    prepopulated_event_cache,  # Use fixture to ensure cache is populated
+    prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test the successful path of close_offkai with a closing message."""
     # Arrange
     event_name_to_close = "Summer Bash"
     close_text = "Responses are now closed!"
 
-    # Mock the data layer function returning the closed event
     mock_set_status.return_value = mock_closed_event
-    # Mock client.get_channel finding the thread
-    mock_client.get_channel.return_value = mock_thread
+    # Mock the helper returning the thread
+    mock_fetch_thread.return_value = mock_thread
+    # Ensure thread ID matches event ID if needed
+    mock_thread.id = mock_closed_event.channel_id
+    mock_thread.mention = f"<#{mock_thread.id}>"
 
     # Act
     await main.close_offkai.callback(
@@ -98,45 +106,42 @@ async def test_close_offkai_success_with_message(
     )
 
     # Assert
-    # 1. Check data layer call
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
-    # 2. Check save call
     mock_save_data.assert_called_once()
-    # 3. Check Discord message view update call
-    mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
-    # 4. Check getting the channel
-    mock_client.get_channel.assert_called_once_with(mock_closed_event.channel_id)
-    # 5. Check sending closing message to thread
+    mock_update_msg_view.assert_awaited_once_with(ANY, mock_closed_event)  # ANY for client
+    # Check fetching the thread via helper
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_closed_event)  # ANY for client
+    # Check sending closing message to thread
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
-    # 6. Check final interaction response
+    # Check final interaction response
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_close}' have been closed."
     )
-    # 7. Check logs (optional)
     mock_log.warning.assert_not_called()
 
 
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main.client")
 @patch("offkai_bot.main._log")
 async def test_close_offkai_success_no_message(
     mock_log,
-    mock_client,
     mock_set_status,
     mock_save_data,
     mock_update_msg_view,
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
-    mock_thread,  # Still need mock_thread for get_channel potentially
+    mock_thread,
     mock_closed_event,
     prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test the successful path of close_offkai without a closing message."""
     # Arrange
     event_name_to_close = "Summer Bash"
     mock_set_status.return_value = mock_closed_event
-    mock_client.get_channel.return_value = mock_thread  # Assume channel is found
 
     # Act
     await main.close_offkai.callback(
@@ -146,21 +151,17 @@ async def test_close_offkai_success_no_message(
     )
 
     # Assert
-    # 1. Check data layer call
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
-    # 2. Check save call
     mock_save_data.assert_called_once()
-    # 3. Check Discord message view update call
-    mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
-    # 4. Check getting the channel was NOT called (because close_msg is None)
-    mock_client.get_channel.assert_not_called()
-    # 5. Check sending closing message was NOT called
+    mock_update_msg_view.assert_awaited_once_with(ANY, mock_closed_event)
+    # Check fetching the thread was NOT called (because close_msg is None)
+    mock_fetch_thread.assert_not_awaited()
+    # Check sending closing message was NOT called
     mock_thread.send.assert_not_awaited()
-    # 6. Check final interaction response
+    # Check final interaction response
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_close}' have been closed."
     )
-    # 7. Check logs
     mock_log.warning.assert_not_called()
 
 
@@ -172,25 +173,27 @@ async def test_close_offkai_success_no_message(
         (EventAlreadyClosedError, ("Autumn Meetup",)),  # Use an already closed event
     ],
 )
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main.client")
 @patch("offkai_bot.main._log")
 async def test_close_offkai_data_layer_errors(
     mock_log,
-    mock_client,
     mock_set_status,
     mock_save_data,
     mock_update_msg_view,
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
     error_type,
     error_args,
     prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test handling of errors raised by set_event_open_status."""
     # Arrange
-    event_name = error_args[0]  # Get relevant event name from args
+    event_name = error_args[0]
     mock_set_status.side_effect = error_type(*error_args)
 
     # Act & Assert
@@ -201,36 +204,36 @@ async def test_close_offkai_data_layer_errors(
             close_msg="Attempting to close",
         )
 
-    # Assert data layer call was made
     mock_set_status.assert_called_once()
-    # Assert subsequent steps were NOT called
     mock_save_data.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
-    mock_client.get_channel.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()  # Error handler deals with response
+    mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
+    mock_interaction.response.send_message.assert_not_awaited()
 
 
+# --- UPDATED TEST ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main.client")
 @patch("offkai_bot.main._log")
-async def test_close_offkai_thread_not_found(
+async def test_close_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_log,
-    mock_client,
     mock_set_status,
     mock_save_data,
     mock_update_msg_view,
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
     mock_closed_event,
     prepopulated_event_cache,
 ):
-    """Test close_offkai when the thread channel is not found."""
+    """Test close_offkai when fetch_thread_for_event raises ThreadNotFoundError."""
     # Arrange
     event_name_to_close = "Summer Bash"
     close_text = "Closing!"
     mock_set_status.return_value = mock_closed_event
-    mock_client.get_channel.return_value = None  # Simulate thread not found
+    # Mock the helper raising the error
+    mock_fetch_thread.side_effect = ThreadNotFoundError(event_name_to_close, mock_closed_event.channel_id)
 
     # Act
     await main.close_offkai.callback(
@@ -240,15 +243,17 @@ async def test_close_offkai_thread_not_found(
     )
 
     # Assert
-    # Steps up to finding channel should succeed
+    # Steps up to fetching thread should succeed
     mock_set_status.assert_called_once()
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once()
-    mock_client.get_channel.assert_called_once_with(mock_closed_event.channel_id)
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_closed_event)
 
-    # Sending update message should be skipped, warning logged
-    mock_log.warning.assert_called_once()
-    assert f"Could not find thread {mock_closed_event.channel_id}" in mock_log.warning.call_args[0][0]
+    # Sending update message should be skipped, warning logged (or specific level from error)
+    mock_log.log.assert_called_once()  # Check that the generic .log was called
+    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for ThreadNotFoundError
+    assert f"Could not send closing message for event '{event_name_to_close}'" in mock_log.log.call_args[0][1]
+    assert "Could not find thread channel" in mock_log.log.call_args[0][1]  # Check error type mentioned
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -256,28 +261,134 @@ async def test_close_offkai_thread_not_found(
     )
 
 
+# --- END UPDATED TEST ---
+
+
+# --- NEW TEST ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main.client")
 @patch("offkai_bot.main._log")
-async def test_close_offkai_send_close_msg_fails(
+async def test_close_offkai_fetch_thread_missing_id_error(
     mock_log,
-    mock_client,
     mock_set_status,
     mock_save_data,
     mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_closed_event,
+    prepopulated_event_cache,
+):
+    """Test close_offkai when fetch_thread_for_event raises MissingChannelIDError."""
+    # Arrange
+    event_name_to_close = "Summer Bash"
+    close_text = "Closing!"
+    mock_set_status.return_value = mock_closed_event
+    mock_fetch_thread.side_effect = MissingChannelIDError(event_name_to_close)
+
+    # Act
+    await main.close_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_close,
+        close_msg=close_text,
+    )
+
+    # Assert
+    mock_set_status.assert_called_once()
+    mock_save_data.assert_called_once()
+    mock_update_msg_view.assert_awaited_once()
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_closed_event)
+
+    # Sending update message should be skipped, warning logged
+    mock_log.log.assert_called_once()
+    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for MissingChannelIDError
+    assert f"Could not send closing message for event '{event_name_to_close}'" in mock_log.log.call_args[0][1]
+    assert "does not have a channel ID" in mock_log.log.call_args[0][1]
+
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Responses for '{event_name_to_close}' have been closed."
+    )
+
+
+# --- END NEW TEST ---
+
+
+# --- NEW TEST ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.set_event_open_status")
+@patch("offkai_bot.main._log")
+async def test_close_offkai_fetch_thread_access_error(
+    mock_log,
+    mock_set_status,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_closed_event,
+    prepopulated_event_cache,
+):
+    """Test close_offkai when fetch_thread_for_event raises ThreadAccessError."""
+    # Arrange
+    event_name_to_close = "Summer Bash"
+    close_text = "Closing!"
+    mock_set_status.return_value = mock_closed_event
+    mock_fetch_thread.side_effect = ThreadAccessError(event_name_to_close, mock_closed_event.channel_id)
+
+    # Act
+    await main.close_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_close,
+        close_msg=close_text,
+    )
+
+    # Assert
+    mock_set_status.assert_called_once()
+    mock_save_data.assert_called_once()
+    mock_update_msg_view.assert_awaited_once()
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_closed_event)
+
+    # Sending update message should be skipped, error logged
+    mock_log.log.assert_called_once()
+    assert mock_log.log.call_args[0][0] == logging.ERROR  # Check level for ThreadAccessError
+    assert f"Could not send closing message for event '{event_name_to_close}'" in mock_log.log.call_args[0][1]
+    assert "Bot lacks permissions" in mock_log.log.call_args[0][1]
+
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Responses for '{event_name_to_close}' have been closed."
+    )
+
+
+# --- END NEW TEST ---
+
+
+# --- UPDATED PATCHES ---
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.set_event_open_status")
+@patch("offkai_bot.main._log")
+async def test_close_offkai_send_close_msg_fails(
+    mock_log,
+    mock_set_status,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
     mock_thread,  # Need the thread mock here
     mock_closed_event,
     prepopulated_event_cache,
 ):
+    # --- END UPDATED PATCHES ---
     """Test close_offkai when sending the closing message fails."""
     # Arrange
     event_name_to_close = "Summer Bash"
     close_text = "Closing!"
     mock_set_status.return_value = mock_closed_event
-    mock_client.get_channel.return_value = mock_thread
+    # Mock helper returning thread successfully
+    mock_fetch_thread.return_value = mock_thread
     # Simulate error sending message
     send_error = discord.HTTPException(MagicMock(), "Cannot send messages")
     mock_thread.send.side_effect = send_error
@@ -290,63 +401,17 @@ async def test_close_offkai_send_close_msg_fails(
     )
 
     # Assert
-    # Steps up to sending message should succeed
     mock_set_status.assert_called_once()
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once()
-    mock_client.get_channel.assert_called_once_with(mock_closed_event.channel_id)
+    # Assert helper was called
+    mock_fetch_thread.assert_awaited_once_with(ANY, mock_closed_event)
+    # Assert send was called
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
 
     # Warning should be logged for send failure
     mock_log.warning.assert_called_once()
     assert f"Could not send closing message to thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
-
-    # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Responses for '{event_name_to_close}' have been closed."
-    )
-
-
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main.client")
-@patch("offkai_bot.main._log")
-async def test_close_offkai_missing_channel_id(
-    mock_log,
-    mock_client,
-    mock_set_status,
-    mock_save_data,
-    mock_update_msg_view,
-    mock_interaction,
-    mock_closed_event,
-    prepopulated_event_cache,
-):
-    """Test close_offkai when the event object is missing a channel_id."""
-    # Arrange
-    event_name_to_close = "Summer Bash"
-    close_text = "Closing!"
-    # Modify the event fixture to lack channel_id for this test
-    mock_closed_event.channel_id = None
-    mock_set_status.return_value = mock_closed_event
-
-    # Act
-    await main.close_offkai.callback(
-        mock_interaction,
-        event_name=event_name_to_close,
-        close_msg=close_text,
-    )
-
-    # Assert
-    # Steps up to Discord interactions should succeed
-    mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
-    mock_update_msg_view.assert_awaited_once()
-
-    # Getting channel and sending update should be skipped, warning logged
-    mock_client.get_channel.assert_not_called()
-    mock_log.warning.assert_called_once()
-    assert f"Event '{event_name_to_close}' is missing channel_id" in mock_log.warning.call_args[0][0]
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(

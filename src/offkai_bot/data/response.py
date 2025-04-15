@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from offkai_bot.errors import NoResponsesFoundError
+from offkai_bot.errors import DuplicateResponseError, NoResponsesFoundError, ResponseNotFoundError
 
 # Use relative imports for sibling modules within the package
 from ..config import get_config
@@ -171,38 +171,53 @@ def get_responses(event_name: str) -> list[Response]:
     return responses.get(event_name, [])
 
 
-def add_response(event_name: str, response: Response) -> bool:
-    """Adds a response to the specified event, checking for duplicates."""
+def add_response(event_name: str, response: Response) -> None:  # Changed return type hint to None
+    """Adds a response to the specified event.
+
+    Raises:
+        DuplicateResponseError: If the user has already responded to this event.
+    """
     all_responses = load_responses()
     event_responses = all_responses.get(event_name, [])
 
+    # Check for duplicate response
     if any(r.user_id == response.user_id for r in event_responses):
-        _log.warning(f"User {response.user_id} already responded to event {event_name}.")
-        return False
+        _log.warning(f"User {response.user_id} already responded to event {event_name}. Raising error.")
+        # Raise the specific exception instead of returning False
+        raise DuplicateResponseError(event_name, response.user_id)
 
+    # If no duplicate, proceed with adding
     event_responses.append(response)
     all_responses[event_name] = event_responses
     save_responses()
     _log.info(f"Added response from user {response.user_id} to event {event_name}.")
-    return True
+    # No return needed on success
 
 
-def remove_response(event_name: str, user_id: int) -> bool:
-    """Removes a response for a given user from the specified event."""
+def remove_response(event_name: str, user_id: int) -> None:  # Changed return type hint to None
+    """Removes a response for a given user from the specified event.
+
+    Raises:
+        ResponseNotFoundError: If no response is found for the given user and event.
+    """
     all_responses = load_responses()
     event_responses = all_responses.get(event_name, [])
 
     initial_count = len(event_responses)
+    # Filter out the response matching the user_id
     new_event_responses = [r for r in event_responses if r.user_id != user_id]
 
-    if len(new_event_responses) < initial_count:
+    # Check if any response was actually removed
+    if len(new_event_responses) == initial_count:
+        # No response found for the user, raise error instead of returning False
+        _log.warning(f"No response found for user {user_id} in event {event_name} to remove. Raising error.")
+        raise ResponseNotFoundError(event_name, user_id)
+    else:
+        # Response found and removed, update the cache and save
         all_responses[event_name] = new_event_responses
         save_responses()
         _log.info(f"Removed response from user {user_id} for event {event_name}.")
-        return True
-    else:
-        _log.warning(f"No response found for user {user_id} in event {event_name} to remove.")
-        return False
+        # No return needed on success
 
 
 def calculate_attendance(event_name: str) -> tuple[int, list[str]]:

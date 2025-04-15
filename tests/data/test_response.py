@@ -3,10 +3,13 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import mock_open, patch
 
+import pytest
+
 # Import the module we are testing
 from offkai_bot.data import response as response_data
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
-from offkai_bot.data.response import Response  # Import the dataclass too
+from offkai_bot.data.response import Response
+from offkai_bot.errors import DuplicateResponseError, ResponseNotFoundError  # Import the dataclass too
 
 # --- Test Data ---
 NOW = datetime.now(UTC)
@@ -417,9 +420,8 @@ def test_add_response_new(mock_paths):
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
-        result = response_data.add_response("Event A", RESP_2_OBJ)  # Add the second response
+        response_data.add_response("Event A", RESP_2_OBJ)  # Add the second response
 
-        assert result is True
         mock_load.assert_called_once()
         # Check cache was updated
         assert len(initial_cache["Event A"]) == 2
@@ -442,9 +444,8 @@ def test_add_response_new_event(mock_paths):
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
-        result = response_data.add_response("Event B", RESP_3_OBJ)  # Add response for new event
+        response_data.add_response("Event B", RESP_3_OBJ)  # Add response for new event
 
-        assert result is True
         mock_load.assert_called_once()
         # Check cache was updated
         assert "Event B" in initial_cache
@@ -478,9 +479,9 @@ def test_add_response_duplicate(mock_paths):
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
-        result = response_data.add_response("Event A", duplicate_resp)
+        with pytest.raises(DuplicateResponseError):
+            response_data.add_response("Event A", duplicate_resp)
 
-        assert result is False  # Should fail
         mock_load.assert_called_once()
         # Check cache was NOT updated
         assert len(initial_cache["Event A"]) == 1
@@ -506,9 +507,8 @@ def test_remove_response_found(mock_paths):
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
-        result = response_data.remove_response("Event A", RESP_1_OBJ.user_id)  # Remove User 1
+        response_data.remove_response("Event A", RESP_1_OBJ.user_id)  # Remove User 1
 
-        assert result is True
         mock_load.assert_called_once()
         # Check cache was updated
         assert len(initial_cache["Event A"]) == 1
@@ -530,9 +530,9 @@ def test_remove_response_not_found_user(mock_paths):
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
-        result = response_data.remove_response("Event A", 999)  # Non-existent user ID
+        with pytest.raises(ResponseNotFoundError):
+            response_data.remove_response("Event A", 999)  # Non-existent user ID
 
-        assert result is False
         mock_load.assert_called_once()
         # Check cache was NOT updated
         assert len(initial_cache["Event A"]) == 1
@@ -554,9 +554,9 @@ def test_remove_response_not_found_event(mock_paths):
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
-        result = response_data.remove_response("NonExistent Event", RESP_1_OBJ.user_id)
+        with pytest.raises(ResponseNotFoundError):
+            response_data.remove_response("NonExistent Event", RESP_1_OBJ.user_id)
 
-        assert result is False
         mock_load.assert_called_once()
         # Check cache was NOT updated
         assert len(initial_cache["Event A"]) == 1

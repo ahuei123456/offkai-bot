@@ -121,5 +121,6 @@ def mock_thread():
     thread.send = AsyncMock()  # Mock the send method
     thread.edit = AsyncMock()
     thread.remove_user = AsyncMock()
+    thread.fetch_message = AsyncMock()
     thread.archived = False
     return thread
