@@ -225,50 +225,58 @@ async def modify_offkai(
     venue: str | None = None,
     address: str | None = None,
     google_maps_link: str | None = None,
-    date_time: str | None = None,  # Keep as string input
-    deadline: str | None = None,
-    drinks: str | None = None,  # Keep as string input
+    date_time: str | None = None,
+    deadline: str | None = None,  # Added deadline parameter
+    drinks: str | None = None,
 ):
+    # --- ADD Context Validation EARLY ---
+    # Ensure we are in a valid channel before proceeding, needed for channel ID assignment
+    validate_interaction_context(interaction)
+    # --- END Context Validation ---
+
     # 1. Call the data layer function to handle validation and modification
-    #    This function will raise exceptions on failure (e.g., not found, archived, no changes)
     modified_event = update_event_details(
         event_name=event_name,
         venue=venue,
         address=address,
         google_maps_link=google_maps_link,
-        date_time_str=date_time,  # Pass the raw string
+        date_time_str=date_time,
         deadline_str=deadline,
-        drinks_str=drinks,  # Pass the raw string
+        drinks_str=drinks,
     )
 
-    # 2. Save the changes to disk (if modification was successful)
+    # *** NEW: Assign channel_id if missing ***
+    if modified_event.channel_id is None:
+        # Context validation ensures interaction.channel is a TextChannel
+        assert isinstance(interaction.channel, discord.TextChannel)
+        current_channel_id = interaction.channel.id
+        modified_event.channel_id = current_channel_id
+        _log.info(
+            f"Assigned current channel ID ({current_channel_id}) to event '{modified_event.event_name}' as it was missing."
+        )
+    # *** END NEW LOGIC ***
+
+    # 2. Save the changes to disk (includes potentially added channel_id)
     save_event_data()
 
     # 3. Update the persistent message in the Discord thread
+    #    This now uses the potentially updated modified_event object
     await update_event_message(client, modified_event)
 
-    # 4. Send the update announcement message (REFACTORED BLOCK)
+    # 4. Send the update announcement message
     try:
-        # Fetch the thread using the helper.
-        # This handles missing ID, not found, wrong type, and access errors by raising.
+        # Fetch the thread using the helper. It will now use the potentially assigned channel_id.
         thread = await fetch_thread_for_event(client, modified_event)
-
-        # If fetch_thread_for_event succeeded, 'thread' is a valid discord.Thread
         try:
             await thread.send(f"**Event Updated:**\n{update_msg}")
         except discord.HTTPException as e:
-            # Log warning for send failure, but don't fail the command
             _log.warning(f"Could not send update message to thread {thread.id} for event '{event_name}': {e}")
 
     except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
-        # Log specific errors related to getting the thread, but don't fail the command
-        # Use the error's defined log level if available, otherwise default to WARNING
         log_level = getattr(e, "log_level", logging.WARNING)
         _log.log(log_level, f"Could not send update message for event '{event_name}': {e}")
     except Exception as e:
-        # Log unexpected errors during the thread fetching/sending process
         _log.exception(f"Unexpected error sending update message for event '{event_name}': {e}")
-    # --- END REFACTORED BLOCK ---
 
     # 5. Send confirmation response to the interaction
     await interaction.response.send_message(

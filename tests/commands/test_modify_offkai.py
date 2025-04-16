@@ -231,6 +231,80 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
     mock_log.error.assert_not_called()
 
 
+# *** NEW TEST for assigning missing channel_id ***
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_assigns_channel_id_if_missing(
+    mock_log,
+    mock_update_details,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,  # Use the fixture
+    mock_thread,
+    prepopulated_event_cache,  # To get an event to modify
+):
+    """Test modify_offkai assigns interaction channel ID if event.channel_id is None."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"  # Choose an event
+    update_text = "Assigning Channel ID test"
+    interaction_channel_id = mock_interaction.channel.id  # Get ID from fixture
+
+    # Get the original event and create a copy returned by update_details *without* channel_id
+    original_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_modify)
+    event_returned_by_update = copy.deepcopy(original_event)
+    event_returned_by_update.channel_id = None  # Simulate missing ID
+    event_returned_by_update.venue = "Slight Change Venue"  # Make some change
+
+    # Configure mocks
+    mock_update_details.return_value = event_returned_by_update  # Return the object needing ID assignment
+    mock_fetch_thread.return_value = mock_thread  # Assume thread fetch succeeds after ID is assigned
+    mock_thread.id = event_returned_by_update.thread_id  # Match thread ID
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        venue=event_returned_by_update.venue,  # Pass the change
+    )
+
+    # Assert
+    mock_update_details.assert_called_once()  # Verify update was called
+
+    # Verify the log message for assignment
+    mock_log.info.assert_any_call(
+        f"Assigned current channel ID ({interaction_channel_id}) to event '{event_name_to_modify}' as it was missing."
+    )
+
+    mock_save_data.assert_called_once()  # Verify save was called
+
+    # Verify update_event_message was called with the modified object
+    # The object passed is the same one modified in place by the command
+    mock_update_msg_view.assert_awaited_once_with(ANY, event_returned_by_update)
+    # Explicitly check the ID on the object *after* the call
+    assert event_returned_by_update.channel_id == interaction_channel_id
+
+    # Verify fetch_thread_for_event was called with the modified object
+    mock_fetch_thread.assert_awaited_once_with(ANY, event_returned_by_update)
+    # ID check again (redundant but safe)
+    assert event_returned_by_update.channel_id == interaction_channel_id
+
+    # Verify thread message was sent
+    mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
+
+    # Verify final response
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
+    )
+
+
+# *** END NEW TEST ***
+
+
 @pytest.mark.parametrize(
     "error_type, error_args",
     [
