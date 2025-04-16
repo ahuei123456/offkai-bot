@@ -41,8 +41,6 @@ from .interactions import fetch_thread_for_event, load_and_update_events, send_e
 from .util import (
     parse_drinks,
     parse_event_datetime,
-    validate_event_datetime,
-    validate_event_deadline,
     validate_interaction_context,
 )
 
@@ -252,7 +250,8 @@ async def modify_offkai(
         current_channel_id = interaction.channel.id
         modified_event.channel_id = current_channel_id
         _log.info(
-            f"Assigned current channel ID ({current_channel_id}) to event '{modified_event.event_name}' as it was missing."
+            f"Assigned current channel ID ({current_channel_id}) "
+            f"to event '{modified_event.event_name}' as it was missing."
         )
     # *** END NEW LOGIC ***
 
