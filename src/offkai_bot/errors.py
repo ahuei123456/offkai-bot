@@ -80,10 +80,10 @@ class ThreadNotFoundError(BotCommandError):
 
     log_level = logging.WARNING
 
-    def __init__(self, event_name: str, channel_id: int | None):
+    def __init__(self, event_name: str, thread_id: int | None):
         self.event_name = event_name
-        self.channel_id = channel_id
-        super().__init__(f"❌ Could not find thread channel (ID: {channel_id}) for '{event_name}'.")
+        self.thread_id = thread_id
+        super().__init__(f"❌ Could not find thread channel (ID: {thread_id}) for '{event_name}'.")
 
 
 class ThreadAccessError(BotCommandError):
@@ -91,12 +91,12 @@ class ThreadAccessError(BotCommandError):
 
     log_level = logging.ERROR  # Higher severity as it indicates a permission issue
 
-    def __init__(self, event_name: str, channel_id: int | None, original_exception: Exception | None = None):
+    def __init__(self, event_name: str, thread_id: int | None, original_exception: Exception | None = None):
         self.event_name = event_name
-        self.channel_id = channel_id
+        self.thread_id = thread_id
         self.original_exception = original_exception
         super().__init__(
-            f"Bot lacks permissions to access thread for event '{event_name}' (ID: {channel_id}). "
+            f"Bot lacks permissions to access thread for event '{event_name}' (ID: {thread_id}). "
             "Please check bot permissions."
         )
 

@@ -127,7 +127,8 @@ async def hello(interaction: discord.Interaction):
     venue="The offkai venue.",
     address="The address of the offkai venue.",
     google_maps_link="A link to the venue on Google Maps.",
-    date_time="The date and time (YYYY-MM-DD HH:MM). Assumed JST.",  # Clarify timezone assumption
+    date_time="The date and time of the event (YYYY-MM-DD HH:MM). Assumed JST.",  # Clarify timezone assumption
+    deadline="The date and time of the deadline to sign up (YYYY-MM-DD HH:MM). Assumed JST.",
     drinks="Optional: Comma-separated list of allowed drinks.",
     announce_msg="Optional: A message to post in the main channel.",
 )
@@ -140,6 +141,7 @@ async def create_offkai(
     address: str,
     google_maps_link: str,
     date_time: str,
+    deadline: str | None = None,
     drinks: str | None = None,
     announce_msg: str | None = None,
 ):
@@ -150,6 +152,7 @@ async def create_offkai(
 
     # 2. Input Parsing/Transformation
     event_datetime = parse_event_datetime(date_time)
+    event_deadline = parse_event_datetime(deadline) if deadline else None
     drinks_list = parse_drinks(drinks)
 
     # 3. Context Validation
@@ -175,6 +178,8 @@ async def create_offkai(
         address=address,
         google_maps_link=google_maps_link,
         event_datetime=event_datetime,
+        event_deadline=event_deadline,
+        channel_id=interaction.channel.id,
         thread_id=thread.id,
         drinks_list=drinks_list,
         announce_msg=announce_msg,  # Pass announce_msg if stored on Event
@@ -215,6 +220,7 @@ async def modify_offkai(
     address: str | None = None,
     google_maps_link: str | None = None,
     date_time: str | None = None,  # Keep as string input
+    deadline: str | None = None,
     drinks: str | None = None,  # Keep as string input
 ):
     # 1. Call the data layer function to handle validation and modification
@@ -225,6 +231,7 @@ async def modify_offkai(
         address=address,
         google_maps_link=google_maps_link,
         date_time_str=date_time,  # Pass the raw string
+        deadline_str=deadline,
         drinks_str=drinks,  # Pass the raw string
     )
 
@@ -457,8 +464,8 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
     )
 
     # Try removing user from thread (event object is already available)
-    if event.channel_id:
-        thread = client.get_channel(event.channel_id)
+    if event.thread_id:
+        thread = client.get_channel(event.thread_id)
         if isinstance(thread, discord.Thread):
             try:
                 await thread.remove_user(member)
@@ -467,9 +474,9 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
                 # Log error but don't fail the command for this optional step
                 _log.error(f"Failed to remove user {member.id} from thread {thread.id}: {e}")
         else:
-            _log.warning(f"Could not find thread {event.channel_id} to remove user for event '{event_name}'.")
+            _log.warning(f"Could not find thread {event.thread_id} to remove user for event '{event_name}'.")
     else:
-        _log.warning(f"Event '{event_name}' is missing channel_id, cannot remove user from thread.")
+        _log.warning(f"Event '{event_name}' is missing thread_id, cannot remove user from thread.")
     # --- End Success Path ---
 
 

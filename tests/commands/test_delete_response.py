@@ -112,7 +112,7 @@ async def test_delete_response_success(
         ephemeral=True,
     )
     # 4. Check getting the channel
-    mock_client.get_channel.assert_called_once_with(mock_event_obj.channel_id)
+    mock_client.get_channel.assert_called_once_with(mock_event_obj.thread_id)
     # 5. Check removing user from thread
     mock_thread.remove_user.assert_awaited_once_with(mock_member)
     # 6. Check logs
@@ -140,7 +140,7 @@ async def test_delete_response_success_no_channel_id(
     """Test successful response deletion when event has no channel_id."""
     # Arrange
     event_name_target = "Summer Bash"
-    mock_event_obj.channel_id = None  # Modify event for this test
+    mock_event_obj.thread_id = None  # Modify event for this test
     mock_get_event.return_value = mock_event_obj
     # remove_response returns None on success
 
@@ -161,7 +161,7 @@ async def test_delete_response_success_no_channel_id(
     mock_client.get_channel.assert_not_called()
     mock_thread.remove_user.assert_not_awaited()
     mock_log.warning.assert_called_once()
-    assert f"Event '{event_name_target}' is missing channel_id" in mock_log.warning.call_args[0][0]
+    assert f"Event '{event_name_target}' is missing thread_id" in mock_log.warning.call_args[0][0]
     mock_log.info.assert_called_once()
     mock_log.error.assert_not_called()
 
@@ -200,12 +200,12 @@ async def test_delete_response_success_thread_not_found(
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
     mock_interaction.response.send_message.assert_awaited_once()
-    mock_client.get_channel.assert_called_once_with(mock_event_obj.channel_id)
+    mock_client.get_channel.assert_called_once_with(mock_event_obj.thread_id)
 
     # Removing user should be skipped, warning logged
     mock_thread.remove_user.assert_not_awaited()
     mock_log.warning.assert_called_once()
-    assert f"Could not find thread {mock_event_obj.channel_id}" in mock_log.warning.call_args[0][0]
+    assert f"Could not find thread {mock_event_obj.thread_id}" in mock_log.warning.call_args[0][0]
     mock_log.info.assert_called_once()
     mock_log.error.assert_not_called()
 
@@ -247,7 +247,7 @@ async def test_delete_response_success_remove_user_fails(
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
     mock_interaction.response.send_message.assert_awaited_once()
-    mock_client.get_channel.assert_called_once_with(mock_event_obj.channel_id)
+    mock_client.get_channel.assert_called_once_with(mock_event_obj.thread_id)
     mock_thread.remove_user.assert_awaited_once_with(mock_member)  # Should still be called
 
     # Error should be logged, no warning/info logs expected for this specific part

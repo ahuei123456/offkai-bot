@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 from offkai_bot.errors import (
     EventAlreadyArchivedError,
@@ -20,6 +20,9 @@ from ..config import get_config
 from .encoders import DataclassJSONEncoder
 
 _log = logging.getLogger(__name__)
+
+JST = timezone(timedelta(hours=9), name="JST")  # Use this for conversion
+
 
 # Constants can stay here if general, or move if specific
 OFFKAI_MESSAGE = (
@@ -45,9 +48,11 @@ class Event:
     address: str
     google_maps_link: str
     event_datetime: datetime | None = None
+    event_deadline: datetime | None = None
     message: str | None = None  # Optional message for the event itself
 
     channel_id: int | None = None
+    thread_id: int | None = None
     message_id: int | None = None
     open: bool = False
     archived: bool = False
@@ -58,14 +63,27 @@ class Event:
         return len(self.drinks) > 0
 
     def format_details(self):
-        dt_str = self.event_datetime.strftime(r"%Y-%m-%d %H:%M") + " JST" if self.event_datetime else "Not Set"
         drinks_str = ", ".join(self.drinks) if self.drinks else "No selection needed!"
+
+        if self.event_datetime:
+            event_dt_jst = self.event_datetime.astimezone(JST)
+            dt_str = event_dt_jst.strftime(r"%Y-%m-%d %H:%M") + " JST"
+        else:
+            dt_str = "Not Set"
+
+        if self.event_deadline:
+            unix_ts = int(self.event_deadline.timestamp())
+            deadline_str = f"<t:{unix_ts}:F> (<t:{unix_ts}:R>)"
+        else:
+            deadline_str = "Not Set"
+
         return (
             f"📅 **Event Name**: {self.event_name}\n"
             f"🍽️ **Venue**: {self.venue}\n"
             f"📍 **Address**: {self.address}\n"
             f"🌎 **Google Maps Link**: {self.google_maps_link}\n"
             f"🕑 **Date and Time**: {dt_str}\n"
+            f"📅 **Deadline**: {deadline_str}\n"
             f"🍺 **Drinks**: {drinks_str}"
         )
 
@@ -119,33 +137,94 @@ def _load_event_data() -> list[Event]:
                 _log.error(f"Skipping event entry due to missing or empty 'event_name'. Data: {event_dict}")
                 continue  # Skip this dictionary and move to the next one
 
-            dt = None
-            if "event_datetime" in event_dict and event_dict["event_datetime"]:
+            # --- Parse and Convert event_datetime ---
+            event_datetime_utc = None
+            raw_dt_str = event_dict.get("event_datetime")
+            if raw_dt_str:
                 try:
-                    dt = datetime.fromisoformat(event_dict["event_datetime"])
-                except (ValueError, TypeError):
+                    dt_obj = datetime.fromisoformat(raw_dt_str)
+                    if dt_obj.tzinfo is None:
+                        # Assume naive datetime is JST, make aware, convert to UTC
+                        aware_jst = dt_obj.replace(tzinfo=JST)
+                        event_datetime_utc = aware_jst.astimezone(UTC)
+                        _log.debug(
+                            f"Converted naive datetime '{raw_dt_str}' (assumed JST) to UTC: {event_datetime_utc}"
+                        )
+                    else:
+                        # Already aware, just convert to UTC
+                        event_datetime_utc = dt_obj.astimezone(UTC)
+                        _log.debug(f"Converted aware datetime '{raw_dt_str}' to UTC: {event_datetime_utc}")
+                except (ValueError, TypeError) as e:
                     _log.warning(
-                        f"Could not parse ISO datetime '{event_dict.get('event_datetime')}' "
-                        f"for {event_dict.get('event_name')}"
+                        f"Could not parse/convert ISO datetime '{raw_dt_str}' for {event_dict.get('event_name')}: {e}"
                     )
-                    dt = None
+                    event_datetime_utc = None  # Keep as None on error
+            # --- End event_datetime Parsing ---
+
+            # --- Parse and Convert event_deadline ---
+            event_deadline_utc = None
+            raw_deadline_str = event_dict.get("event_deadline")
+            if raw_deadline_str:
+                try:
+                    dt_obj = datetime.fromisoformat(raw_deadline_str)
+                    if dt_obj.tzinfo is None:
+                        # Assume naive datetime is JST, make aware, convert to UTC
+                        aware_jst = dt_obj.replace(tzinfo=JST)
+                        event_deadline_utc = aware_jst.astimezone(UTC)
+                        _log.debug(
+                            f"Converted naive deadline '{raw_deadline_str}' (assumed JST) to UTC: {event_deadline_utc}"
+                        )
+                    else:
+                        # Already aware, just convert to UTC
+                        event_deadline_utc = dt_obj.astimezone(UTC)
+                        _log.debug(f"Converted aware deadline '{raw_deadline_str}' to UTC: {event_deadline_utc}")
+                except (ValueError, TypeError) as e:
+                    _log.warning(
+                        f"Could not parse/convert ISO deadline '{raw_deadline_str}' "
+                        f"for {event_dict.get('event_name')}: {e}"
+                    )
+                    event_deadline_utc = None  # Keep as None on error
+            # --- End event_deadline Parsing ---
 
             drinks = event_dict.get("drinks", [])
 
             try:
-                event = Event(
-                    event_name=event_dict["event_name"],
-                    venue=event_dict.get("venue", "Unknown Venue"),
-                    address=event_dict.get("address", "Unknown Address"),
-                    google_maps_link=event_dict.get("google_maps_link", ""),
-                    event_datetime=dt,
-                    message=event_dict.get("message"),
-                    channel_id=event_dict.get("channel_id"),
-                    message_id=event_dict.get("message_id"),
-                    open=event_dict.get("open", False),
-                    archived=event_dict.get("archived", False),
-                    drinks=drinks,
-                )
+                if "event_deadline" in event_dict:
+                    event = Event(
+                        event_name=event_dict["event_name"],
+                        venue=event_dict.get("venue", "Unknown Venue"),
+                        address=event_dict.get("address", "Unknown Address"),
+                        google_maps_link=event_dict.get("google_maps_link", ""),
+                        event_datetime=event_datetime_utc,
+                        event_deadline=event_deadline_utc,
+                        message=event_dict.get("message"),
+                        channel_id=event_dict.get("channel_id"),
+                        thread_id=event_dict.get("thread_id"),
+                        message_id=event_dict.get("message_id"),
+                        open=event_dict.get("open", False),
+                        archived=event_dict.get("archived", False),
+                        drinks=drinks,
+                    )
+                else:
+                    # Old format, so we ignore channel_id and event_deadline
+                    event = Event(
+                        event_name=event_dict["event_name"],
+                        venue=event_dict.get("venue", "Unknown Venue"),
+                        address=event_dict.get("address", "Unknown Address"),
+                        google_maps_link=event_dict.get("google_maps_link", ""),
+                        event_datetime=event_datetime_utc,
+                        event_deadline=None,
+                        message=event_dict.get("message"),
+                        channel_id=None,  # No deadline, so no channel
+                        thread_id=event_dict.get("channel_id"),
+                        message_id=event_dict.get("message_id"),
+                        open=event_dict.get("open", False),
+                        archived=event_dict.get("archived", False),
+                        drinks=drinks,
+                    )
+                    _log.info(
+                        f"Found old events.json format for {event.event_name}. Successfully converted to new format."
+                    )
                 events_list.append(event)
             except TypeError as e:
                 _log.error(f"Error creating Event object from dict {event_dict}: {e}")
@@ -220,8 +299,10 @@ def add_event(
     address: str,
     google_maps_link: str,
     event_datetime: datetime,
+    channel_id: int,
     thread_id: int,
     drinks_list: list[str],
+    event_deadline: datetime | None = None,  # Signup deadline is optional
     announce_msg: str | None = None,  # Pass announce_msg if you want to store it on Event
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
@@ -233,7 +314,9 @@ def add_event(
         address=address,
         google_maps_link=google_maps_link,
         event_datetime=event_datetime,
-        channel_id=thread_id,
+        event_deadline=event_deadline,
+        channel_id=channel_id,
+        thread_id=thread_id,
         message_id=None,  # Will be set later by send_event_message
         open=True,
         archived=False,
@@ -257,6 +340,7 @@ def update_event_details(
     address: str | None = None,
     google_maps_link: str | None = None,
     date_time_str: str | None = None,
+    deadline_str: str | None = None,
     drinks_str: str | None = None,
 ) -> Event:
     """
@@ -284,6 +368,10 @@ def update_event_details(
         # This will raise InvalidDateTimeFormatError immediately if parsing fails
         parsed_datetime = parse_event_datetime(date_time_str)
 
+    parsed_deadline: datetime | None = None
+    if deadline_str is not None:
+        parsed_deadline = parse_event_datetime(deadline_str)
+
     parsed_drinks: list[str] = []
     if drinks_str is not None:
         # Assuming parse_drinks doesn't raise errors, just returns a list
@@ -299,6 +387,8 @@ def update_event_details(
         modified = True
     # Check parsed datetime only if input string was provided
     if date_time_str is not None and event.event_datetime != parsed_datetime:
+        modified = True
+    if deadline_str is not None and event.event_deadline != parsed_deadline:
         modified = True
     # Check parsed drinks only if input string was provided
     if drinks_str is not None and set(event.drinks) != set(parsed_drinks):  # Use set comparison
@@ -317,6 +407,8 @@ def update_event_details(
         event.google_maps_link = google_maps_link
     if date_time_str is not None:  # Apply the parsed datetime
         event.event_datetime = parsed_datetime
+    if deadline_str is not None:  # Apply the parsed deadline
+        event.event_deadline = parsed_deadline
     if drinks_str is not None:  # Apply the parsed drinks
         event.drinks = parsed_drinks
 
