@@ -2,7 +2,7 @@
 
 import copy
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
@@ -14,6 +14,9 @@ from offkai_bot import main
 from offkai_bot.data.event import Event  # To create return value
 from offkai_bot.errors import (
     EventArchivedError,
+    EventDateTimeInPastError,
+    EventDeadlineAfterEventError,
+    EventDeadlineInPastError,
     EventNotFoundError,
     InvalidDateTimeFormatError,
     MissingChannelIDError,
@@ -21,6 +24,7 @@ from offkai_bot.errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
+from offkai_bot.util import JST
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
@@ -59,24 +63,27 @@ def mock_interaction():
     return interaction
 
 
+# *** Use explicitly future dates in fixture for robustness ***
 @pytest.fixture
 def mock_modified_event():
-    """Fixture for the expected state of the event after modification (including deadline)."""
-    # Based on "Summer Bash" being modified
+    """Fixture for the expected state of the event after modification."""
+    now = datetime.now(UTC)
+    event_dt = now + timedelta(days=40)  # Further in future
+    deadline_dt = event_dt - timedelta(days=10)  # Also future, before event
     return Event(
-        event_name="Summer Bash",
-        venue="New Venue",  # Modified
-        address="1 Beach Rd",
-        google_maps_link="new_gmap",  # Modified
-        event_datetime=datetime(2024, 8, 10, 20, 0, tzinfo=UTC),  # Modified
-        event_deadline=datetime(2024, 8, 5, 23, 59, tzinfo=UTC),  # Modified deadline
-        channel_id=1001,  # From sample_event_list
-        thread_id=1501,  # From sample_event_list
-        message_id=2001,  # From sample_event_list
+        event_name="Summer Bash",  # Matches sample_event_list[0]
+        venue="New Venue",
+        address="1 Beach Rd",  # Original address
+        google_maps_link="new_gmap",
+        event_datetime=event_dt,
+        event_deadline=deadline_dt,
+        channel_id=1001,
+        thread_id=1501,
+        message_id=2001,
         open=True,
         archived=False,
-        drinks=["Water"],  # Modified
-        message=None,  # Assume message wasn't part of modification
+        drinks=["Water"],
+        message=None,
     )
 
 
@@ -101,18 +108,19 @@ async def test_modify_offkai_success(
 ):
     """Test the successful path of modify_offkai including updating the deadline."""
     # Arrange
-    event_name_to_modify = "Summer Bash"  # Exists in prepopulated_event_cache
+    event_name_to_modify = "Summer Bash"
     update_text = "Details updated!"
-    new_venue = "New Venue"
-    new_gmaps = "new_gmap"
-    new_dt_str = "2024-08-10 20:00"
-    new_deadline_str = "2024-08-05 23:59"  # Add deadline string
-    new_drinks_str = "Water"
+    new_venue = mock_modified_event.venue
+    new_gmaps = mock_modified_event.google_maps_link
+    # Generate date strings based on the fixture's future dates
+    event_dt_jst = mock_modified_event.event_datetime.astimezone(JST)
+    deadline_dt_jst = mock_modified_event.event_deadline.astimezone(JST)
+    new_dt_str = event_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    new_deadline_str = deadline_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    new_drinks_str = ", ".join(mock_modified_event.drinks)
 
-    # Ensure the mock returns the event with the modified deadline
     mock_update_details.return_value = mock_modified_event
     mock_fetch_thread.return_value = mock_thread
-    # Ensure thread ID matches event's thread ID for consistency
     mock_thread.id = mock_modified_event.thread_id
     mock_thread.mention = f"<#{mock_thread.id}>"
 
@@ -125,30 +133,24 @@ async def test_modify_offkai_success(
         address=None,
         google_maps_link=new_gmaps,
         date_time=new_dt_str,
-        deadline=new_deadline_str,  # Pass the deadline string
+        deadline=new_deadline_str,
         drinks=new_drinks_str,
     )
 
     # Assert
-    # 1. Check update_event_details call (includes deadline_str)
     mock_update_details.assert_called_once_with(
         event_name=event_name_to_modify,
         venue=new_venue,
         address=None,
         google_maps_link=new_gmaps,
         date_time_str=new_dt_str,
-        deadline_str=new_deadline_str,  # Verify deadline is passed
+        deadline_str=new_deadline_str,
         drinks_str=new_drinks_str,
     )
-    # 2. Check save data
     mock_save_data.assert_called_once()
-    # 3. Check update original message/view
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_modified_event)
-    # 4. Check fetching the thread via helper
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
-    # 5. Check sending update message to thread
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
-    # 6. Check final interaction response
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
@@ -233,9 +235,12 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
     "error_type, error_args",
     [
         (EventNotFoundError, ("NonExistent Event",)),
-        (EventArchivedError, ("Archived Party", "modify")),  # Use event from sample_event_list
-        (InvalidDateTimeFormatError, ()),  # Error raised during parsing
-        (NoChangesProvidedError, ()),  # Error raised if no changes detected
+        (EventArchivedError, ("Archived Party", "modify")),
+        (InvalidDateTimeFormatError, ()),  # Error from parsing
+        (NoChangesProvidedError, ()),
+        (EventDateTimeInPastError, ()),  # New validation error
+        (EventDeadlineInPastError, ()),  # New validation error
+        (EventDeadlineAfterEventError, ()),  # New validation error
     ],
 )
 # Patches updated to include fetch_thread_for_event
@@ -268,7 +273,7 @@ async def test_modify_offkai_data_layer_errors(
             event_name=event_name,
             update_msg="Update attempt",
             venue="Attempt Venue",  # Provide some change to trigger update_details
-            deadline="2024-12-12 12:00",  # Include deadline in call
+            deadline="3000-12-12 12:00",  # Include deadline in call
         )
 
     # Assert update_details was called

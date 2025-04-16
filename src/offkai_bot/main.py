@@ -38,7 +38,13 @@ from .errors import (
 from .interactions import fetch_thread_for_event, load_and_update_events, send_event_message, update_event_message
 
 # Import remaining general utils
-from .util import parse_drinks, parse_event_datetime, validate_interaction_context
+from .util import (
+    parse_drinks,
+    parse_event_datetime,
+    validate_event_datetime,
+    validate_event_deadline,
+    validate_interaction_context,
+)
 
 # --- End Updated Imports ---
 

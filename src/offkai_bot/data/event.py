@@ -13,15 +13,13 @@ from offkai_bot.errors import (
     EventNotFoundError,
     NoChangesProvidedError,
 )
-from offkai_bot.util import parse_drinks, parse_event_datetime
+from offkai_bot.util import JST, parse_drinks, parse_event_datetime, validate_event_datetime, validate_event_deadline
 
 # Use relative imports for sibling modules within the package
 from ..config import get_config
 from .encoders import DataclassJSONEncoder
 
 _log = logging.getLogger(__name__)
-
-JST = timezone(timedelta(hours=9), name="JST")  # Use this for conversion
 
 
 # Constants can stay here if general, or move if specific
@@ -47,7 +45,7 @@ class Event:
     venue: str
     address: str
     google_maps_link: str
-    event_datetime: datetime | None = None
+    event_datetime: datetime
     event_deadline: datetime | None = None
     message: str | None = None  # Optional message for the event itself
 
@@ -138,7 +136,6 @@ def _load_event_data() -> list[Event]:
                 continue  # Skip this dictionary and move to the next one
 
             # --- Parse and Convert event_datetime ---
-            event_datetime_utc = None
             raw_dt_str = event_dict.get("event_datetime")
             if raw_dt_str:
                 try:
@@ -158,7 +155,8 @@ def _load_event_data() -> list[Event]:
                     _log.warning(
                         f"Could not parse/convert ISO datetime '{raw_dt_str}' for {event_dict.get('event_name')}: {e}"
                     )
-                    event_datetime_utc = None  # Keep as None on error
+                    _log.error(f"Skipping event entry due to missing or empty 'event_datetime'. Data: {event_dict}")
+                    continue
             # --- End event_datetime Parsing ---
 
             # --- Parse and Convert event_deadline ---
@@ -307,7 +305,11 @@ def add_event(
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
 
-    # Step 4: Data Object Creation (moved here)
+    # Step 1: Validation
+    validate_event_datetime(event_datetime)
+    validate_event_deadline(event_datetime, event_deadline)
+
+    # Step 2: Data Object Creation
     new_event = Event(
         event_name=event_name,
         venue=venue,
@@ -324,7 +326,7 @@ def add_event(
         message=announce_msg,  # Store announce_msg if desired
     )
 
-    # Step 5: State Modification (moved here)
+    # Step 3: State Modification
     events_cache = load_event_data()  # Get or load the cache
     events_cache.append(new_event)
     _log.info(f"Event '{event_name}' added to cache.")
@@ -363,14 +365,17 @@ def update_event_details(
         raise EventArchivedError(event_name, "modify")
 
     # 2. Parse Inputs and Validate Formats (before checking for changes)
-    parsed_datetime: datetime | None = None
-    if date_time_str is not None:
-        # This will raise InvalidDateTimeFormatError immediately if parsing fails
-        parsed_datetime = parse_event_datetime(date_time_str)
-
     parsed_deadline: datetime | None = None
     if deadline_str is not None:
         parsed_deadline = parse_event_datetime(deadline_str)
+
+    if date_time_str is not None:
+        # This will raise InvalidDateTimeFormatError immediately if parsing fails
+        parsed_datetime = parse_event_datetime(date_time_str)
+        validate_event_datetime(parsed_datetime)
+        validate_event_deadline(parsed_datetime, parsed_deadline)
+    else:
+        validate_event_deadline(event.event_datetime, parsed_deadline)
 
     parsed_drinks: list[str] = []
     if drinks_str is not None:

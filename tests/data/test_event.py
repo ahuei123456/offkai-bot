@@ -15,24 +15,32 @@ from offkai_bot.errors import (
     EventAlreadyClosedError,
     EventAlreadyOpenError,
     EventArchivedError,
+    EventDateTimeInPastError,
+    EventDeadlineAfterEventError,
+    EventDeadlineInPastError,
     EventNotFoundError,
     InvalidDateTimeFormatError,
     NoChangesProvidedError,
 )  # Import the dataclass too
 
 # --- Test Data ---
-# Use aware UTC datetimes for consistency
-NOW_UTC = datetime.now(UTC)
-LATER_UTC = NOW_UTC + timedelta(days=10)
+# Use explicit future dates for reliability
+# Define base 'now' for calculations if needed, but use explicit future dates for objects
+TEST_NOW_UTC = datetime.now(UTC)  # Can be used for relative checks if necessary
+FUTURE_EVENT_DT = TEST_NOW_UTC + timedelta(days=10)
+FUTURE_DEADLINE_BEFORE_EVENT = FUTURE_EVENT_DT - timedelta(days=2)  # Deadline before event
+FUTURE_DEADLINE_AFTER_EVENT = FUTURE_EVENT_DT + timedelta(days=1)  # Invalid deadline
+PAST_EVENT_DT = TEST_NOW_UTC - timedelta(days=1)
+PAST_DEADLINE = TEST_NOW_UTC - timedelta(days=1)
 
-# Base Event for modification tests - useful for specific state setups
+# *** Update BASE_EVENT_OBJ with valid future dates ***
 BASE_EVENT_OBJ = Event(
     event_name="Base Event",
     venue="Base Venue",
     address="Base Addr",
     google_maps_link="base_gmap",
-    event_datetime=NOW_UTC,
-    event_deadline=LATER_UTC,
+    event_datetime=FUTURE_EVENT_DT,  # Use future date
+    event_deadline=FUTURE_DEADLINE_BEFORE_EVENT,  # Use future deadline before event
     message="Base Msg",
     channel_id=500,
     thread_id=501,
@@ -43,14 +51,14 @@ BASE_EVENT_OBJ = Event(
 )
 
 # Specific state objects derived from BASE_EVENT_OBJ for testing status changes
-EVENT_OPEN_NOT_ARCHIVED = copy.deepcopy(BASE_EVENT_OBJ)  # Ensure clean copy
+EVENT_OPEN_NOT_ARCHIVED = copy.deepcopy(BASE_EVENT_OBJ)
 EVENT_CLOSED_NOT_ARCHIVED = copy.deepcopy(BASE_EVENT_OBJ)
 EVENT_CLOSED_NOT_ARCHIVED.open = False
-EVENT_CLOSED_NOT_ARCHIVED.event_name = "Closed Event"  # Give distinct name if needed
+EVENT_CLOSED_NOT_ARCHIVED.event_name = "Closed Event"
 EVENT_ARCHIVED = copy.deepcopy(BASE_EVENT_OBJ)
 EVENT_ARCHIVED.open = False
 EVENT_ARCHIVED.archived = True
-EVENT_ARCHIVED.event_name = "Archived Event"  # Give distinct name if needed
+EVENT_ARCHIVED.event_name = "Archived Event"
 
 # --- Tests ---
 
@@ -262,9 +270,7 @@ def test_load_event_data_invalid_datetime(mock_paths):
     ):
         events = event_data._load_event_data()
 
-        assert len(events) == 1
-        assert events[0].event_datetime is None  # Datetime should be None
-        assert events[0].event_name == "Invalid DT"  # Other fields should be loaded
+        assert len(events) == 0
         mock_log.warning.assert_called_once()
         assert "Could not parse/convert ISO datetime" in mock_log.warning.call_args[0][0]
         assert "'not-a-datetime'" in mock_log.warning.call_args[0][0]
@@ -277,7 +283,7 @@ def test_load_event_data_old_format_missing_deadline(mock_paths):
         "venue": "Venue Old",
         "address": "Addr Old",
         "google_maps_link": "gmap_old",
-        "event_datetime": NOW_UTC.isoformat(),
+        "event_datetime": FUTURE_EVENT_DT.isoformat(),
         # Missing event_deadline
         "message": "Msg Old",
         "channel_id": 999,  # This was thread_id in old format potentially
@@ -303,14 +309,20 @@ def test_load_event_data_old_format_missing_deadline(mock_paths):
         assert event.channel_id is None  # Should be None (as per backward compat logic)
         assert event.thread_id == 999  # Should take the old channel_id as thread_id
         assert event.message_id == 888
-        assert event.event_datetime == NOW_UTC  # Make sure datetime still parses
+        assert event.event_datetime == FUTURE_EVENT_DT  # Make sure datetime still parses
         mock_log.info.assert_called_once()
         assert "Found old events.json format" in mock_log.info.call_args[0][0]
 
 
 def test_load_event_data_invalid_deadline(mock_paths):
     """Test loading data with an invalid deadline string."""
-    base_dict = {"event_name": "Invalid DL", "venue": "V", "address": "A", "google_maps_link": "G"}
+    base_dict = {
+        "event_name": "Invalid DL",
+        "venue": "V",
+        "address": "A",
+        "google_maps_link": "G",
+        "event_datetime": "2024-08-01T19:00:00",
+    }
     invalid_dl_event = {**base_dict, "event_deadline": "not-a-deadline"}
     invalid_json = json.dumps([invalid_dl_event])
 
@@ -334,8 +346,15 @@ def test_load_event_data_missing_required_field(mock_paths):
     """Test loading data where a dict is missing a required Event field."""
     bad_event_dict = {"venue": "V", "address": "A"}  # Missing event_name
     # Use a valid event dict for comparison
-    valid_event_dict = {"event_name": "Valid Event", "venue": "V", "address": "A", "google_maps_link": "G"}
+    valid_event_dict = {
+        "event_name": "Valid Event",
+        "venue": "V",
+        "address": "A",
+        "google_maps_link": "G",
+        "event_datetime": FUTURE_EVENT_DT.isoformat(),
+    }
     valid_event_obj = Event(**valid_event_dict)
+    valid_event_obj.event_datetime = FUTURE_EVENT_DT
     bad_json = json.dumps([bad_event_dict, valid_event_dict])
 
     with (
@@ -481,24 +500,27 @@ def test_get_event_not_found(prepopulated_event_cache):
 # == add_event Tests ==
 
 
+# *** UPDATED test_add_event to use valid future dates ***
 def test_add_event():
-    """Test adding a new event to the cache."""
-    initial_cache_state = []  # Start with empty cache simulation
-    event_data.EVENT_DATA_CACHE = initial_cache_state  # Set it (though clear_caches does this too)
+    """Test adding a new event to the cache with valid future dates."""
+    initial_cache_state = []
+    event_data.EVENT_DATA_CACHE = initial_cache_state
 
-    # add_event calls load_event_data internally, so patch it to return our list
     with (
         patch("offkai_bot.data.event.load_event_data", return_value=initial_cache_state) as mock_load,
-        patch("offkai_bot.data.event.save_event_data") as mock_save,  # Ensure save is NOT called
+        patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
+        # Patch validation functions to check they are called
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
         new_event_obj = event_data.add_event(
             event_name="New Event",
             venue="New Venue",
             address="New Addr",
             google_maps_link="new_gmap",
-            event_datetime=NOW_UTC,
-            event_deadline=LATER_UTC,
+            event_datetime=FUTURE_EVENT_DT,  # Use future date
+            event_deadline=FUTURE_DEADLINE_BEFORE_EVENT,  # Use future deadline before event
             thread_id=12345,
             channel_id=67890,
             drinks_list=["Juice"],
@@ -508,20 +530,85 @@ def test_add_event():
         # Assertions
         assert isinstance(new_event_obj, Event)
         assert new_event_obj.event_name == "New Event"
-        assert new_event_obj.event_datetime == NOW_UTC
-        assert new_event_obj.event_deadline == LATER_UTC
-        # ... other property checks ...
+        assert new_event_obj.event_datetime == FUTURE_EVENT_DT
+        assert new_event_obj.event_deadline == FUTURE_DEADLINE_BEFORE_EVENT
 
-        mock_load.assert_called_once()  # Check load was called to get the cache list
-        assert len(initial_cache_state) == 1  # Check the list object was modified
+        # Check validation calls
+        mock_validate_dt.assert_called_once_with(FUTURE_EVENT_DT)
+        mock_validate_dl.assert_called_once_with(FUTURE_EVENT_DT, FUTURE_DEADLINE_BEFORE_EVENT)
+
+        mock_load.assert_called_once()
+        assert len(initial_cache_state) == 1
         assert initial_cache_state[0] == new_event_obj
-        assert event_data.EVENT_DATA_CACHE is initial_cache_state  # Check global var points to it
+        assert event_data.EVENT_DATA_CACHE is initial_cache_state
 
-        mock_save.assert_not_called()  # IMPORTANT: add_event should not save
+        mock_save.assert_not_called()
         mock_log.info.assert_called_once()
         assert "'New Event' added to cache" in mock_log.info.call_args[0][0]
 
 
+# *** NEW tests for add_event validation failures ***
+@patch("offkai_bot.data.event.load_event_data", return_value=[])  # Mock load
+@patch("offkai_bot.data.event.save_event_data")  # Mock save
+@patch("offkai_bot.data.event._log")  # Mock log
+def test_add_event_fails_datetime_in_past(mock_log, mock_save, mock_load):
+    """Test add_event raises EventDateTimeInPastError."""
+    with pytest.raises(EventDateTimeInPastError):
+        event_data.add_event(
+            event_name="Past Event",
+            venue="V",
+            address="A",
+            google_maps_link="G",
+            event_datetime=PAST_EVENT_DT,  # Past date
+            event_deadline=None,  # Deadline doesn't matter here
+            thread_id=1,
+            channel_id=1,
+            drinks_list=[],
+        )
+    mock_save.assert_not_called()  # Ensure save wasn't called on failure
+
+
+@patch("offkai_bot.data.event.load_event_data", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_add_event_fails_deadline_in_past(mock_log, mock_save, mock_load):
+    """Test add_event raises DeadlineInPastError."""
+    with pytest.raises(EventDeadlineInPastError):
+        event_data.add_event(
+            event_name="Past Deadline",
+            venue="V",
+            address="A",
+            google_maps_link="G",
+            event_datetime=FUTURE_EVENT_DT,  # Future event
+            event_deadline=PAST_DEADLINE,  # Past deadline
+            thread_id=1,
+            channel_id=1,
+            drinks_list=[],
+        )
+    mock_save.assert_not_called()
+
+
+@patch("offkai_bot.data.event.load_event_data", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_add_event_fails_deadline_after_event(mock_log, mock_save, mock_load):
+    """Test add_event raises DeadlineAfterEventError."""
+    with pytest.raises(EventDeadlineAfterEventError):
+        event_data.add_event(
+            event_name="Bad Deadline Order",
+            venue="V",
+            address="A",
+            google_maps_link="G",
+            event_datetime=FUTURE_EVENT_DT,  # Future event
+            event_deadline=FUTURE_DEADLINE_AFTER_EVENT,  # Deadline *after* event
+            thread_id=1,
+            channel_id=1,
+            drinks_list=[],
+        )
+    mock_save.assert_not_called()
+
+
+# *** UPDATED test_add_event_no_deadline to use valid future date ***
 def test_add_event_no_deadline():
     """Test adding a new event without specifying a deadline."""
     initial_cache_state = []
@@ -529,21 +616,30 @@ def test_add_event_no_deadline():
 
     with (
         patch("offkai_bot.data.event.load_event_data", return_value=initial_cache_state),
-        patch("offkai_bot.data.event.save_event_data"),  # Mock save
+        patch("offkai_bot.data.event.save_event_data"),
         patch("offkai_bot.data.event._log"),
+        # Patch validation functions
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
         new_event_obj = event_data.add_event(
             event_name="No Deadline Event",
             venue="Venue",
             address="Addr",
             google_maps_link="gmap",
-            event_datetime=NOW_UTC,  # event_deadline omitted
+            event_datetime=FUTURE_EVENT_DT,  # Use future date
+            # event_deadline omitted (defaults to None)
             thread_id=111,
             channel_id=222,
             drinks_list=[],
         )
         assert new_event_obj.event_deadline is None
-        assert new_event_obj.event_datetime == NOW_UTC
+        assert new_event_obj.event_datetime == FUTURE_EVENT_DT
+
+        # Check validation calls (deadline validation called with None)
+        mock_validate_dt.assert_called_once_with(FUTURE_EVENT_DT)
+        mock_validate_dl.assert_called_once_with(FUTURE_EVENT_DT, None)
+
         assert len(initial_cache_state) == 1
         assert initial_cache_state[0] == new_event_obj
 
@@ -562,12 +658,18 @@ def test_update_event_details_success_single_field():
         patch("offkai_bot.data.event.parse_drinks") as mock_parse_drinks,
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
         updated_event = event_data.update_event_details(event_name=test_event.event_name, venue=new_venue)
 
         assert updated_event is test_event  # Should modify in place
         assert updated_event.venue == new_venue
         assert updated_event.address == BASE_EVENT_OBJ.address  # Check others unchanged
+
+        mock_validate_dt.assert_not_called()
+        mock_validate_dl.assert_called_once_with(updated_event.event_datetime, None)
+
         mock_parse_dt.assert_not_called()
         mock_parse_drinks.assert_not_called()
         mock_save.assert_not_called()
@@ -593,8 +695,10 @@ def test_update_event_details_success_multiple_fields():
         patch("offkai_bot.data.event.parse_drinks") as mock_parse_drinks,
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
-        mock_parse_dt.side_effect = [expected_new_date_utc, expected_new_deadline_utc]
+        mock_parse_dt.side_effect = [expected_new_deadline_utc, expected_new_date_utc]
         mock_parse_drinks.return_value = expected_new_drinks
 
         updated_event = event_data.update_event_details(
@@ -610,6 +714,10 @@ def test_update_event_details_success_multiple_fields():
         assert updated_event.event_deadline == expected_new_deadline_utc
         assert updated_event.drinks == expected_new_drinks
         assert updated_event.venue == BASE_EVENT_OBJ.venue  # Check unchanged field
+
+        # Check validation calls with parsed values
+        mock_validate_dt.assert_called_once_with(expected_new_date_utc)
+        mock_validate_dl.assert_called_once_with(expected_new_date_utc, expected_new_deadline_utc)
 
         mock_parse_dt.assert_any_call(new_date_str)
         mock_parse_dt.assert_any_call(new_deadline_str)
@@ -650,8 +758,10 @@ def test_update_event_details_no_changes_with_parsing():
         patch("offkai_bot.data.event.parse_drinks") as mock_parse_drinks,
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
-        mock_parse_dt.side_effect = [test_event.event_datetime, test_event.event_deadline]
+        mock_parse_dt.side_effect = [test_event.event_deadline, test_event.event_datetime]
         mock_parse_drinks.return_value = test_event.drinks
 
         with pytest.raises(NoChangesProvidedError):
@@ -661,6 +771,9 @@ def test_update_event_details_no_changes_with_parsing():
                 deadline_str=same_deadline_str,
                 drinks_str=same_drinks_str,
             )
+
+        mock_validate_dt.assert_called_once_with(test_event.event_datetime)
+        mock_validate_dl.assert_called_once_with(test_event.event_datetime, test_event.event_deadline)
 
         mock_parse_dt.assert_any_call(same_date_str)
         mock_parse_dt.assert_any_call(same_deadline_str)
@@ -679,12 +792,16 @@ def test_update_event_details_archived_event():
         patch("offkai_bot.data.event.parse_drinks"),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
         with pytest.raises(EventArchivedError) as exc_info:
             event_data.update_event_details(event_name=test_event_archived.event_name, venue="New Venue")
 
         assert exc_info.value.event_name == test_event_archived.event_name
         assert exc_info.value.action == "modify"
+        mock_validate_dt.assert_not_called()  # Validation not reached
+        mock_validate_dl.assert_not_called()
         mock_save.assert_not_called()
         mock_log.info.assert_not_called()
 
@@ -710,14 +827,95 @@ def test_update_event_details_invalid_datetime_format():
         patch("offkai_bot.data.event.parse_drinks"),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
+        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
         mock_parse_dt.side_effect = InvalidDateTimeFormatError()
 
         with pytest.raises(InvalidDateTimeFormatError):
             event_data.update_event_details(event_name=test_event.event_name, date_time_str=invalid_date_str)
         mock_parse_dt.assert_called_once()
+        mock_validate_dt.assert_not_called()  # Validation not reached
+        mock_validate_dl.assert_not_called()
         mock_save.assert_not_called()
         mock_log.info.assert_not_called()
+
+
+# *** NEW tests for update_event_details validation failures ***
+
+
+@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # Mock get
+@patch("offkai_bot.data.event.parse_drinks", return_value=[])  # Mock drinks parse
+@patch("offkai_bot.data.event.save_event_data")  # Mock save
+@patch("offkai_bot.data.event._log")  # Mock log
+def test_update_event_details_fails_datetime_in_past(mock_log, mock_save, mock_parse_drinks, mock_get):
+    """Test update_event_details raises EventDateTimeInPastError."""
+    with patch("offkai_bot.data.event.parse_event_datetime", return_value=PAST_EVENT_DT) as mock_parse_dt:
+        with pytest.raises(EventDateTimeInPastError):
+            event_data.update_event_details(
+                event_name=BASE_EVENT_OBJ.event_name,
+                date_time_str="some-past-date-string",  # The string value doesn't matter, mock controls output
+            )
+        mock_parse_dt.assert_called_once_with("some-past-date-string")
+        mock_save.assert_not_called()
+
+
+@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.parse_drinks", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_update_event_details_fails_deadline_in_past(mock_log, mock_save, mock_parse_drinks, mock_get):
+    """Test update_event_details raises DeadlineInPastError."""
+    # Simulate parsing a past deadline, event time is not parsed (uses existing future time)
+    with patch("offkai_bot.data.event.parse_event_datetime", return_value=PAST_DEADLINE) as mock_parse_dt:
+        with pytest.raises(EventDeadlineInPastError):
+            event_data.update_event_details(
+                event_name=BASE_EVENT_OBJ.event_name, deadline_str="some-past-deadline-string"
+            )
+        # parse_event_datetime called only once for the deadline
+        mock_parse_dt.assert_called_once_with("some-past-deadline-string")
+        mock_save.assert_not_called()
+
+
+@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.parse_drinks", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_update_event_details_fails_deadline_after_event(mock_log, mock_save, mock_parse_drinks, mock_get):
+    """Test update_event_details raises DeadlineAfterEventError."""
+    # Simulate parsing a future deadline that is *after* the existing future event time
+    with patch("offkai_bot.data.event.parse_event_datetime", return_value=FUTURE_DEADLINE_AFTER_EVENT) as mock_parse_dt:
+        with pytest.raises(EventDeadlineAfterEventError):
+            event_data.update_event_details(
+                event_name=BASE_EVENT_OBJ.event_name, deadline_str="some-future-but-late-deadline-string"
+            )
+        mock_parse_dt.assert_called_once_with("some-future-but-late-deadline-string")
+        mock_save.assert_not_called()
+
+
+@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.parse_drinks", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_update_event_details_fails_deadline_after_new_event_time(mock_log, mock_save, mock_parse_drinks, mock_get):
+    """Test update raises DeadlineAfterEventError when both are updated invalidly."""
+    new_earlier_event_time = FUTURE_DEADLINE_BEFORE_EVENT - timedelta(days=1)  # Event time before original deadline
+    original_deadline = BASE_EVENT_OBJ.event_deadline  # This is FUTURE_DEADLINE_BEFORE_EVENT
+
+    # Simulate parsing new event time first, then original deadline
+    with (
+        patch(
+            "offkai_bot.data.event.parse_event_datetime", side_effect=[original_deadline, new_earlier_event_time]
+        ) as mock_parse_dt,
+        pytest.raises(EventDeadlineAfterEventError),
+    ):
+        event_data.update_event_details(
+            event_name=BASE_EVENT_OBJ.event_name,
+            date_time_str="new-earlier-event-time",
+            deadline_str="original-deadline-time",  # This deadline is now *after* the new event time
+        )
+    assert mock_parse_dt.call_count == 2
+    mock_save.assert_not_called()
 
 
 # == set_event_open_status Tests ==
@@ -961,8 +1159,8 @@ def test_event_format_details_no_datetime_no_drinks():
 
 def test_event_has_drinks():
     """Test the has_drinks property."""
-    event_with = Event("N", "V", "A", "G", drinks=["A"])
-    event_without = Event("N", "V", "A", "G", drinks=[])
+    event_with = Event("N", "V", "A", "G", drinks=["A"], event_datetime=FUTURE_EVENT_DT)
+    event_without = Event("N", "V", "A", "G", drinks=[], event_datetime=FUTURE_EVENT_DT)
     assert event_with.has_drinks is True
     assert event_without.has_drinks is False
 

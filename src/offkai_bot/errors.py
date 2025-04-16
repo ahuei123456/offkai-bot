@@ -162,6 +162,33 @@ class NoChangesProvidedError(BotCommandError):
         super().__init__("❌ No changes provided to modify.")
 
 
+# --- NEW DATETIME VALIDATION ERRORS ---
+
+
+class EventDateTimeInPastError(BotCommandError):
+    """Raised when the provided event date/time is in the past."""
+
+    def __init__(self):
+        super().__init__("❌ Event date/time must be set in the future.")
+
+
+class EventDeadlineInPastError(BotCommandError):
+    """Raised when the provided event deadline is in the past."""
+
+    def __init__(self):
+        super().__init__("❌ Event deadline must be set in the future.")
+
+
+class EventDeadlineAfterEventError(BotCommandError):
+    """Raised when the provided event deadline is not before the event date/time."""
+
+    def __init__(self):
+        super().__init__("❌ Event deadline must be set *before* the event date/time.")
+
+
+# --- END NEW DATETIME VALIDATION ERRORS ---
+
+
 # --- Discord API / Permissions Errors (Optional Wrappers) ---
 # You might choose to handle discord.Forbidden/HTTPException directly in on_command_error,
 # but wrappers can provide more context if needed.
