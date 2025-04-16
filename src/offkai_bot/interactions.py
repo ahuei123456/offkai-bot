@@ -176,7 +176,7 @@ class GatheringModal(ui.Modal):
                 await interaction.channel.add_user(interaction.user)
             else:
                 _log.warning(
-                    f"Could not add user {interaction.user.id} to channel {interaction.channel_id} (not a thread?)."
+                    f"Could not add user {interaction.user.id} to thread {interaction.channel_id} (not a thread?)."
                 )
         except discord.HTTPException as e:
             _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
@@ -365,39 +365,39 @@ async def fetch_thread_for_event(client: discord.Client, event: Event) -> discor
         discord.Thread: The validated thread object.
 
     Raises:
-        MissingChannelIDError: If event.channel_id is None.
+        MissingChannelIDError: If event.thread_id is None.
         ThreadNotFoundError: If the channel ID doesn't exist or the fetched channel is not a Thread.
         ThreadAccessError: If the bot lacks permissions to fetch the channel.
         Exception: For unexpected errors during fetching.
     """
-    if not event.channel_id:
+    if not event.thread_id:
         # Raise immediately if ID is missing
         raise MissingChannelIDError(event.event_name)
 
     channel = None
     try:
-        channel = client.get_channel(event.channel_id)
+        channel = client.get_channel(event.thread_id)
         # Fallback fetch if get_channel returns None (cache miss)
         if channel is None:
-            _log.debug(f"get_channel returned None for {event.channel_id}, attempting fetch_channel.")
-            channel = await client.fetch_channel(event.channel_id)
+            _log.debug(f"get_channel returned None for {event.thread_id}, attempting fetch_channel.")
+            channel = await client.fetch_channel(event.thread_id)
 
     except discord.errors.NotFound as e:
         # Channel ID does not exist on Discord
-        raise ThreadNotFoundError(event.event_name, event.channel_id) from e
+        raise ThreadNotFoundError(event.event_name, event.thread_id) from e
     except discord.errors.Forbidden as e:
         # Bot lacks permissions
-        raise ThreadAccessError(event.event_name, event.channel_id, original_exception=e) from e
+        raise ThreadAccessError(event.event_name, event.thread_id, original_exception=e) from e
     except Exception as e:
         # Log unexpected errors during fetch but re-raise them
         _log.exception(
-            f"Unexpected error getting/fetching channel {event.channel_id} for event '{event.event_name}': {e}"
+            f"Unexpected error getting/fetching channel {event.thread_id} for event '{event.event_name}': {e}"
         )
         raise  # Re-raise the original unexpected exception
 
     # Validate type
     if not isinstance(channel, discord.Thread):
-        raise ThreadNotFoundError(event.event_name, event.channel_id)
+        raise ThreadNotFoundError(event.event_name, event.thread_id)
 
     # No need for cast, type checker knows it's a Thread if no error was raised
     return channel

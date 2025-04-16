@@ -1,6 +1,7 @@
 # tests/commands/test_create_offkai.py
 
-from datetime import datetime
+import copy
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -12,11 +13,15 @@ from offkai_bot import main
 from offkai_bot.data.event import Event  # To create return value for add_event
 from offkai_bot.errors import (
     DuplicateEventError,
+    EventDateTimeInPastError,
+    EventDeadlineAfterEventError,
+    EventDeadlineInPastError,
     EventNotFoundError,  # Needed for mocking get_event side effect
     InvalidChannelTypeError,
     InvalidDateTimeFormatError,
     ThreadCreationError,
 )
+from offkai_bot.util import JST
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
@@ -59,16 +64,23 @@ def mock_thread():
     return thread
 
 
+# *** Use explicitly future dates in fixture for robustness ***
 @pytest.fixture
 def mock_created_event():
     """Fixture for a mock Event object returned by add_event."""
+    # Use dates clearly in the future relative to typical test execution time
+    now = datetime.now(UTC)
+    event_dt = now + timedelta(days=30)
+    deadline_dt = event_dt - timedelta(days=7)  # Ensure deadline is before event
     return Event(
         event_name="Test Event",
         venue="Test Venue",
         address="Test Address",
         google_maps_link="test_link",
-        event_datetime=datetime(2024, 8, 1, 19, 0),
-        channel_id=111222333,  # Match mock_thread.id
+        event_datetime=event_dt,
+        event_deadline=deadline_dt,
+        channel_id=456,
+        thread_id=111222333,
         message_id=None,
         open=True,
         archived=False,
@@ -80,6 +92,7 @@ def mock_created_event():
 # --- Test Cases ---
 
 
+# Patches for success tests
 @patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
@@ -87,7 +100,95 @@ def mock_created_event():
 @patch("offkai_bot.main.parse_event_datetime")
 @patch("offkai_bot.main.get_event")
 @patch("offkai_bot.main._log")
-async def test_create_offkai_success(
+async def test_create_offkai_success(  # Renamed from test_create_offkai_success_with_deadline
+    mock_log,
+    mock_get_event,
+    mock_parse_dt,
+    mock_parse_drinks,
+    mock_validate_ctx,
+    mock_add_event,
+    mock_send_msg,
+    mock_interaction,
+    mock_thread,
+    mock_created_event,  # Use updated fixture
+):
+    """Test the successful path of create_offkai including a deadline."""
+    # Arrange
+    event_name = mock_created_event.event_name  # Use name from fixture
+    venue = mock_created_event.venue
+    address = mock_created_event.address
+    gmaps = mock_created_event.google_maps_link
+    # Use strings that will parse into the fixture's datetimes
+    # (Assuming parse_event_datetime handles JST->UTC correctly)
+    event_dt_jst = mock_created_event.event_datetime.astimezone(JST)
+    deadline_dt_jst = mock_created_event.event_deadline.astimezone(JST)
+    dt_str = event_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    deadline_str = deadline_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    drinks_str = ", ".join(mock_created_event.drinks)
+    announce_msg = mock_created_event.message
+
+    # Define expected parsed datetimes (from the fixture)
+    parsed_event_dt = mock_created_event.event_datetime
+    parsed_deadline_dt = mock_created_event.event_deadline
+
+    mock_get_event.side_effect = EventNotFoundError(event_name)
+    mock_parse_dt.side_effect = [parsed_event_dt, parsed_deadline_dt]  # Ensure parser returns the correct UTC objects
+    mock_parse_drinks.return_value = mock_created_event.drinks
+    mock_interaction.channel.create_thread.return_value = mock_thread
+    mock_add_event.return_value = mock_created_event  # add_event succeeds
+
+    # Act
+    await main.create_offkai.callback(
+        mock_interaction,
+        event_name=event_name,
+        venue=venue,
+        address=address,
+        google_maps_link=gmaps,
+        date_time=dt_str,
+        deadline=deadline_str,
+        drinks=drinks_str,
+        announce_msg=announce_msg,
+    )
+
+    # Assert
+    mock_get_event.assert_called_once_with(event_name)
+    assert mock_parse_dt.call_count == 2
+    mock_parse_dt.assert_any_call(dt_str)
+    mock_parse_dt.assert_any_call(deadline_str)
+    mock_parse_drinks.assert_called_once_with(drinks_str)
+    mock_validate_ctx.assert_called_once_with(mock_interaction)
+    mock_interaction.channel.create_thread.assert_awaited_once_with(
+        name=event_name, type=discord.ChannelType.public_thread
+    )
+    # Check add_event call includes the correct parsed datetimes
+    mock_add_event.assert_called_once_with(
+        event_name=event_name,
+        venue=venue,
+        address=address,
+        google_maps_link=gmaps,
+        event_datetime=parsed_event_dt,
+        event_deadline=parsed_deadline_dt,
+        channel_id=mock_interaction.channel.id,
+        thread_id=mock_thread.id,
+        drinks_list=mock_created_event.drinks,
+        announce_msg=announce_msg,
+    )
+    mock_send_msg.assert_awaited_once_with(mock_thread, mock_created_event)
+    expected_response = (
+        f"# Offkai Created: {event_name}\n\n{announce_msg}\n\nJoin the discussion and RSVP here: {mock_thread.mention}"
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
+    mock_log.info.assert_called()
+
+
+@patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.add_event")
+@patch("offkai_bot.main.validate_interaction_context")
+@patch("offkai_bot.main.parse_drinks")
+@patch("offkai_bot.main.parse_event_datetime")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_create_offkai_success_without_deadline(
     mock_log,
     mock_get_event,
     mock_parse_dt,
@@ -99,21 +200,27 @@ async def test_create_offkai_success(
     mock_thread,
     mock_created_event,
 ):
-    """Test the successful path of create_offkai."""
+    """Test the successful path of create_offkai without providing a deadline."""
     # Arrange
-    event_name = "Test Event"
-    venue = "Test Venue"
-    address = "Test Address"
-    gmaps = "test_link"
-    dt_str = "2024-08-01 19:00"
-    drinks_str = "Test Drink"
-    announce_msg = "Test Announce Msg"
+    event_name = "Test Event No Deadline"
+    venue = mock_created_event.venue
+    address = mock_created_event.address
+    gmaps = mock_created_event.google_maps_link
+    event_dt_jst = mock_created_event.event_datetime.astimezone(JST)
+    dt_str = event_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    drinks_str = ", ".join(mock_created_event.drinks)
+    announce_msg = mock_created_event.message
 
-    mock_get_event.side_effect = EventNotFoundError(event_name)  # Simulate event not found
-    mock_parse_dt.return_value = datetime(2024, 8, 1, 19, 0)
-    mock_parse_drinks.return_value = ["Test Drink"]
+    parsed_event_dt = mock_created_event.event_datetime
+    event_without_deadline = copy.deepcopy(mock_created_event)
+    event_without_deadline.event_name = event_name
+    event_without_deadline.event_deadline = None
+
+    mock_get_event.side_effect = EventNotFoundError(event_name)
+    mock_parse_dt.return_value = parsed_event_dt  # Only called once
+    mock_parse_drinks.return_value = mock_created_event.drinks
     mock_interaction.channel.create_thread.return_value = mock_thread
-    mock_add_event.return_value = mock_created_event  # Use the fixture
+    mock_add_event.return_value = event_without_deadline
 
     # Act
     await main.create_offkai.callback(
@@ -123,42 +230,37 @@ async def test_create_offkai_success(
         address=address,
         google_maps_link=gmaps,
         date_time=dt_str,
+        deadline=None,  # Explicitly pass None
         drinks=drinks_str,
         announce_msg=announce_msg,
     )
 
     # Assert
-    # 1. Check duplicate check
     mock_get_event.assert_called_once_with(event_name)
-    # 2. Check parsing
     mock_parse_dt.assert_called_once_with(dt_str)
     mock_parse_drinks.assert_called_once_with(drinks_str)
-    # 3. Check context validation
     mock_validate_ctx.assert_called_once_with(mock_interaction)
-    # 4. Check thread creation
     mock_interaction.channel.create_thread.assert_awaited_once_with(
         name=event_name, type=discord.ChannelType.public_thread
     )
-    # 5. Check event addition to data layer
     mock_add_event.assert_called_once_with(
         event_name=event_name,
         venue=venue,
         address=address,
         google_maps_link=gmaps,
-        event_datetime=mock_parse_dt.return_value,
+        event_datetime=parsed_event_dt,
+        event_deadline=None,  # Verify deadline is None
+        channel_id=mock_interaction.channel.id,
         thread_id=mock_thread.id,
-        drinks_list=mock_parse_drinks.return_value,
+        drinks_list=mock_created_event.drinks,
         announce_msg=announce_msg,
     )
-    # 6. Check message sending to thread
-    mock_send_msg.assert_awaited_once_with(mock_thread, mock_created_event)
-    # 7. Check final response to interaction
+    mock_send_msg.assert_awaited_once_with(mock_thread, event_without_deadline)
     expected_response = (
         f"# Offkai Created: {event_name}\n\n{announce_msg}\n\nJoin the discussion and RSVP here: {mock_thread.mention}"
     )
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
-    # 8. Check logs (optional)
-    mock_log.info.assert_called()  # Check if info logs were made (e.g., by decorator)
+    mock_log.info.assert_called()
 
 
 @patch("offkai_bot.main.get_event")
@@ -178,7 +280,7 @@ async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_inte
             venue="Any",
             address="Any",
             google_maps_link="Any",
-            date_time="2024-01-01 10:00",  # Other args don't matter much here
+            date_time="3000-01-01 10:00",  # Other args don't matter much here
         )
 
     assert exc_info.value.event_name == event_name
@@ -190,13 +292,13 @@ async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_inte
 @patch("offkai_bot.main.get_event")
 @patch("offkai_bot.main.parse_event_datetime")
 @patch("offkai_bot.main._log")
-async def test_create_offkai_invalid_datetime(mock_log, mock_parse_dt, mock_get_event, mock_interaction):
-    """Test create_offkai with an invalid date/time string."""
+async def test_create_offkai_invalid_datetime_format(mock_log, mock_parse_dt, mock_get_event, mock_interaction):
+    """Test create_offkai with an invalid date/time string format."""
     # Arrange
-    event_name = "DateTime Test"
+    event_name = "DateTime Format Test"
     invalid_dt_str = "invalid-date"
-    mock_get_event.side_effect = EventNotFoundError(event_name)  # Simulate event not found
-    mock_parse_dt.side_effect = InvalidDateTimeFormatError()  # Simulate parsing failure
+    mock_get_event.side_effect = EventNotFoundError(event_name)
+    mock_parse_dt.side_effect = InvalidDateTimeFormatError()
 
     # Act & Assert
     with pytest.raises(InvalidDateTimeFormatError):
@@ -207,11 +309,45 @@ async def test_create_offkai_invalid_datetime(mock_log, mock_parse_dt, mock_get_
             address="Any",
             google_maps_link="Any",
             date_time=invalid_dt_str,
+            deadline="3000-01-01 11:00",  # Provide a deadline, but it shouldn't be parsed
         )
 
     mock_get_event.assert_called_once_with(event_name)
     mock_parse_dt.assert_called_once_with(invalid_dt_str)
-    # Ensure later steps weren't called
+    mock_interaction.channel.create_thread.assert_not_awaited()
+
+
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main.parse_event_datetime")
+@patch("offkai_bot.main._log")
+async def test_create_offkai_invalid_deadline_format(mock_log, mock_parse_dt, mock_get_event, mock_interaction):
+    """Test create_offkai with an invalid deadline string format."""
+    # Arrange
+    event_name = "Deadline Format Test"
+    valid_dt_str = "2025-08-01 19:00"
+    invalid_deadline_str = "invalid-deadline"
+    # Need a valid datetime object for the first parse call
+    parsed_event_dt = (datetime.now(UTC) + timedelta(days=60)).replace(tzinfo=UTC)
+
+    mock_get_event.side_effect = EventNotFoundError(event_name)
+    mock_parse_dt.side_effect = [parsed_event_dt, InvalidDateTimeFormatError()]
+
+    # Act & Assert
+    with pytest.raises(InvalidDateTimeFormatError):
+        await main.create_offkai.callback(
+            mock_interaction,
+            event_name=event_name,
+            venue="Any",
+            address="Any",
+            google_maps_link="Any",
+            date_time=valid_dt_str,
+            deadline=invalid_deadline_str,
+        )
+
+    mock_get_event.assert_called_once_with(event_name)
+    assert mock_parse_dt.call_count == 2
+    mock_parse_dt.assert_any_call(valid_dt_str)
+    mock_parse_dt.assert_any_call(invalid_deadline_str)
     mock_interaction.channel.create_thread.assert_not_awaited()
 
 
@@ -239,7 +375,7 @@ async def test_create_offkai_invalid_context(
             venue="Any",
             address="Any",
             google_maps_link="Any",
-            date_time="2024-01-01 10:00",
+            date_time="3000-01-01 10:00",
         )
 
     mock_get_event.assert_called_once_with(event_name)
@@ -277,7 +413,7 @@ async def test_create_offkai_thread_creation_fails(
             venue="Any",
             address="Any",
             google_maps_link="Any",
-            date_time="2024-01-01 10:00",
+            date_time="3000-01-01 10:00",
         )
 
     # Check the custom error details
@@ -299,4 +435,87 @@ async def test_create_offkai_thread_creation_fails(
     # (Need to import add_event and send_event_message mocks if checking them)
     # mock_add_event.assert_not_called()
     # mock_send_msg.assert_not_awaited()
+    mock_interaction.response.send_message.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "validation_error_type",
+    [
+        EventDateTimeInPastError,
+        EventDeadlineInPastError,
+        EventDeadlineAfterEventError,
+    ],
+)
+@patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.add_event")  # Mock add_event to raise the error
+@patch("offkai_bot.main.validate_interaction_context")
+@patch("offkai_bot.main.parse_drinks")
+@patch("offkai_bot.main.parse_event_datetime")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_create_offkai_add_event_validation_fails(
+    mock_log,
+    mock_get_event,
+    mock_parse_dt,
+    mock_parse_drinks,
+    mock_validate_ctx,
+    mock_add_event,  # This mock will raise the error
+    mock_send_msg,
+    mock_interaction,
+    mock_thread,
+    mock_created_event,  # Use fixture for valid parsed dates
+    validation_error_type,  # Parameter for the error type
+):
+    """Test create_offkai when add_event raises a datetime validation error."""
+    # Arrange
+    event_name = "Validation Fail Event"
+    venue = "V"
+    address = "A"
+    gmaps = "G"
+    # Use valid future date strings corresponding to mock_created_event
+    event_dt_jst = mock_created_event.event_datetime.astimezone(JST)
+    deadline_dt_jst = mock_created_event.event_deadline.astimezone(JST)
+    dt_str = event_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    deadline_str = deadline_dt_jst.strftime(r"%Y-%m-%d %H:%M")
+    drinks_str = "D"
+    announce_msg = "Msg"
+
+    # Setup mocks for steps *before* add_event
+    mock_get_event.side_effect = EventNotFoundError(event_name)
+    # Ensure parsing returns valid future dates from fixture
+    mock_parse_dt.side_effect = [mock_created_event.event_datetime, mock_created_event.event_deadline]
+    mock_parse_drinks.return_value = ["D"]
+    mock_validate_ctx.return_value = None
+    mock_interaction.channel.create_thread.return_value = mock_thread
+
+    # Configure add_event to raise the specific validation error
+    mock_add_event.side_effect = validation_error_type()
+
+    # Act & Assert
+    with pytest.raises(validation_error_type):
+        await main.create_offkai.callback(
+            mock_interaction,
+            event_name=event_name,
+            venue=venue,
+            address=address,
+            google_maps_link=gmaps,
+            date_time=dt_str,
+            deadline=deadline_str,
+            drinks=drinks_str,
+            announce_msg=announce_msg,
+        )
+
+    # Assert steps *before* add_event were called
+    mock_get_event.assert_called_once_with(event_name)
+    assert mock_parse_dt.call_count == 2
+    mock_parse_drinks.assert_called_once_with(drinks_str)
+    mock_validate_ctx.assert_called_once_with(mock_interaction)
+    mock_interaction.channel.create_thread.assert_awaited_once_with(
+        name=event_name, type=discord.ChannelType.public_thread
+    )
+    # Assert add_event was called (and raised the error)
+    mock_add_event.assert_called_once()
+
+    # Assert steps *after* add_event were NOT called
+    mock_send_msg.assert_not_awaited()
     mock_interaction.response.send_message.assert_not_awaited()

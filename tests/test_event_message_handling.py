@@ -64,6 +64,7 @@ def mock_event_no_ids(sample_event_list):
     event = next(e for e in sample_event_list if e.event_name == "Summer Bash")
     event_copy = Event(**event.__dict__)
     event_copy.channel_id = None
+    event_copy.thread_id = None
     event_copy.message_id = None
     return event_copy
 
@@ -75,12 +76,12 @@ def mock_event_no_ids(sample_event_list):
 async def test_fetch_thread_success_get_channel(mock_log, mock_client, mock_thread, mock_event_open):
     """Test fetch_thread_for_event success using client.get_channel."""
     mock_client.get_channel.return_value = mock_thread
-    mock_event_open.channel_id = mock_thread.id  # Ensure ID matches
+    mock_event_open.thread_id = mock_thread.id  # Ensure ID matches
 
     thread = await interactions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert thread is mock_thread
-    mock_client.get_channel.assert_called_once_with(mock_event_open.channel_id)
+    mock_client.get_channel.assert_called_once_with(mock_event_open.thread_id)
     mock_client.fetch_channel.assert_not_awaited()
     mock_log.error.assert_not_called()
 
@@ -90,13 +91,13 @@ async def test_fetch_thread_success_fetch_channel(mock_log, mock_client, mock_th
     """Test fetch_thread_for_event success using client.fetch_channel fallback."""
     mock_client.get_channel.return_value = None  # Simulate cache miss
     mock_client.fetch_channel.return_value = mock_thread
-    mock_event_open.channel_id = mock_thread.id
+    mock_event_open.thread_id = mock_thread.id
 
     thread = await interactions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert thread is mock_thread
-    mock_client.get_channel.assert_called_once_with(mock_event_open.channel_id)
-    mock_client.fetch_channel.assert_awaited_once_with(mock_event_open.channel_id)
+    mock_client.get_channel.assert_called_once_with(mock_event_open.thread_id)
+    mock_client.fetch_channel.assert_awaited_once_with(mock_event_open.thread_id)
     mock_log.debug.assert_called_once()  # Check debug log for fallback
 
 
@@ -121,7 +122,7 @@ async def test_fetch_thread_not_found_fetch(mock_log, mock_client, mock_event_op
         await interactions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert exc_info.value.event_name == mock_event_open.event_name
-    assert exc_info.value.channel_id == mock_event_open.channel_id
+    assert exc_info.value.thread_id == mock_event_open.thread_id
     mock_client.get_channel.assert_called_once()
     mock_client.fetch_channel.assert_awaited_once()
 
@@ -137,7 +138,7 @@ async def test_fetch_thread_forbidden_fetch(mock_log, mock_client, mock_event_op
         await interactions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert exc_info.value.event_name == mock_event_open.event_name
-    assert exc_info.value.channel_id == mock_event_open.channel_id
+    assert exc_info.value.thread_id == mock_event_open.thread_id
     assert exc_info.value.original_exception is error
     mock_client.get_channel.assert_called_once()
     mock_client.fetch_channel.assert_awaited_once()
@@ -153,7 +154,7 @@ async def test_fetch_thread_wrong_type(mock_log, mock_client, mock_event_open):
         await interactions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert exc_info.value.event_name == mock_event_open.event_name
-    assert exc_info.value.channel_id == mock_event_open.channel_id
+    assert exc_info.value.thread_id == mock_event_open.thread_id
     mock_client.get_channel.assert_called_once()
     mock_client.fetch_channel.assert_not_awaited()
 

@@ -184,7 +184,7 @@ async def test_broadcast_thread_not_found_error(  # Renamed test slightly
     target_event = next(e for e in prepopulated_event_cache if e.event_name == event_name)
     mock_get_event.return_value = target_event
     # Mock the helper raising the error
-    mock_fetch_thread.side_effect = ThreadNotFoundError(event_name, target_event.channel_id)
+    mock_fetch_thread.side_effect = ThreadNotFoundError(event_name, target_event.thread_id)
 
     # Act & Assert
     with pytest.raises(ThreadNotFoundError) as exc_info:
@@ -195,7 +195,7 @@ async def test_broadcast_thread_not_found_error(  # Renamed test slightly
         )
 
     assert exc_info.value.event_name == event_name
-    assert exc_info.value.channel_id == target_event.channel_id
+    assert exc_info.value.thread_id == target_event.thread_id
     mock_get_event.assert_called_once_with(event_name)
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
@@ -221,7 +221,7 @@ async def test_broadcast_thread_access_error(  # New test for access error
     mock_get_event.return_value = target_event
     # Mock the helper raising the error
     original_discord_error = discord.Forbidden(MagicMock(), "Cannot fetch")
-    mock_fetch_thread.side_effect = ThreadAccessError(event_name, target_event.channel_id, original_discord_error)
+    mock_fetch_thread.side_effect = ThreadAccessError(event_name, target_event.thread_id, original_discord_error)
 
     # Act & Assert
     with pytest.raises(ThreadAccessError) as exc_info:
@@ -232,7 +232,7 @@ async def test_broadcast_thread_access_error(  # New test for access error
         )
 
     assert exc_info.value.event_name == event_name
-    assert exc_info.value.channel_id == target_event.channel_id
+    assert exc_info.value.thread_id == target_event.thread_id
     assert exc_info.value.original_exception is original_discord_error
     mock_get_event.assert_called_once_with(event_name)
     # Assert helper was called
