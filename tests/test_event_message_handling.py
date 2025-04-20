@@ -7,7 +7,7 @@ import discord
 import pytest
 
 # Import module and functions under test
-from offkai_bot import interactions
+from offkai_bot import event_actions, interactions
 from offkai_bot.data.event import Event
 from offkai_bot.errors import (
     MissingChannelIDError,
@@ -72,13 +72,13 @@ def mock_event_no_ids(sample_event_list):
 # --- Tests for fetch_thread_for_event ---
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_thread_success_get_channel(mock_log, mock_client, mock_thread, mock_event_open):
     """Test fetch_thread_for_event success using client.get_channel."""
     mock_client.get_channel.return_value = mock_thread
     mock_event_open.thread_id = mock_thread.id  # Ensure ID matches
 
-    thread = await interactions.fetch_thread_for_event(mock_client, mock_event_open)
+    thread = await event_actions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert thread is mock_thread
     mock_client.get_channel.assert_called_once_with(mock_event_open.thread_id)
@@ -86,14 +86,14 @@ async def test_fetch_thread_success_get_channel(mock_log, mock_client, mock_thre
     mock_log.error.assert_not_called()
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_thread_success_fetch_channel(mock_log, mock_client, mock_thread, mock_event_open):
     """Test fetch_thread_for_event success using client.fetch_channel fallback."""
     mock_client.get_channel.return_value = None  # Simulate cache miss
     mock_client.fetch_channel.return_value = mock_thread
     mock_event_open.thread_id = mock_thread.id
 
-    thread = await interactions.fetch_thread_for_event(mock_client, mock_event_open)
+    thread = await event_actions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert thread is mock_thread
     mock_client.get_channel.assert_called_once_with(mock_event_open.thread_id)
@@ -101,25 +101,25 @@ async def test_fetch_thread_success_fetch_channel(mock_log, mock_client, mock_th
     mock_log.debug.assert_called_once()  # Check debug log for fallback
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_thread_missing_id(mock_log, mock_client, mock_event_no_ids):
     """Test fetch_thread_for_event raises MissingChannelIDError."""
     with pytest.raises(MissingChannelIDError) as exc_info:
-        await interactions.fetch_thread_for_event(mock_client, mock_event_no_ids)
+        await event_actions.fetch_thread_for_event(mock_client, mock_event_no_ids)
 
     assert exc_info.value.event_name == mock_event_no_ids.event_name
     mock_client.get_channel.assert_not_called()
     mock_client.fetch_channel.assert_not_awaited()
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_thread_not_found_fetch(mock_log, mock_client, mock_event_open):
     """Test fetch_thread_for_event raises ThreadNotFoundError on fetch_channel NotFound."""
     mock_client.get_channel.return_value = None
     mock_client.fetch_channel.side_effect = discord.errors.NotFound(MagicMock(), "not found")
 
     with pytest.raises(ThreadNotFoundError) as exc_info:
-        await interactions.fetch_thread_for_event(mock_client, mock_event_open)
+        await event_actions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert exc_info.value.event_name == mock_event_open.event_name
     assert exc_info.value.thread_id == mock_event_open.thread_id
@@ -127,7 +127,7 @@ async def test_fetch_thread_not_found_fetch(mock_log, mock_client, mock_event_op
     mock_client.fetch_channel.assert_awaited_once()
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_thread_forbidden_fetch(mock_log, mock_client, mock_event_open):
     """Test fetch_thread_for_event raises ThreadAccessError on fetch_channel Forbidden."""
     mock_client.get_channel.return_value = None
@@ -135,7 +135,7 @@ async def test_fetch_thread_forbidden_fetch(mock_log, mock_client, mock_event_op
     mock_client.fetch_channel.side_effect = error
 
     with pytest.raises(ThreadAccessError) as exc_info:
-        await interactions.fetch_thread_for_event(mock_client, mock_event_open)
+        await event_actions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert exc_info.value.event_name == mock_event_open.event_name
     assert exc_info.value.thread_id == mock_event_open.thread_id
@@ -144,14 +144,14 @@ async def test_fetch_thread_forbidden_fetch(mock_log, mock_client, mock_event_op
     mock_client.fetch_channel.assert_awaited_once()
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_thread_wrong_type(mock_log, mock_client, mock_event_open):
     """Test fetch_thread_for_event raises ThreadNotFoundError for wrong channel type."""
     wrong_channel = MagicMock(spec=discord.TextChannel)  # Not a Thread
     mock_client.get_channel.return_value = wrong_channel
 
     with pytest.raises(ThreadNotFoundError) as exc_info:
-        await interactions.fetch_thread_for_event(mock_client, mock_event_open)
+        await event_actions.fetch_thread_for_event(mock_client, mock_event_open)
 
     assert exc_info.value.event_name == mock_event_open.event_name
     assert exc_info.value.thread_id == mock_event_open.thread_id
@@ -162,13 +162,13 @@ async def test_fetch_thread_wrong_type(mock_log, mock_client, mock_event_open):
 # --- Tests for _fetch_event_message ---
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_message_success(mock_log, mock_thread, mock_message, mock_event_open):
     """Test _fetch_event_message success."""
     mock_event_open.message_id = mock_message.id
     mock_thread.fetch_message.return_value = mock_message
 
-    message = await interactions._fetch_event_message(mock_thread, mock_event_open)
+    message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
 
     assert message is mock_message
     mock_thread.fetch_message.assert_awaited_once_with(mock_event_open.message_id)
@@ -177,22 +177,22 @@ async def test_fetch_message_success(mock_log, mock_thread, mock_message, mock_e
     mock_log.error.assert_not_called()
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_message_no_id(mock_log, mock_thread, mock_event_no_ids):
     """Test _fetch_event_message when event has no message_id."""
-    message = await interactions._fetch_event_message(mock_thread, mock_event_no_ids)
+    message = await event_actions._fetch_event_message(mock_thread, mock_event_no_ids)
     assert message is None
     mock_thread.fetch_message.assert_not_awaited()
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_message_not_found(mock_log, mock_thread, mock_event_open):
     """Test _fetch_event_message when fetch_message raises NotFound."""
     original_id = 12345
     mock_event_open.message_id = original_id
     mock_thread.fetch_message.side_effect = discord.errors.NotFound(MagicMock(), "not found")
 
-    message = await interactions._fetch_event_message(mock_thread, mock_event_open)
+    message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
 
     assert message is None
     assert mock_event_open.message_id is None  # Check ID was cleared
@@ -201,14 +201,14 @@ async def test_fetch_message_not_found(mock_log, mock_thread, mock_event_open):
     assert f"Message ID {original_id} not found" in mock_log.warning.call_args[0][0]
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_message_forbidden(mock_log, mock_thread, mock_event_open):
     """Test _fetch_event_message when fetch_message raises Forbidden."""
     original_id = 12345
     mock_event_open.message_id = original_id
     mock_thread.fetch_message.side_effect = discord.errors.Forbidden(MagicMock(), "forbidden")
 
-    message = await interactions._fetch_event_message(mock_thread, mock_event_open)
+    message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
 
     assert message is None
     assert mock_event_open.message_id == original_id  # ID should NOT be cleared
@@ -217,14 +217,14 @@ async def test_fetch_message_forbidden(mock_log, mock_thread, mock_event_open):
     assert "Bot lacks permissions to fetch message" in mock_log.error.call_args[0][0]
 
 
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions._log")
 async def test_fetch_message_http_error(mock_log, mock_thread, mock_event_open):
     """Test _fetch_event_message when fetch_message raises HTTPException."""
     original_id = 12345
     mock_event_open.message_id = original_id
     mock_thread.fetch_message.side_effect = discord.HTTPException(MagicMock(), "http error")
 
-    message = await interactions._fetch_event_message(mock_thread, mock_event_open)
+    message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
 
     assert message is None
     assert mock_event_open.message_id == original_id  # ID should NOT be cleared
@@ -236,9 +236,9 @@ async def test_fetch_message_http_error(mock_log, mock_thread, mock_event_open):
 # --- Tests for send_event_message ---
 
 
-@patch("offkai_bot.interactions.save_event_data")
-@patch("offkai_bot.interactions.create_event_message")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions._log")
 async def test_send_message_success_open(
     mock_log, mock_create_msg, mock_save, mock_thread, mock_message, mock_event_open
 ):
@@ -247,22 +247,22 @@ async def test_send_message_success_open(
     mock_create_msg.return_value = mock_content
     mock_thread.send.return_value = mock_message  # Mock send returning the message
 
-    await interactions.send_event_message(mock_thread, mock_event_open)
+    await event_actions.send_event_message(mock_thread, mock_event_open)
 
     mock_create_msg.assert_called_once_with(mock_event_open)
     # Check view type passed to send
     call_args, call_kwargs = mock_thread.send.call_args
     assert call_args[0] == mock_content
-    assert isinstance(call_kwargs["view"], interactions.OpenEvent)
+    assert isinstance(call_kwargs["view"], event_actions.OpenEvent)
     # Check message ID was set and saved
     assert mock_event_open.message_id == mock_message.id
     mock_save.assert_called_once()
     mock_log.info.assert_called_once()
 
 
-@patch("offkai_bot.interactions.save_event_data")
-@patch("offkai_bot.interactions.create_event_message")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions._log")
 async def test_send_message_success_closed(
     mock_log, mock_create_msg, mock_save, mock_thread, mock_message, mock_event_closed
 ):
@@ -271,7 +271,7 @@ async def test_send_message_success_closed(
     mock_create_msg.return_value = mock_content
     mock_thread.send.return_value = mock_message
 
-    await interactions.send_event_message(mock_thread, mock_event_closed)
+    await event_actions.send_event_message(mock_thread, mock_event_closed)
 
     mock_create_msg.assert_called_once_with(mock_event_closed)
     # Check view type passed to send
@@ -284,15 +284,15 @@ async def test_send_message_success_closed(
     mock_log.info.assert_called_once()
 
 
-@patch("offkai_bot.interactions.save_event_data")
-@patch("offkai_bot.interactions.create_event_message")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions._log")
 async def test_send_message_http_error(mock_log, mock_create_msg, mock_save, mock_thread, mock_event_open):
     """Test send_event_message handles HTTPException during send."""
     mock_create_msg.return_value = "Content"
     mock_thread.send.side_effect = discord.HTTPException(MagicMock(), "Send failed")
 
-    await interactions.send_event_message(mock_thread, mock_event_open)
+    await event_actions.send_event_message(mock_thread, mock_event_open)
 
     mock_thread.send.assert_awaited_once()
     mock_save.assert_not_called()  # Save should not happen on error
@@ -303,11 +303,11 @@ async def test_send_message_http_error(mock_log, mock_create_msg, mock_save, moc
 # --- Tests for update_event_message ---
 
 
-@patch("offkai_bot.interactions.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._fetch_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.create_event_message")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._fetch_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions._log")
 async def test_update_message_success_edit(
     mock_log,
     mock_create_msg,
@@ -325,7 +325,7 @@ async def test_update_message_success_edit(
     mock_content = "Updated Content"
     mock_create_msg.return_value = mock_content
 
-    await interactions.update_event_message(mock_client, mock_event_open)
+    await event_actions.update_event_message(mock_client, mock_event_open)
 
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_event_open)
     mock_fetch_msg.assert_awaited_once_with(mock_thread, mock_event_open)
@@ -340,11 +340,11 @@ async def test_update_message_success_edit(
     mock_log.info.assert_called_once()  # Log update success
 
 
-@patch("offkai_bot.interactions.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._fetch_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.create_event_message")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._fetch_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions._log")
 async def test_update_message_success_send_new(
     mock_log,
     mock_create_msg,
@@ -370,7 +370,7 @@ async def test_update_message_success_send_new(
     mock_create_msg.return_value = "Content For New"
 
     # Act
-    await interactions.update_event_message(mock_client, mock_event_open)
+    await event_actions.update_event_message(mock_client, mock_event_open)
 
     # Assert
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_event_open)
@@ -383,10 +383,10 @@ async def test_update_message_success_send_new(
     mock_log.info.assert_called()  # Log sending new
 
 
-@patch("offkai_bot.interactions.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._fetch_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._fetch_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._log")
 async def test_update_message_thread_fetch_fails(
     mock_log, mock_fetch_thread, mock_fetch_msg, mock_send_new, mock_client, mock_event_open
 ):
@@ -394,7 +394,7 @@ async def test_update_message_thread_fetch_fails(
     error_to_raise = ThreadNotFoundError(mock_event_open.event_name, mock_event_open.channel_id)
     mock_fetch_thread.side_effect = error_to_raise
 
-    await interactions.update_event_message(mock_client, mock_event_open)
+    await event_actions.update_event_message(mock_client, mock_event_open)
 
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_event_open)
     # Check subsequent steps were skipped
@@ -406,10 +406,10 @@ async def test_update_message_thread_fetch_fails(
     assert f"Failed to get thread for event '{mock_event_open.event_name}'" in mock_log.log.call_args[0][1]
 
 
-@patch("offkai_bot.interactions.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._fetch_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._fetch_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._log")
 async def test_update_message_message_fetch_fails_perms(
     mock_log, mock_fetch_thread, mock_fetch_msg, mock_send_new, mock_client, mock_thread, mock_event_open
 ):
@@ -420,7 +420,7 @@ async def test_update_message_message_fetch_fails_perms(
     # Crucially, ensure the event *had* a message ID initially, so we know fetch failed, not just missing ID
     mock_event_open.message_id = 99999
 
-    await interactions.update_event_message(mock_client, mock_event_open)
+    await event_actions.update_event_message(mock_client, mock_event_open)
 
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_event_open)
     mock_fetch_msg.assert_awaited_once_with(mock_thread, mock_event_open)
@@ -430,11 +430,11 @@ async def test_update_message_message_fetch_fails_perms(
     mock_log.log.assert_not_called()  # update_event_message itself shouldn't log again
 
 
-@patch("offkai_bot.interactions.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions._fetch_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.create_event_message")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions._fetch_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions._log")
 async def test_update_message_edit_fails(
     mock_log,
     mock_create_msg,
@@ -452,7 +452,7 @@ async def test_update_message_edit_fails(
     mock_create_msg.return_value = "Content"
     mock_message.edit.side_effect = discord.HTTPException(MagicMock(), "Edit failed")
 
-    await interactions.update_event_message(mock_client, mock_event_open)
+    await event_actions.update_event_message(mock_client, mock_event_open)
 
     mock_fetch_thread.assert_awaited_once()
     mock_fetch_msg.assert_awaited_once()
@@ -465,9 +465,9 @@ async def test_update_message_edit_fails(
 # --- Tests for load_and_update_events ---
 
 
-@patch("offkai_bot.interactions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.load_event_data")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.load_event_data")
+@patch("offkai_bot.event_actions._log")
 async def test_load_and_update_events_success(
     mock_log,
     mock_load_data,
@@ -481,7 +481,7 @@ async def test_load_and_update_events_success(
     mock_events = [mock_event_open, mock_event_closed, mock_event_archived]
     mock_load_data.return_value = mock_events
 
-    await interactions.load_and_update_events(mock_client)
+    await event_actions.load_and_update_events(mock_client)
 
     mock_load_data.assert_called_once()
     # Check update was called for open and closed, but not archived
@@ -493,14 +493,14 @@ async def test_load_and_update_events_success(
     mock_log.info.assert_called()  # Check startup/finish logs
 
 
-@patch("offkai_bot.interactions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.interactions.load_event_data")
-@patch("offkai_bot.interactions._log")
+@patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.load_event_data")
+@patch("offkai_bot.event_actions._log")
 async def test_load_and_update_events_no_events(mock_log, mock_load_data, mock_update, mock_client):
     """Test load_and_update_events when no events are loaded."""
     mock_load_data.return_value = []
 
-    await interactions.load_and_update_events(mock_client)
+    await event_actions.load_and_update_events(mock_client)
 
     mock_load_data.assert_called_once()
     mock_update.assert_not_awaited()  # Update should not be called

@@ -1,12 +1,4 @@
 [project]
-name = "offkai-bot"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-authors = [
-    { name = "Eyal Mazuz", email = "mazuzeyal@protonmail.com" }
-]
-requires-python = ">=3.12.2"
 dependencies = [
     "aiohappyeyeballs==2.6.0",
     "aiohttp==3.11.13",
@@ -18,8 +10,16 @@ dependencies = [
     "multidict==6.1.0",
     "propcache==0.3.0",
     "python-dotenv==1.0.1",
+    "tzdata",
     "yarl==1.18.3",
 ]
+
+name = "offkai-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Eyal Mazuz", email = "mazuzeyal@protonmail.com" }]
+requires-python = ">=3.12.2"
 
 [project.scripts]
 offkai-bot = "offkai_bot.main:main"
@@ -38,9 +38,7 @@ dev = [
 
 
 [tool.pytest.ini_options]
-pythonpath = [
-    "src",
-]
+pythonpath = ["src"]
 asyncio_mode = "auto" # Good practice for pytest-asyncio
 
 [tool.ruff]

@@ -59,8 +59,8 @@ def mock_config_patch(mock_config):
 def sample_event_list():
     """Provides a list of sample Event objects."""
     # Using fixed datetimes for consistency
-    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
-    dt2 = datetime(2024, 9, 15, 18, 30, tzinfo=UTC)
+    dt1 = datetime(3024, 8, 1, 19, 0, tzinfo=UTC)
+    dt2 = datetime(3024, 9, 15, 18, 30, tzinfo=UTC)
     return [
         Event(
             event_name="Summer Bash",
