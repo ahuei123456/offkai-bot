@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 
 from discord import Forbidden, HTTPException, Thread, app_commands
@@ -184,6 +185,17 @@ class EventDeadlineAfterEventError(BotCommandError):
 
     def __init__(self):
         super().__init__("❌ Event deadline must be set *before* the event date/time.")
+
+
+class AlertTimeInPastError(BotCommandError):
+    """Raised when attempting to register an alert for a time in the past."""
+
+    log_level = logging.WARNING
+
+    def __init__(self, alert_time: datetime):
+        # Format the time nicely for the error message, including timezone
+        time_str = alert_time.strftime("%Y-%m-%d %H:%M:%S %Z") if alert_time.tzinfo else str(alert_time)
+        super().__init__(f"Cannot register alert for a time in the past: {time_str}")
 
 
 # --- END NEW DATETIME VALIDATION ERRORS ---

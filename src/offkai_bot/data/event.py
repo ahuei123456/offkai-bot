@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from offkai_bot.errors import (
     EventAlreadyArchivedError,

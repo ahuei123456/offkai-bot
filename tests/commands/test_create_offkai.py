@@ -10,6 +10,7 @@ from discord import app_commands
 
 # Import the function to test and relevant errors/classes
 from offkai_bot import main
+from offkai_bot.alerts.task import CloseOffkaiTask
 from offkai_bot.data.event import Event  # To create return value for add_event
 from offkai_bot.errors import (
     DuplicateEventError,
@@ -52,6 +53,12 @@ def mock_interaction():
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
 
+    # Mock the client instance attached to main
+    # We need this because the command callback uses main.client
+    with patch("offkai_bot.main.client", new_callable=MagicMock) as mock_client:
+        interaction.client = mock_client  # Assign mock client to interaction
+        yield interaction  # Yield the interaction with the mocked client
+
     return interaction
 
 
@@ -93,6 +100,7 @@ def mock_created_event():
 
 
 # Patches for success tests
+@patch("offkai_bot.main.register_alert")  # <-- ADD PATCH
 @patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
@@ -108,6 +116,7 @@ async def test_create_offkai_success(  # Renamed from test_create_offkai_success
     mock_validate_ctx,
     mock_add_event,
     mock_send_msg,
+    mock_register_alert,
     mock_interaction,
     mock_thread,
     mock_created_event,  # Use updated fixture
@@ -180,7 +189,19 @@ async def test_create_offkai_success(  # Renamed from test_create_offkai_success
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
     mock_log.info.assert_called()
 
+    # --- ADD ASSERTION FOR register_alert ---
+    mock_register_alert.assert_called_once()
+    # Check arguments more specifically
+    call_args, call_kwargs = mock_register_alert.call_args
+    assert len(call_args) == 2  # Should have 2 positional args: time, task
+    assert call_args[0] == parsed_deadline_dt  # Check the datetime object
+    assert isinstance(call_args[1], CloseOffkaiTask)  # Check the task type
+    assert call_args[1].event_name == event_name  # Check task's event name
+    assert call_args[1].client == mock_interaction.client  # Check task's client instance
+    # --- END ASSERTION ---
 
+
+@patch("offkai_bot.main.register_alert")  # <-- ADD PATCH
 @patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
@@ -196,6 +217,7 @@ async def test_create_offkai_success_without_deadline(
     mock_validate_ctx,
     mock_add_event,
     mock_send_msg,
+    mock_register_alert,
     mock_interaction,
     mock_thread,
     mock_created_event,
@@ -261,6 +283,7 @@ async def test_create_offkai_success_without_deadline(
     )
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
     mock_log.info.assert_called()
+    mock_register_alert.assert_not_called()
 
 
 @patch("offkai_bot.main.get_event")

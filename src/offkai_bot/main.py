@@ -9,6 +9,9 @@ from typing import Any
 import discord
 from discord import app_commands
 
+from offkai_bot.alerts.alerts import register_alert
+from offkai_bot.alerts.task import CloseOffkaiTask
+
 # --- Updated Imports ---
 from . import config
 
@@ -35,7 +38,13 @@ from .errors import (
     ThreadCreationError,
     ThreadNotFoundError,
 )
-from .interactions import fetch_thread_for_event, load_and_update_events, send_event_message, update_event_message
+from .event_actions import (
+    fetch_thread_for_event,
+    load_and_update_events,
+    perform_close_event,
+    send_event_message,
+    update_event_message,
+)
 
 # Import remaining general utils
 from .util import (
@@ -188,6 +197,8 @@ async def create_offkai(
         drinks_list=drinks_list,
         announce_msg=announce_msg,  # Pass announce_msg if stored on Event
     )
+    if event_deadline:
+        register_alert(event_deadline, CloseOffkaiTask(client=client, event_name=event_name))
     # --- End Replacement ---
 
     # 6. Further Discord Interaction
@@ -294,41 +305,19 @@ async def modify_offkai(
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
 async def close_offkai(interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
-    # 1. Call data layer function for validation and modification
-    closed_event = set_event_open_status(event_name, target_open_status=False)
+    try:
+        # Call the refactored core logic function
+        await perform_close_event(client, event_name, close_msg)
 
-    # 2. Save the change
-    save_event_data()
+        # Send confirmation response (only if perform_close_event succeeded)
+        await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
 
-    # 3. Update the message view
-    await update_event_message(client, closed_event)
-
-    # 4. Send closing message to thread (if provided and possible) (REFACTORED BLOCK)
-    if close_msg:
-        try:
-            # Fetch the thread using the helper.
-            # This handles missing ID, not found, wrong type, and access errors by raising.
-            thread = await fetch_thread_for_event(client, closed_event)
-
-            # If fetch_thread_for_event succeeded, 'thread' is a valid discord.Thread
-            try:
-                await thread.send(f"**Responses Closed:**\n{close_msg}")
-            except discord.HTTPException as e:
-                # Log warning for send failure, but don't fail the command
-                _log.warning(f"Could not send closing message to thread {thread.id} for event '{event_name}': {e}")
-
-        except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
-            # Log specific errors related to getting the thread, but don't fail the command
-            # Use the error's defined log level if available, otherwise default to WARNING
-            log_level = getattr(e, "log_level", logging.WARNING)
-            _log.log(log_level, f"Could not send closing message for event '{event_name}': {e}")
-        except Exception as e:
-            # Log unexpected errors during the thread fetching/sending process
-            _log.exception(f"Unexpected error sending closing message for event '{event_name}': {e}")
-    # --- END REFACTORED BLOCK ---
-
-    # 5. Send confirmation response
-    await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
+    except Exception as e:
+        # Let the global error handler catch and report errors from perform_close_event
+        # or the interaction response itself.
+        _log.error(f"Error during /close_offkai command for '{event_name}': {e}", exc_info=e)
+        # Re-raise for the global handler
+        raise e
 
 
 @client.tree.command(

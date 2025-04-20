@@ -1,6 +1,7 @@
 # src/offkai_bot/util.py
 import logging
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import discord
 
@@ -14,7 +15,10 @@ from .errors import (
 )
 
 _log = logging.getLogger(__name__)
-JST = timezone(timedelta(hours=9), name="JST")  # Use this for conversion
+# --- Define JST using zoneinfo (preferred) ---
+
+JST = ZoneInfo("Asia/Tokyo")
+_log.info("Using ZoneInfo for JST timezone.")
 
 
 # --- Parsing/Validation Helpers ---
@@ -27,21 +31,13 @@ def parse_event_datetime(date_time_str: str) -> datetime:
     """
     try:
         naive_dt = datetime.strptime(date_time_str, r"%Y-%m-%d %H:%M")
-        # Assume input is JST, make aware, convert to UTC
-        aware_jst = naive_dt.replace(tzinfo=JST)  # Assuming JST is accessible or defined here/imported
+        # Make naive datetime aware using the defined JST timezone object
+        aware_jst = naive_dt.replace(tzinfo=JST)  # <-- Use the defined JST
         utc_dt = aware_jst.astimezone(UTC)
         _log.debug(f"Parsed '{date_time_str}' (assumed JST) to UTC: {utc_dt}")
         return utc_dt
     except ValueError:
         raise InvalidDateTimeFormatError()
-    except NameError:  # Fallback if event_data.JST isn't easily available here
-        _log.error("JST timezone constant not found for parsing. Returning naive datetime.")
-        # This path is less ideal as it breaks UTC consistency.
-        # Consider defining JST within util.py or ensuring it's passed/imported.
-        try:
-            return datetime.strptime(date_time_str, r"%Y-%m-%d %H:%M")
-        except ValueError:
-            raise InvalidDateTimeFormatError()
 
 
 def parse_drinks(drinks_str: str | None) -> list[str]:
