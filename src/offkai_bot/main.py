@@ -9,7 +9,7 @@ from typing import Any
 import discord
 from discord import app_commands
 
-from offkai_bot.alerts.alerts import register_alert
+from offkai_bot.alerts.alerts import alert_loop, register_alert
 from offkai_bot.alerts.task import CloseOffkaiTask
 
 # --- Updated Imports ---
@@ -79,6 +79,7 @@ class OffkaiClient(discord.Client):
         _log.info("Commands synced.")
 
         await load_and_update_events(self)
+        alert_loop.start()
 
 
 intents = discord.Intents.default()
