@@ -46,7 +46,8 @@ class SendMessageTask(Task):
                 _log.warning(f"SendMessageTask: Channel {self.channel_id} not found.")
             else:
                 _log.warning(
-                    f"SendMessageTask: Channel {self.channel_id} is not a text channel or thread (Type: {type(channel)})."
+                    f"SendMessageTask: Channel {self.channel_id} "
+                    f"is not a text channel or thread (Type: {type(channel)})."
                 )
         except discord.HTTPException as e:
             _log.error(f"SendMessageTask failed to send message to channel {self.channel_id}: {e}")
