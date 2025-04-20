@@ -500,114 +500,6 @@ def test_get_event_not_found(prepopulated_event_cache):
 # == add_event Tests ==
 
 
-# *** UPDATED test_add_event to use valid future dates ***
-def test_add_event():
-    """Test adding a new event to the cache with valid future dates."""
-    initial_cache_state = []
-    event_data.EVENT_DATA_CACHE = initial_cache_state
-
-    with (
-        patch("offkai_bot.data.event.load_event_data", return_value=initial_cache_state) as mock_load,
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
-        # Patch validation functions to check they are called
-        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
-        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
-    ):
-        new_event_obj = event_data.add_event(
-            event_name="New Event",
-            venue="New Venue",
-            address="New Addr",
-            google_maps_link="new_gmap",
-            event_datetime=FUTURE_EVENT_DT,  # Use future date
-            event_deadline=FUTURE_DEADLINE_BEFORE_EVENT,  # Use future deadline before event
-            thread_id=12345,
-            channel_id=67890,
-            drinks_list=["Juice"],
-            announce_msg="Announcement!",
-        )
-
-        # Assertions
-        assert isinstance(new_event_obj, Event)
-        assert new_event_obj.event_name == "New Event"
-        assert new_event_obj.event_datetime == FUTURE_EVENT_DT
-        assert new_event_obj.event_deadline == FUTURE_DEADLINE_BEFORE_EVENT
-
-        # Check validation calls
-        mock_validate_dt.assert_called_once_with(FUTURE_EVENT_DT)
-        mock_validate_dl.assert_called_once_with(FUTURE_EVENT_DT, FUTURE_DEADLINE_BEFORE_EVENT)
-
-        mock_load.assert_called_once()
-        assert len(initial_cache_state) == 1
-        assert initial_cache_state[0] == new_event_obj
-        assert event_data.EVENT_DATA_CACHE is initial_cache_state
-
-        mock_save.assert_not_called()
-        mock_log.info.assert_called_once()
-        assert "'New Event' added to cache" in mock_log.info.call_args[0][0]
-
-
-# *** NEW tests for add_event validation failures ***
-@patch("offkai_bot.data.event.load_event_data", return_value=[])  # Mock load
-@patch("offkai_bot.data.event.save_event_data")  # Mock save
-@patch("offkai_bot.data.event._log")  # Mock log
-def test_add_event_fails_datetime_in_past(mock_log, mock_save, mock_load):
-    """Test add_event raises EventDateTimeInPastError."""
-    with pytest.raises(EventDateTimeInPastError):
-        event_data.add_event(
-            event_name="Past Event",
-            venue="V",
-            address="A",
-            google_maps_link="G",
-            event_datetime=PAST_EVENT_DT,  # Past date
-            event_deadline=None,  # Deadline doesn't matter here
-            thread_id=1,
-            channel_id=1,
-            drinks_list=[],
-        )
-    mock_save.assert_not_called()  # Ensure save wasn't called on failure
-
-
-@patch("offkai_bot.data.event.load_event_data", return_value=[])
-@patch("offkai_bot.data.event.save_event_data")
-@patch("offkai_bot.data.event._log")
-def test_add_event_fails_deadline_in_past(mock_log, mock_save, mock_load):
-    """Test add_event raises DeadlineInPastError."""
-    with pytest.raises(EventDeadlineInPastError):
-        event_data.add_event(
-            event_name="Past Deadline",
-            venue="V",
-            address="A",
-            google_maps_link="G",
-            event_datetime=FUTURE_EVENT_DT,  # Future event
-            event_deadline=PAST_DEADLINE,  # Past deadline
-            thread_id=1,
-            channel_id=1,
-            drinks_list=[],
-        )
-    mock_save.assert_not_called()
-
-
-@patch("offkai_bot.data.event.load_event_data", return_value=[])
-@patch("offkai_bot.data.event.save_event_data")
-@patch("offkai_bot.data.event._log")
-def test_add_event_fails_deadline_after_event(mock_log, mock_save, mock_load):
-    """Test add_event raises DeadlineAfterEventError."""
-    with pytest.raises(EventDeadlineAfterEventError):
-        event_data.add_event(
-            event_name="Bad Deadline Order",
-            venue="V",
-            address="A",
-            google_maps_link="G",
-            event_datetime=FUTURE_EVENT_DT,  # Future event
-            event_deadline=FUTURE_DEADLINE_AFTER_EVENT,  # Deadline *after* event
-            thread_id=1,
-            channel_id=1,
-            drinks_list=[],
-        )
-    mock_save.assert_not_called()
-
-
 # *** UPDATED test_add_event_no_deadline to use valid future date ***
 def test_add_event_no_deadline():
     """Test adding a new event without specifying a deadline."""
@@ -618,9 +510,6 @@ def test_add_event_no_deadline():
         patch("offkai_bot.data.event.load_event_data", return_value=initial_cache_state),
         patch("offkai_bot.data.event.save_event_data"),
         patch("offkai_bot.data.event._log"),
-        # Patch validation functions
-        patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
-        patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
         new_event_obj = event_data.add_event(
             event_name="No Deadline Event",
@@ -635,10 +524,6 @@ def test_add_event_no_deadline():
         )
         assert new_event_obj.event_deadline is None
         assert new_event_obj.event_datetime == FUTURE_EVENT_DT
-
-        # Check validation calls (deadline validation called with None)
-        mock_validate_dt.assert_called_once_with(FUTURE_EVENT_DT)
-        mock_validate_dl.assert_called_once_with(FUTURE_EVENT_DT, None)
 
         assert len(initial_cache_state) == 1
         assert initial_cache_state[0] == new_event_obj

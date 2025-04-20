@@ -50,6 +50,8 @@ from .event_actions import (
 from .util import (
     parse_drinks,
     parse_event_datetime,
+    validate_event_datetime,
+    validate_event_deadline,
     validate_interaction_context,
 )
 
@@ -170,6 +172,8 @@ async def create_offkai(
 
     # 3. Context Validation
     validate_interaction_context(interaction)
+    validate_event_datetime(event_datetime)
+    validate_event_deadline(event_datetime, event_deadline)
 
     # --- Discord Interaction Block ---
     try:

@@ -421,7 +421,7 @@ async def test_create_offkai_thread_creation_fails(
     # Arrange
     event_name = "Thread Fail Test"
     mock_get_event.side_effect = EventNotFoundError(event_name)
-    mock_parse_dt.return_value = datetime.now()
+    mock_parse_dt.return_value = datetime.strptime("3000-01-01 10:00", r"%Y-%m-%d %H:%M").replace(tzinfo=JST)
     mock_parse_drinks.return_value = []
     mock_validate_ctx.return_value = None  # Assume context is valid
     # Simulate discord API error during thread creation

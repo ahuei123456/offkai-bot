@@ -306,8 +306,8 @@ def add_event(
     """Creates an Event object and adds it to the in-memory cache."""
 
     # Step 1: Validation
-    validate_event_datetime(event_datetime)
-    validate_event_deadline(event_datetime, event_deadline)
+    # validate_event_datetime(event_datetime)
+    # validate_event_deadline(event_datetime, event_deadline)
 
     # Step 2: Data Object Creation
     new_event = Event(
