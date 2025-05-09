@@ -57,6 +57,13 @@ def register_alert(alert_time: datetime, task: Task):
     _log.info(f"Registered task {type(task).__name__} for time key: {key}")
 
 
+def clear_alerts():
+    global _scheduled_tasks
+
+    _scheduled_tasks.clear()
+    _log.info("Cleared all scheduled alerts.")
+
+
 # --- NEW: Helper function processes tasks based on a given time ---
 async def fire_alert(current_time: datetime):
     """

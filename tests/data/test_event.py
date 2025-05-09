@@ -1050,6 +1050,35 @@ def test_event_has_drinks():
     assert event_without.has_drinks is False
 
 
+def test_event_is_over():
+    """Test the is_over property."""
+    now = datetime.now(UTC)
+    past_event = Event("Past", "V", "A", "G", event_datetime=now - timedelta(hours=1))
+    future_event = Event("Future", "V", "A", "G", event_datetime=now + timedelta(hours=1))
+
+    assert past_event.is_over is True
+    assert future_event.is_over is False
+
+
+def test_event_is_past_deadline():
+    """Test the is_past_deadline property."""
+    now = datetime.now(UTC)
+    # Need event_datetime for Event creation, make it future
+    future_dt = now + timedelta(days=1)
+
+    past_deadline_event = Event(
+        "Past Deadline", "V", "A", "G", event_datetime=future_dt, event_deadline=now - timedelta(hours=1)
+    )
+    future_deadline_event = Event(
+        "Future Deadline", "V", "A", "G", event_datetime=future_dt, event_deadline=now + timedelta(hours=1)
+    )
+    no_deadline_event = Event("No Deadline", "V", "A", "G", event_datetime=future_dt, event_deadline=None)
+
+    assert past_deadline_event.is_past_deadline is True
+    assert future_deadline_event.is_past_deadline is False
+    assert no_deadline_event.is_past_deadline is False
+
+
 def test_create_event_message():
     # Simulate 2024-07-20 20:00 JST stored as UTC
     naive_jst = datetime(2024, 7, 20, 20, 0, 0)
