@@ -190,7 +190,7 @@ async def test_create_offkai_success(
 
     # --- ADD ASSERTION FOR register_deadline_reminders ---
     # Check it was called once with the client and the event object returned by add_event
-    mock_register_reminders.assert_called_once_with(mock_interaction.client, mock_created_event)
+    mock_register_reminders.assert_called_once_with(mock_interaction.client, mock_created_event, mock_thread)
     # --- END ASSERTION ---
 
 
@@ -285,6 +285,7 @@ async def test_create_offkai_success_without_deadline(
     mock_register_reminders.assert_called_once_with(
         mock_interaction.client,
         event_without_deadline,  # Check the correct event object was passed
+        mock_thread,
     )
     # --- END ASSERTION ---
 
