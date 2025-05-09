@@ -1,14 +1,17 @@
 # tests/alerts/test_alerts.py
 
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
 
 # Import the module and functions to test
 from offkai_bot.alerts import alerts
-from offkai_bot.alerts.task import Task  # Import base Task for type hinting
+from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask, Task  # Import base Task for type hinting
+from offkai_bot.data.event import Event
+from offkai_bot.errors import AlertTimeInPastError
+from offkai_bot.event_actions import register_deadline_reminders
 from offkai_bot.util import JST  # Import the JST timezone object
 
 # --- Fixtures ---
@@ -40,6 +43,38 @@ def mock_task(mock_client):
     # Mock class name for logging purposes
     task.__class__.__name__ = "MockTask"
     return task
+
+
+@pytest.fixture
+def mock_thread():
+    """Fixture for a mock discord.Thread."""
+    thread = MagicMock(spec=discord.Thread)
+    thread.mention = ""
+
+    return thread
+
+
+@pytest.fixture
+def future_event():
+    """Fixture for a basic event set in the future with a deadline and channel ID."""
+    now_utc = datetime.now(UTC)
+    deadline_utc = now_utc + timedelta(days=10)  # Deadline 10 days from now
+    event_dt_utc = deadline_utc + timedelta(days=5)  # Event 5 days after deadline
+    return Event(
+        event_name="Future Event",
+        venue="Test Venue",
+        address="Test Address",
+        google_maps_link="test_link",
+        event_datetime=event_dt_utc,
+        event_deadline=deadline_utc,
+        channel_id=123456789,  # Assign a channel ID
+        thread_id=987654321,
+        message_id=None,
+        open=True,
+        archived=False,
+        drinks=[],
+        message="Future Event Message",
+    )
 
 
 # --- Tests for register_alert ---
@@ -175,3 +210,164 @@ def test_register_alert_ignores_seconds(mock_log):
     assert task2 in alerts._scheduled_tasks[expected_key]
     # Check logs
     assert mock_log.info.call_count == 2
+
+
+@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.event_actions._log")
+def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock_client, mock_thread, future_event):
+    """Test registering all reminders and close task for an event with future deadline and channel ID."""
+    # Arrange
+    event = future_event
+    deadline = event.event_deadline
+    assert deadline is not None  # Ensure deadline exists for type checking
+    expected_close_time = deadline
+    expected_1d_time = deadline - timedelta(days=1)
+    expected_3d_time = deadline - timedelta(days=3)
+    expected_7d_time = deadline - timedelta(days=7)
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert
+    assert mock_register_alert.call_count == 4
+    mock_log.info.assert_any_call(f"Registering deadline reminders for event '{event.event_name}'.")
+
+    # Check Close Task registration
+    mock_register_alert.assert_any_call(
+        expected_close_time, CloseOffkaiTask(client=mock_client, event_name=event.event_name)
+    )
+    mock_log.info.assert_any_call(f"Registered auto-close task for '{event.event_name}'.")
+
+    # Check 1 Day Reminder registration
+    mock_register_alert.assert_any_call(
+        expected_1d_time,
+        SendMessageTask(
+            client=mock_client,
+            channel_id=event.channel_id,
+            message=ANY,
+        ),
+    )
+    mock_log.info.assert_any_call(f"Registered 24 hour reminder for '{event.event_name}'.")
+
+    # Check 3 Day Reminder registration
+    mock_register_alert.assert_any_call(
+        expected_3d_time,
+        SendMessageTask(
+            client=mock_client,
+            channel_id=event.channel_id,
+            message=ANY,
+        ),
+    )
+    mock_log.info.assert_any_call(f"Registered 3 day reminder for '{event.event_name}'.")
+
+    # Check 7 Day Reminder registration
+    mock_register_alert.assert_any_call(
+        expected_7d_time,
+        SendMessageTask(
+            client=mock_client,
+            channel_id=event.channel_id,
+            message=ANY,
+        ),
+    )
+    mock_log.info.assert_any_call(f"Registered 1 week reminder for '{event.event_name}'.")
+
+
+@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.event_actions._log")
+def test_register_deadline_reminders_no_channel_id(
+    mock_log, mock_register_alert, mock_client, mock_thread, future_event
+):
+    """Test registering only the close task when channel_id is missing."""
+    # Arrange
+    event = future_event
+    event.channel_id = None  # Remove channel ID
+    deadline = event.event_deadline
+    assert deadline is not None
+    expected_close_time = deadline
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert
+    # Only the close task should be registered
+    assert mock_register_alert.call_count == 1
+    mock_log.info.assert_any_call(f"Registering deadline reminders for event '{event.event_name}'.")
+
+    # Check Close Task registration
+    mock_register_alert.assert_called_once_with(
+        expected_close_time, CloseOffkaiTask(client=mock_client, event_name=event.event_name)
+    )
+    mock_log.info.assert_any_call(f"Registered auto-close task for '{event.event_name}'.")
+
+    # Ensure reminder logs were NOT called
+    assert mock_log.info.call_count == 2  # Registering + Close Task
+
+
+@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.event_actions._log")
+def test_register_deadline_reminders_no_deadline(mock_log, mock_register_alert, mock_client, mock_thread, future_event):
+    """Test that no alerts are registered if the event has no deadline."""
+    # Arrange
+    event = future_event
+    event.event_deadline = None  # Remove deadline
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert
+    mock_register_alert.assert_not_called()
+    mock_log.info.assert_called_once_with(f"Registering deadline reminders for event '{event.event_name}'.")
+    # Ensure no other info logs were generated
+    assert mock_log.info.call_count == 1
+
+
+@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.event_actions._log")
+def test_register_deadline_reminders_past_reminders_suppressed(
+    mock_log, mock_register_alert, mock_client, mock_thread, future_event
+):
+    """Test that reminders for times already past are suppressed and not registered."""
+    # Arrange
+    event = future_event
+    now_utc = datetime.now(UTC)
+    # Set deadline only 2 days in the future
+    deadline_utc = now_utc + timedelta(days=2)
+    event.event_deadline = deadline_utc
+    event.event_datetime = deadline_utc + timedelta(days=1)  # Event still after deadline
+
+    expected_close_time = deadline_utc
+    expected_1d_time = deadline_utc - timedelta(days=1)
+    # 3d and 7d reminders would be in the past relative to 'now_utc'
+
+    # Simulate register_alert raising AlertTimeInPastError for past times
+    def register_alert_side_effect(alert_time, task):
+        if alert_time <= now_utc:
+            raise AlertTimeInPastError(alert_time)
+        # Otherwise, do nothing (mock call is recorded)
+
+    mock_register_alert.side_effect = register_alert_side_effect
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert
+    # Close task and 1d reminder should be registered
+    assert mock_register_alert.call_count == 3
+    mock_log.info.assert_any_call(f"Registering deadline reminders for event '{event.event_name}'.")
+
+    # Check Close Task registration
+    mock_register_alert.assert_any_call(
+        expected_close_time, CloseOffkaiTask(client=mock_client, event_name=event.event_name)
+    )
+    mock_log.info.assert_any_call(f"Registered auto-close task for '{event.event_name}'.")
+
+    # Check 1 Day Reminder registration
+    mock_register_alert.assert_any_call(
+        expected_1d_time,
+        SendMessageTask(
+            client=mock_client,
+            channel_id=event.channel_id,
+            message=ANY,
+        ),
+    )
+    mock_log.info.assert_any_call(ANY)

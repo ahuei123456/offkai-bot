@@ -465,32 +465,46 @@ async def test_update_message_edit_fails(
 # --- Tests for load_and_update_events ---
 
 
+@patch("offkai_bot.event_actions.register_deadline_reminders")  # Outermost patch, last mock arg
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)  # Fourth patch
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.load_event_data")
 @patch("offkai_bot.event_actions._log")
 async def test_load_and_update_events_success(
-    mock_log,
+    mock_ea_log,  # Corresponds to event_actions._log
     mock_load_data,
-    mock_update,
+    mock_update_event_message,
+    mock_fetch_thread,
+    mock_register_reminders,
+    # Pytest fixtures
     mock_client,
     mock_event_open,
     mock_event_closed,
-    mock_event_archived,  # Use specific event fixtures
+    mock_event_archived,
+    mock_thread,  # Assumed to be an available fixture providing a mock discord.Thread
 ):
     """Test load_and_update_events calls update for non-archived events."""
     mock_events = [mock_event_open, mock_event_closed, mock_event_archived]
     mock_load_data.return_value = mock_events
 
+    mock_fetch_thread.return_value = mock_thread
+
     await event_actions.load_and_update_events(mock_client)
 
     mock_load_data.assert_called_once()
     # Check update was called for open and closed, but not archived
-    assert mock_update.await_count == 2
-    mock_update.assert_any_await(mock_client, mock_event_open)
-    mock_update.assert_any_await(mock_client, mock_event_closed)
+    assert mock_update_event_message.await_count == 2
+    mock_update_event_message.assert_any_await(mock_client, mock_event_open)
+    mock_update_event_message.assert_any_await(mock_client, mock_event_closed)
+
+    # Check register_deadline_reminders calls
+    assert mock_register_reminders.call_count == 2  # Called for open and closed events
+    mock_register_reminders.assert_any_call(mock_client, mock_event_open, mock_thread)
+    mock_register_reminders.assert_any_call(mock_client, mock_event_closed, mock_thread)
+
     # Check it wasn't called with the archived one (difficult to assert directly not called with specific args)
     # Instead, rely on the await_count being correct (2 calls, not 3)
-    mock_log.info.assert_called()  # Check startup/finish logs
+    mock_ea_log.info.assert_called()  # Check startup/finish logs
 
 
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)

@@ -1,12 +1,14 @@
 # src/offkai_bot/event_actions.py
+import contextlib
 import logging
+from datetime import timedelta
 
 import discord
 
-from offkai_bot.alerts.task import CloseOffkaiTask
+from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
 
 from .data.event import Event, create_event_message, load_event_data, save_event_data, set_event_open_status
-from .errors import BotCommandError, MissingChannelIDError, ThreadAccessError, ThreadNotFoundError
+from .errors import AlertTimeInPastError, BotCommandError, MissingChannelIDError, ThreadAccessError, ThreadNotFoundError
 from .interactions import ClosedEvent, OpenEvent
 
 _log = logging.getLogger(__name__)
@@ -242,9 +244,53 @@ async def load_and_update_events(client: discord.Client):
             await update_event_message(client, event)
 
             # Register deadline close alerts
-            from offkai_bot.alerts.alerts import register_alert
-
-            if event.event_deadline:
-                register_alert(event.event_deadline, CloseOffkaiTask(client=client, event_name=event.event_name))
+            thread = await fetch_thread_for_event(client, event)
+            register_deadline_reminders(client, event, thread)
 
     _log.info("Finished loading and updating event messages.")
+
+
+def register_deadline_reminders(client: discord.Client, event: Event, thread: discord.Thread):
+    _log.info(f"Registering deadline reminders for event '{event.event_name}'.")
+
+    from offkai_bot.alerts.alerts import register_alert
+
+    if event.event_deadline and not event.is_past_deadline:
+        with contextlib.suppress(AlertTimeInPastError):
+            register_alert(event.event_deadline, CloseOffkaiTask(client=client, event_name=event.event_name))
+            _log.info(f"Registered auto-close task for '{event.event_name}'.")
+
+            if event.channel_id:
+                register_alert(
+                    event.event_deadline - timedelta(days=1),
+                    SendMessageTask(
+                        client=client,
+                        channel_id=event.channel_id,
+                        message=f"24 hours until registration deadline for {event.event_name}! "
+                        f"See {thread.mention} for details.",
+                    ),
+                )
+                _log.info(f"Registered 24 hour reminder for '{event.event_name}'.")
+
+                register_alert(
+                    event.event_deadline - timedelta(days=3),
+                    SendMessageTask(
+                        client=client,
+                        channel_id=event.channel_id,
+                        message=f"3 days until registration deadline for {event.event_name}! "
+                        f"See {thread.mention} for details.",
+                    ),
+                )
+                _log.info(f"Registered 3 day reminder for '{event.event_name}'.")
+
+                register_alert(
+                    event.event_deadline - timedelta(days=7),
+                    SendMessageTask(
+                        client=client,
+                        channel_id=event.channel_id,
+                        message=f"1 week until registration deadline for {event.event_name}! "
+                        f"See {thread.mention} for details.",
+                    ),
+                )
+
+                _log.info(f"Registered 1 week reminder for '{event.event_name}'.")

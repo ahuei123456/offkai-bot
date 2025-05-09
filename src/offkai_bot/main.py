@@ -42,6 +42,7 @@ from .event_actions import (
     fetch_thread_for_event,
     load_and_update_events,
     perform_close_event,
+    register_deadline_reminders,
     send_event_message,
     update_event_message,
 )
@@ -202,8 +203,9 @@ async def create_offkai(
         drinks_list=drinks_list,
         announce_msg=announce_msg,  # Pass announce_msg if stored on Event
     )
-    if event_deadline:
-        register_alert(event_deadline, CloseOffkaiTask(client=client, event_name=event_name))
+
+    register_deadline_reminders(client, new_event, thread)
+
     # --- End Replacement ---
 
     # 6. Further Discord Interaction

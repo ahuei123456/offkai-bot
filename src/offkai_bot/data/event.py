@@ -60,6 +60,26 @@ class Event:
     def has_drinks(self):
         return len(self.drinks) > 0
 
+    @property
+    def is_over(self) -> bool:
+        """Checks if the event's start time (event_datetime) is in the past."""
+        # Ensure comparison is between timezone-aware datetimes (UTC)
+        now_utc = datetime.now(UTC)
+        return now_utc > self.event_datetime
+
+    @property
+    def is_past_deadline(self) -> bool:
+        """
+        Checks if the event's deadline (event_deadline) has passed.
+        Returns False if no deadline is set.
+        """
+        if self.event_deadline is None:
+            return False  # No deadline set, so it can't be past
+
+        # Ensure comparison is between timezone-aware datetimes (UTC)
+        now_utc = datetime.now(UTC)
+        return now_utc > self.event_deadline
+
     def format_details(self):
         drinks_str = ", ".join(self.drinks) if self.drinks else "No selection needed!"
 

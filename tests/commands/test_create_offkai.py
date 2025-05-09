@@ -100,7 +100,7 @@ def mock_created_event():
 
 
 # Patches for success tests
-@patch("offkai_bot.main.register_alert")  # <-- ADD PATCH
+@patch("offkai_bot.main.register_deadline_reminders")  # <-- CORRECTED PATCH
 @patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
@@ -108,7 +108,7 @@ def mock_created_event():
 @patch("offkai_bot.main.parse_event_datetime")
 @patch("offkai_bot.main.get_event")
 @patch("offkai_bot.main._log")
-async def test_create_offkai_success(  # Renamed from test_create_offkai_success_with_deadline
+async def test_create_offkai_success(
     mock_log,
     mock_get_event,
     mock_parse_dt,
@@ -116,35 +116,34 @@ async def test_create_offkai_success(  # Renamed from test_create_offkai_success
     mock_validate_ctx,
     mock_add_event,
     mock_send_msg,
-    mock_register_alert,
+    mock_register_reminders,  # <-- CORRECTED MOCK ARG
     mock_interaction,
     mock_thread,
-    mock_created_event,  # Use updated fixture
+    mock_created_event,
 ):
     """Test the successful path of create_offkai including a deadline."""
     # Arrange
-    event_name = mock_created_event.event_name  # Use name from fixture
+    event_name = mock_created_event.event_name
     venue = mock_created_event.venue
     address = mock_created_event.address
     gmaps = mock_created_event.google_maps_link
-    # Use strings that will parse into the fixture's datetimes
-    # (Assuming parse_event_datetime handles JST->UTC correctly)
     event_dt_jst = mock_created_event.event_datetime.astimezone(JST)
+    # Ensure deadline exists before accessing it
+    assert mock_created_event.event_deadline is not None
     deadline_dt_jst = mock_created_event.event_deadline.astimezone(JST)
     dt_str = event_dt_jst.strftime(r"%Y-%m-%d %H:%M")
     deadline_str = deadline_dt_jst.strftime(r"%Y-%m-%d %H:%M")
     drinks_str = ", ".join(mock_created_event.drinks)
     announce_msg = mock_created_event.message
 
-    # Define expected parsed datetimes (from the fixture)
     parsed_event_dt = mock_created_event.event_datetime
     parsed_deadline_dt = mock_created_event.event_deadline
 
     mock_get_event.side_effect = EventNotFoundError(event_name)
-    mock_parse_dt.side_effect = [parsed_event_dt, parsed_deadline_dt]  # Ensure parser returns the correct UTC objects
+    mock_parse_dt.side_effect = [parsed_event_dt, parsed_deadline_dt]
     mock_parse_drinks.return_value = mock_created_event.drinks
     mock_interaction.channel.create_thread.return_value = mock_thread
-    mock_add_event.return_value = mock_created_event  # add_event succeeds
+    mock_add_event.return_value = mock_created_event  # IMPORTANT: Ensure add_event returns the object
 
     # Act
     await main.create_offkai.callback(
@@ -160,6 +159,7 @@ async def test_create_offkai_success(  # Renamed from test_create_offkai_success
     )
 
     # Assert
+    # ... (previous assertions remain the same) ...
     mock_get_event.assert_called_once_with(event_name)
     assert mock_parse_dt.call_count == 2
     mock_parse_dt.assert_any_call(dt_str)
@@ -169,7 +169,6 @@ async def test_create_offkai_success(  # Renamed from test_create_offkai_success
     mock_interaction.channel.create_thread.assert_awaited_once_with(
         name=event_name, type=discord.ChannelType.public_thread
     )
-    # Check add_event call includes the correct parsed datetimes
     mock_add_event.assert_called_once_with(
         event_name=event_name,
         venue=venue,
@@ -189,19 +188,14 @@ async def test_create_offkai_success(  # Renamed from test_create_offkai_success
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
     mock_log.info.assert_called()
 
-    # --- ADD ASSERTION FOR register_alert ---
-    mock_register_alert.assert_called_once()
-    # Check arguments more specifically
-    call_args, call_kwargs = mock_register_alert.call_args
-    assert len(call_args) == 2  # Should have 2 positional args: time, task
-    assert call_args[0] == parsed_deadline_dt  # Check the datetime object
-    assert isinstance(call_args[1], CloseOffkaiTask)  # Check the task type
-    assert call_args[1].event_name == event_name  # Check task's event name
-    assert call_args[1].client == mock_interaction.client  # Check task's client instance
+    # --- ADD ASSERTION FOR register_deadline_reminders ---
+    # Check it was called once with the client and the event object returned by add_event
+    mock_register_reminders.assert_called_once_with(mock_interaction.client, mock_created_event, mock_thread)
     # --- END ASSERTION ---
 
 
-@patch("offkai_bot.main.register_alert")  # <-- ADD PATCH
+# Replace register_alert patch with register_deadline_reminders
+@patch("offkai_bot.main.register_deadline_reminders")  # <-- CORRECTED PATCH
 @patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
@@ -217,7 +211,7 @@ async def test_create_offkai_success_without_deadline(
     mock_validate_ctx,
     mock_add_event,
     mock_send_msg,
-    mock_register_alert,
+    mock_register_reminders,  # <-- CORRECTED MOCK ARG
     mock_interaction,
     mock_thread,
     mock_created_event,
@@ -234,6 +228,7 @@ async def test_create_offkai_success_without_deadline(
     announce_msg = mock_created_event.message
 
     parsed_event_dt = mock_created_event.event_datetime
+    # Create the version of the event that add_event will return
     event_without_deadline = copy.deepcopy(mock_created_event)
     event_without_deadline.event_name = event_name
     event_without_deadline.event_deadline = None
@@ -242,7 +237,7 @@ async def test_create_offkai_success_without_deadline(
     mock_parse_dt.return_value = parsed_event_dt  # Only called once
     mock_parse_drinks.return_value = mock_created_event.drinks
     mock_interaction.channel.create_thread.return_value = mock_thread
-    mock_add_event.return_value = event_without_deadline
+    mock_add_event.return_value = event_without_deadline  # IMPORTANT: Ensure add_event returns this object
 
     # Act
     await main.create_offkai.callback(
@@ -258,6 +253,7 @@ async def test_create_offkai_success_without_deadline(
     )
 
     # Assert
+    # ... (previous assertions remain the same) ...
     mock_get_event.assert_called_once_with(event_name)
     mock_parse_dt.assert_called_once_with(dt_str)
     mock_parse_drinks.assert_called_once_with(drinks_str)
@@ -271,7 +267,7 @@ async def test_create_offkai_success_without_deadline(
         address=address,
         google_maps_link=gmaps,
         event_datetime=parsed_event_dt,
-        event_deadline=None,  # Verify deadline is None
+        event_deadline=None,
         channel_id=mock_interaction.channel.id,
         thread_id=mock_thread.id,
         drinks_list=mock_created_event.drinks,
@@ -283,7 +279,15 @@ async def test_create_offkai_success_without_deadline(
     )
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
     mock_log.info.assert_called()
-    mock_register_alert.assert_not_called()
+
+    # --- ADD ASSERTION FOR register_deadline_reminders ---
+    # Check it was called once with the client and the event object returned by add_event
+    mock_register_reminders.assert_called_once_with(
+        mock_interaction.client,
+        event_without_deadline,  # Check the correct event object was passed
+        mock_thread,
+    )
+    # --- END ASSERTION ---
 
 
 @patch("offkai_bot.main.get_event")
