@@ -18,6 +18,7 @@ pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def mock_interaction():
     """Fixture to create a mock discord.Interaction with necessary attributes."""
@@ -44,23 +45,26 @@ def mock_interaction():
 
     return interaction
 
+
 @pytest.fixture
 def mock_event_obj(sample_event_list):
     """Fixture providing a specific Event object (e.g., Summer Bash)."""
     return next(e for e in sample_event_list if e.event_name == "Summer Bash")
 
+
 # --- Test Cases ---
 
-@patch('offkai_bot.main.calculate_attendance')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main._log')
+
+@patch("offkai_bot.main.calculate_attendance")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_attendance_success(
     mock_log,
     mock_get_event,
     mock_calculate_attendance,
     mock_interaction,
-    mock_event_obj, # From this file
-    prepopulated_event_cache # Use fixture to ensure cache is populated
+    mock_event_obj,  # From this file
+    prepopulated_event_cache,  # Use fixture to ensure cache is populated
 ):
     """Test the successful path of attendance."""
     # Arrange
@@ -70,7 +74,7 @@ async def test_attendance_success(
     # Mock the data layer function returning attendance data
     mock_total_count = 5
     mock_attendee_list = ["UserA", "UserA +1", "UserB", "UserC", "UserC +1"]
-    mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list)
+    mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list, None)
 
     # Act
     await main.attendance.callback(
@@ -93,23 +97,16 @@ async def test_attendance_success(
         "4. UserC\n"
         "5. UserC +1"
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        expected_output, ephemeral=True
-    )
+    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
     # 4. Check logs (optional)
     mock_log.warning.assert_not_called()
 
 
-@patch('offkai_bot.main.calculate_attendance')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.calculate_attendance")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_attendance_success_truncation(
-    mock_log,
-    mock_get_event,
-    mock_calculate_attendance,
-    mock_interaction,
-    mock_event_obj,
-    prepopulated_event_cache
+    mock_log, mock_get_event, mock_calculate_attendance, mock_interaction, mock_event_obj, prepopulated_event_cache
 ):
     """Test attendance output truncation when the list is very long."""
     # Arrange
@@ -119,16 +116,14 @@ async def test_attendance_success_truncation(
     # Create a very long list of attendees
     long_attendee_list = [f"User{i:03d}" for i in range(1000)]
     mock_total_count = 100
-    mock_calculate_attendance.return_value = (mock_total_count, long_attendee_list)
+    mock_calculate_attendance.return_value = (mock_total_count, long_attendee_list, None)
 
     # Construct the expected *full* output first to check length
     full_output_list = "\n".join(f"{i + 1}. {name}" for i, name in enumerate(long_attendee_list))
     full_output = (
-        f"**Attendance for {event_name_target}**\n\n"
-        f"Total Attendees: **{mock_total_count}**\n\n"
-        f"{full_output_list}"
+        f"**Attendance for {event_name_target}**\n\nTotal Attendees: **{mock_total_count}**\n\n{full_output_list}"
     )
-    assert len(full_output) > 1900 # Verify our test data causes truncation
+    assert len(full_output) > 1900  # Verify our test data causes truncation
 
     # Construct the expected truncated output
     expected_truncated_output = full_output[:1900] + "\n... (list truncated)"
@@ -142,20 +137,18 @@ async def test_attendance_success_truncation(
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_attendance.assert_called_once_with(event_name_target)
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        expected_truncated_output, ephemeral=True
-    )
+    mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
-@patch('offkai_bot.main.calculate_attendance')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.calculate_attendance")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_attendance_event_not_found(
     mock_log,
     mock_get_event,
     mock_calculate_attendance,
     mock_interaction,
-    prepopulated_event_cache # Still useful for setup/teardown
+    prepopulated_event_cache,  # Still useful for setup/teardown
 ):
     """Test attendance when the initial get_event fails."""
     # Arrange
@@ -175,16 +168,11 @@ async def test_attendance_event_not_found(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch('offkai_bot.main.calculate_attendance')
-@patch('offkai_bot.main.get_event')
-@patch('offkai_bot.main._log')
+@patch("offkai_bot.main.calculate_attendance")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_attendance_no_responses_found(
-    mock_log,
-    mock_get_event,
-    mock_calculate_attendance,
-    mock_interaction,
-    mock_event_obj,
-    prepopulated_event_cache
+    mock_log, mock_get_event, mock_calculate_attendance, mock_interaction, mock_event_obj, prepopulated_event_cache
 ):
     """Test attendance when calculate_attendance raises NoResponsesFoundError."""
     # Arrange
@@ -205,4 +193,3 @@ async def test_attendance_no_responses_found(
 
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
-
