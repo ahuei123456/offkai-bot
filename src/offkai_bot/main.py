@@ -4,13 +4,13 @@ import contextlib
 import functools
 import logging
 import sys
+from collections import Counter
 from typing import Any
 
 import discord
 from discord import app_commands
 
-from offkai_bot.alerts.alerts import alert_loop, register_alert
-from offkai_bot.alerts.task import CloseOffkaiTask
+from offkai_bot.alerts.alerts import alert_loop
 
 # --- Updated Imports ---
 from . import config
@@ -491,7 +491,7 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
 
 @client.tree.command(
     name="attendance",
-    description="Gets the list of attendees and count for an event.",
+    description="Gets the list of attendees and count for an event, including drinks (if any).",
     # guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.")
@@ -502,13 +502,24 @@ async def attendance(interaction: discord.Interaction, event_name: str):
     get_event(event_name)
 
     # 2. Calculate attendance using the data layer function
-    total_count, attendee_list = calculate_attendance(event_name)
+    total_count, attendee_list, drinks = calculate_attendance(event_name)
 
     # 3. Format output string for Discord
     output = f"**Attendance for {event_name}**\n\n"
     output += f"Total Attendees: **{total_count}**\n\n"
+
+    if drinks is not None:
+        attendee_list = [f"{name} - {drink}" for name, drink in zip(attendee_list, drinks)]
+        drinks_count = Counter(drinks)
+
     # Add numbering to the list provided by the data layer
-    output += "\n".join(f"{i + 1}. {name}" for i, name in enumerate(attendee_list))
+    lines = [f"{i + 1}. {name}" for i, name in enumerate(attendee_list)]
+    if drinks is not None:
+        lines.append("")
+        lines.append("**Drinks:**")
+        lines.extend(f"{drink}: {count}" for drink, count in drinks_count.items())
+
+    output += "\n".join(lines)
 
     # 4. Handle potential message length limits
     if len(output) > 1900:  # Leave buffer for ephemeral message header

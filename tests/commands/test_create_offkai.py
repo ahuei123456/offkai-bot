@@ -10,7 +10,6 @@ from discord import app_commands
 
 # Import the function to test and relevant errors/classes
 from offkai_bot import main
-from offkai_bot.alerts.task import CloseOffkaiTask
 from offkai_bot.data.event import Event  # To create return value for add_event
 from offkai_bot.errors import (
     DuplicateEventError,

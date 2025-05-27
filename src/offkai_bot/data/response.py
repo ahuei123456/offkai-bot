@@ -220,7 +220,7 @@ def remove_response(event_name: str, user_id: int) -> None:  # Changed return ty
         # No return needed on success
 
 
-def calculate_attendance(event_name: str) -> tuple[int, list[str]]:
+def calculate_attendance(event_name: str) -> tuple[int, list[str], list[str] | None]:
     """
     Calculates the total attendance count and generates a list of attendee names
     (including extras) for a given event.
@@ -241,15 +241,21 @@ def calculate_attendance(event_name: str) -> tuple[int, list[str]]:
         raise NoResponsesFoundError(event_name)
 
     attendee_names = []
+    drinks = []
     total_count = 0
     for response in responses:
         # Add the main person
         attendee_names.append(f"{response.username}")
         total_count += 1
+
         # Add extra people
         for i in range(response.extra_people):
             attendee_names.append(f"{response.username} +{i + 1}")
             total_count += 1
 
+        # Add drinks (if required)
+        if len(response.drinks) > 0:
+            drinks.extend(response.drinks)
+
     _log.info(f"Calculated attendance for '{event_name}': {total_count} attendees.")
-    return total_count, attendee_names
+    return total_count, attendee_names, drinks if len(drinks) > 0 else None
