@@ -74,7 +74,7 @@ async def test_attendance_success(
     # Mock the data layer function returning attendance data
     mock_total_count = 5
     mock_attendee_list = ["UserA", "UserA +1", "UserB", "UserC", "UserC +1"]
-    mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list, None)
+    mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list)
 
     # Act
     await main.attendance.callback(
@@ -116,7 +116,7 @@ async def test_attendance_success_truncation(
     # Create a very long list of attendees
     long_attendee_list = [f"User{i:03d}" for i in range(1000)]
     mock_total_count = 100
-    mock_calculate_attendance.return_value = (mock_total_count, long_attendee_list, None)
+    mock_calculate_attendance.return_value = (mock_total_count, long_attendee_list)
 
     # Construct the expected *full* output first to check length
     full_output_list = "\n".join(f"{i + 1}. {name}" for i, name in enumerate(long_attendee_list))

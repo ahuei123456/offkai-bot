@@ -4,7 +4,6 @@ import contextlib
 import functools
 import logging
 import sys
-from collections import Counter
 from typing import Any
 
 import discord
@@ -25,7 +24,7 @@ from .data.event import (
     set_event_open_status,
     update_event_details,
 )
-from .data.response import calculate_attendance, load_responses, remove_response
+from .data.response import calculate_attendance, calculate_drinks, load_responses, remove_response
 from .errors import (
     BotCommandError,
     BroadcastPermissionError,
@@ -491,7 +490,7 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
 
 @client.tree.command(
     name="attendance",
-    description="Gets the list of attendees and count for an event, including drinks (if any).",
+    description="Gets the list of attendees and count for an event.",
     # guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.")
@@ -502,20 +501,47 @@ async def attendance(interaction: discord.Interaction, event_name: str):
     get_event(event_name)
 
     # 2. Calculate attendance using the data layer function
-    total_count, attendee_list, drinks = calculate_attendance(event_name)
+    total_count, attendee_list = calculate_attendance(event_name)
 
     # 3. Format output string for Discord
     output = f"**Attendance for {event_name}**\n\n"
     output += f"Total Attendees: **{total_count}**\n\n"
 
-    if drinks is not None:
-        attendee_list = [f"{name} - {drink}" for name, drink in zip(attendee_list, drinks)]
-        drinks_count = Counter(drinks)
-
     # Add numbering to the list provided by the data layer
     lines = [f"{i + 1}. {name}" for i, name in enumerate(attendee_list)]
-    if drinks is not None:
-        lines.append("")
+
+    output += "\n".join(lines)
+
+    # 4. Handle potential message length limits
+    if len(output) > 1900:  # Leave buffer for ephemeral message header
+        output = output[:1900] + "\n... (list truncated)"
+
+    # 5. Send response
+    await interaction.response.send_message(output, ephemeral=True)
+
+
+@client.tree.command(
+    name="drinks",
+    description="Gets the list of drinks and count for an event, if any.",
+    # guilds=config.GUILDS,
+)
+@app_commands.describe(event_name="The name of the event.")
+@app_commands.checks.has_role("Offkai Organizer")
+@log_command_usage
+async def drinks(interaction: discord.Interaction, event_name: str):
+    # 1. Check if event exists
+    get_event(event_name)
+
+    # 2. Calculate attendance using the data layer function
+    total_count, drinks_count = calculate_drinks(event_name)
+
+    # 3. Format output string for Discord
+    output = f"**Drinks for {event_name}**\n\n"
+    output += f"Total Drinks: **{total_count}**\n\n"
+
+    # Add numbering to the list provided by the data layer
+    lines = []
+    if total_count > 0:
         lines.append("**Drinks:**")
         lines.extend(f"{drink}: {count}" for drink, count in drinks_count.items())
 
@@ -623,6 +649,7 @@ async def event_autocomplete_base(
 @broadcast.autocomplete("event_name")
 @delete_response.autocomplete("event_name")
 @attendance.autocomplete("event_name")
+@drinks.autocomplete("event_name")
 async def offkai_autocomplete_active(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """Autocomplete for active (non-archived) events."""
     return await event_autocomplete_base(interaction, current, open_status=None)
