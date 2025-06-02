@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -220,7 +221,7 @@ def remove_response(event_name: str, user_id: int) -> None:  # Changed return ty
         # No return needed on success
 
 
-def calculate_attendance(event_name: str) -> tuple[int, list[str], list[str] | None]:
+def calculate_attendance(event_name: str) -> tuple[int, list[str]]:
     """
     Calculates the total attendance count and generates a list of attendee names
     (including extras) for a given event.
@@ -258,4 +259,27 @@ def calculate_attendance(event_name: str) -> tuple[int, list[str], list[str] | N
             drinks.extend(response.drinks)
 
     _log.info(f"Calculated attendance for '{event_name}': {total_count} attendees.")
-    return total_count, attendee_names, drinks if len(drinks) > 0 else None
+    return total_count, attendee_names
+
+
+def calculate_drinks(event_name: str) -> tuple[int, dict[str, int]]:
+    responses = get_responses(event_name)
+    if not responses:
+        raise NoResponsesFoundError(event_name)
+
+    drinks = []
+
+    for response in responses:
+        # Add drinks (if required)
+        if len(response.drinks) > 0:
+            drinks.extend(response.drinks)
+
+    if len(drinks) > 0:
+        drinks_count = Counter(drinks)
+
+        _log.info(f"Calculated {len(drinks)} drink(s) for '{event_name}'.")
+
+        return len(drinks), drinks_count
+    else:
+        _log.info(f"No drinks found for '{event_name}'.")
+        return 0, {}
