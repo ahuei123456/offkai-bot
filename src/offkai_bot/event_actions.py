@@ -78,6 +78,7 @@ async def send_event_message(channel: discord.Thread, event: Event):
     try:
         message_content = create_event_message(event)  # Use util function
         message = await channel.send(message_content, view=view)
+        await message.pin(reason=None) # pin the message for easier access when the thread gets longer
         event.message_id = message.id  # Update the Event object directly
         save_event_data()  # Save the list containing the updated event
         _log.info(f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}")
