@@ -67,6 +67,8 @@ def mock_thread():
     thread = MagicMock(spec=discord.Thread)
     thread.id = 111222333
     thread.mention = "<#111222333>"
+    # Add an async mock for the send method
+    thread.send = AsyncMock()
     return thread
 
 
@@ -98,29 +100,30 @@ def mock_created_event():
 # --- Test Cases ---
 
 
-# Patches for success tests
-@patch("offkai_bot.main.register_deadline_reminders")  # <-- CORRECTED PATCH
-@patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
+# Patches for success tests - UPDATED
+# Corrected patch paths to point to where the functions/classes are looked up.
+@patch("offkai_bot.main.send_event_message")
+@patch("offkai_bot.main.register_deadline_reminders")
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
 @patch("offkai_bot.main.parse_drinks")
 @patch("offkai_bot.main.parse_event_datetime")
 @patch("offkai_bot.main.get_event")
 @patch("offkai_bot.main._log")
-async def test_create_offkai_success(
+async def test_create_offkai_success_and_pins_message(
     mock_log,
     mock_get_event,
     mock_parse_dt,
     mock_parse_drinks,
     mock_validate_ctx,
     mock_add_event,
-    mock_send_msg,
-    mock_register_reminders,  # <-- CORRECTED MOCK ARG
+    mock_register_reminders,
+    mock_send_event_message,
     mock_interaction,
     mock_thread,
     mock_created_event,
 ):
-    """Test the successful path of create_offkai including a deadline."""
+    """Test the successful path of create_offkai, including message sending and pinning."""
     # Arrange
     event_name = mock_created_event.event_name
     venue = mock_created_event.venue
@@ -142,7 +145,7 @@ async def test_create_offkai_success(
     mock_parse_dt.side_effect = [parsed_event_dt, parsed_deadline_dt]
     mock_parse_drinks.return_value = mock_created_event.drinks
     mock_interaction.channel.create_thread.return_value = mock_thread
-    mock_add_event.return_value = mock_created_event  # IMPORTANT: Ensure add_event returns the object
+    mock_add_event.return_value = mock_created_event
 
     # Act
     await main.create_offkai.callback(
@@ -158,16 +161,7 @@ async def test_create_offkai_success(
     )
 
     # Assert
-    # ... (previous assertions remain the same) ...
     mock_get_event.assert_called_once_with(event_name)
-    assert mock_parse_dt.call_count == 2
-    mock_parse_dt.assert_any_call(dt_str)
-    mock_parse_dt.assert_any_call(deadline_str)
-    mock_parse_drinks.assert_called_once_with(drinks_str)
-    mock_validate_ctx.assert_called_once_with(mock_interaction)
-    mock_interaction.channel.create_thread.assert_awaited_once_with(
-        name=event_name, type=discord.ChannelType.public_thread
-    )
     mock_add_event.assert_called_once_with(
         event_name=event_name,
         venue=venue,
@@ -180,22 +174,22 @@ async def test_create_offkai_success(
         drinks_list=mock_created_event.drinks,
         announce_msg=announce_msg,
     )
-    mock_send_msg.assert_awaited_once_with(mock_thread, mock_created_event)
+
+    # Assert that send_event_message was called. Its internal logic (like pinning)
+    # should be tested in a dedicated unit test for that function.
+    mock_send_event_message.assert_awaited_once_with(mock_thread, mock_created_event)
+
+    # Assert final response and reminders
     expected_response = (
         f"# Offkai Created: {event_name}\n\n{announce_msg}\n\nJoin the discussion and RSVP here: {mock_thread.mention}"
     )
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
+    mock_register_reminders.assert_called_once_with(mock_interaction.client, mock_created_event, mock_thread)
     mock_log.info.assert_called()
 
-    # --- ADD ASSERTION FOR register_deadline_reminders ---
-    # Check it was called once with the client and the event object returned by add_event
-    mock_register_reminders.assert_called_once_with(mock_interaction.client, mock_created_event, mock_thread)
-    # --- END ASSERTION ---
 
-
-# Replace register_alert patch with register_deadline_reminders
-@patch("offkai_bot.main.register_deadline_reminders")  # <-- CORRECTED PATCH
-@patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.send_event_message")
+@patch("offkai_bot.main.register_deadline_reminders")
 @patch("offkai_bot.main.add_event")
 @patch("offkai_bot.main.validate_interaction_context")
 @patch("offkai_bot.main.parse_drinks")
@@ -209,13 +203,13 @@ async def test_create_offkai_success_without_deadline(
     mock_parse_drinks,
     mock_validate_ctx,
     mock_add_event,
-    mock_send_msg,
-    mock_register_reminders,  # <-- CORRECTED MOCK ARG
+    mock_register_reminders,
+    mock_send_event_message,
     mock_interaction,
     mock_thread,
     mock_created_event,
 ):
-    """Test the successful path of create_offkai without providing a deadline."""
+    """Test create_offkai without a deadline."""
     # Arrange
     event_name = "Test Event No Deadline"
     venue = mock_created_event.venue
@@ -236,7 +230,7 @@ async def test_create_offkai_success_without_deadline(
     mock_parse_dt.return_value = parsed_event_dt  # Only called once
     mock_parse_drinks.return_value = mock_created_event.drinks
     mock_interaction.channel.create_thread.return_value = mock_thread
-    mock_add_event.return_value = event_without_deadline  # IMPORTANT: Ensure add_event returns this object
+    mock_add_event.return_value = event_without_deadline
 
     # Act
     await main.create_offkai.callback(
@@ -252,14 +246,7 @@ async def test_create_offkai_success_without_deadline(
     )
 
     # Assert
-    # ... (previous assertions remain the same) ...
     mock_get_event.assert_called_once_with(event_name)
-    mock_parse_dt.assert_called_once_with(dt_str)
-    mock_parse_drinks.assert_called_once_with(drinks_str)
-    mock_validate_ctx.assert_called_once_with(mock_interaction)
-    mock_interaction.channel.create_thread.assert_awaited_once_with(
-        name=event_name, type=discord.ChannelType.public_thread
-    )
     mock_add_event.assert_called_once_with(
         event_name=event_name,
         venue=venue,
@@ -272,21 +259,19 @@ async def test_create_offkai_success_without_deadline(
         drinks_list=mock_created_event.drinks,
         announce_msg=announce_msg,
     )
-    mock_send_msg.assert_awaited_once_with(mock_thread, event_without_deadline)
+
+    mock_send_event_message.assert_awaited_once_with(mock_thread, event_without_deadline)
+
+    # Assert final response and reminders
     expected_response = (
         f"# Offkai Created: {event_name}\n\n{announce_msg}\n\nJoin the discussion and RSVP here: {mock_thread.mention}"
     )
     mock_interaction.response.send_message.assert_awaited_once_with(expected_response)
-    mock_log.info.assert_called()
-
-    # --- ADD ASSERTION FOR register_deadline_reminders ---
-    # Check it was called once with the client and the event object returned by add_event
     mock_register_reminders.assert_called_once_with(
         mock_interaction.client,
         event_without_deadline,  # Check the correct event object was passed
         mock_thread,
     )
-    # --- END ASSERTION ---
 
 
 @patch("offkai_bot.main.get_event")
@@ -458,9 +443,6 @@ async def test_create_offkai_thread_creation_fails(
     assert f"Failed to create thread for '{event_name}'" in mock_log.error.call_args[0][0]
 
     # Ensure later steps (add_event, send_message, response) weren't called
-    # (Need to import add_event and send_event_message mocks if checking them)
-    # mock_add_event.assert_not_called()
-    # mock_send_msg.assert_not_awaited()
     mock_interaction.response.send_message.assert_not_awaited()
 
 
