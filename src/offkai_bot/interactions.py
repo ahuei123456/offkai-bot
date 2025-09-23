@@ -284,11 +284,21 @@ class OpenEvent(EventView):
             remove_response(self.event.event_name, interaction.user.id)
 
             # --- Success Path (only runs if remove_response didn't raise error) ---
-            await interaction.response.send_message(
-                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.",
-                ephemeral=True,
-            )
-            # Remove user from the thread
+            # 1. Create the withdrawal message string
+            withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
+
+            # 2. Attempt to DM the user first
+            try:
+                await interaction.user.send(withdrawal_message)
+                # If DM succeeds, send a brief confirmation to the channel
+                await interaction.response.send_message(
+                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                # 3. If DM fails, fall back to sending an ephemeral message in the channel
+                await interaction.response.send_message(withdrawal_message, ephemeral=True)
+
+            # 4. Remove user from the thread
             try:
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
                     await interaction.channel.remove_user(interaction.user)
