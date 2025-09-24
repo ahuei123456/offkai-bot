@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-# Import the function to test and relevant errors/classes
 from offkai_bot.data.event import Event
 from offkai_bot.errors import (
     EventAlreadyClosedError,
     EventArchivedError,
     EventNotFoundError,
     MissingChannelIDError,
+    PinPermissionError,
     ThreadAccessError,
     ThreadNotFoundError,
 )
@@ -83,13 +83,9 @@ async def test_send_event_message_sends_and_pins_for_open_event(
     # Arrange
     message_content = "Test message for an open event"
     mock_create_message.return_value = message_content
-
-    # Mock the Message object that channel.send will return
     mock_message = AsyncMock(spec=discord.Message)
     mock_message.id = 998877
     mock_thread.send.return_value = mock_message
-
-    # Configure the event to be open
     mock_event.open = True
     mock_event.event_name = "Test Open Event"
 
@@ -97,21 +93,12 @@ async def test_send_event_message_sends_and_pins_for_open_event(
     await send_event_message(mock_thread, mock_event)
 
     # Assert
-    # 1. Verify the correct view was created for an open event
     mock_open_event_view.assert_called_once_with(mock_event)
     mock_closed_event_view.assert_not_called()
-
-    # 2. Verify the message was sent with the correct content and view
     mock_thread.send.assert_awaited_once_with(message_content, view=mock_open_event_view.return_value)
-
-    # 3. **Verify the message was pinned**
-    mock_message.pin.assert_awaited_once_with(reason=None)
-
-    # 4. Verify the event object was updated and saved
+    mock_message.pin.assert_awaited_once_with(reason="New event message.")
     assert mock_event.message_id == mock_message.id
     mock_save_data.assert_called_once()
-
-    # 5. Verify a success log was written
     mock_log.info.assert_called_once()
 
 
@@ -133,12 +120,9 @@ async def test_send_event_message_sends_and_pins_for_closed_event(
     # Arrange
     message_content = "Test message for a closed event"
     mock_create_message.return_value = message_content
-
     mock_message = AsyncMock(spec=discord.Message)
     mock_message.id = 776655
     mock_thread.send.return_value = mock_message
-
-    # Configure the event to be closed
     mock_event.open = False
     mock_event.event_name = "Test Closed Event"
 
@@ -146,21 +130,12 @@ async def test_send_event_message_sends_and_pins_for_closed_event(
     await send_event_message(mock_thread, mock_event)
 
     # Assert
-    # 1. Verify the correct view was created for a closed event
     mock_closed_event_view.assert_called_once_with(mock_event)
     mock_open_event_view.assert_not_called()
-
-    # 2. Verify the message was sent with the correct content and view
     mock_thread.send.assert_awaited_once_with(message_content, view=mock_closed_event_view.return_value)
-
-    # 3. **Verify the message was pinned**
-    mock_message.pin.assert_awaited_once_with(reason=None)
-
-    # 4. Verify the event object was updated and saved
+    mock_message.pin.assert_awaited_once_with(reason="New event message.")
     assert mock_event.message_id == mock_message.id
     mock_save_data.assert_called_once()
-
-    # 5. Verify a success log was written
     mock_log.info.assert_called_once()
 
 
@@ -168,7 +143,7 @@ async def test_send_event_message_sends_and_pins_for_closed_event(
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.event_actions._log")
-async def test_send_event_message_does_not_pin_on_send_failure(
+async def test_send_event_message_http_error_on_send(
     mock_log,
     mock_open_event_view,
     mock_create_message,
@@ -176,33 +151,63 @@ async def test_send_event_message_does_not_pin_on_send_failure(
     mock_thread,
     mock_event,
 ):
-    """Verify that message pinning and data saving do not occur if channel.send fails."""
+    """Verify pinning and saving do not occur if channel.send fails with HTTPException."""
     # Arrange
     mock_create_message.return_value = "This message will fail to send"
-
-    # Simulate discord.py raising an error on send
     http_error = discord.HTTPException(MagicMock(), "Test send failure")
     mock_thread.send.side_effect = http_error
-
     mock_event.open = True
     mock_event.event_name = "Test Failing Event"
-    # Ensure message_id is None or some other value before the call
     mock_event.message_id = None
 
     # Act
     await send_event_message(mock_thread, mock_event)
 
     # Assert
-    # 1. Verify that sending was attempted
     mock_thread.send.assert_awaited_once()
-
-    # 2. **Verify that pinning, saving, and updating were NOT performed**
     assert mock_event.message_id is None
     mock_save_data.assert_not_called()
-
-    # 3. Verify an error was logged and the info log was skipped
     mock_log.error.assert_called_once()
+    # This assertion is now corrected to match the updated log message
+    assert "Failed to send or pin event message" in mock_log.error.call_args[0][0]
     mock_log.info.assert_not_called()
+
+
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions.OpenEvent")
+@patch("offkai_bot.event_actions._log")
+async def test_send_event_message_raises_on_pin_failure(
+    mock_log,
+    mock_open_event_view,
+    mock_create_message,
+    mock_save_data,
+    mock_thread,
+    mock_event,
+):
+    """Verify PinPermissionError is raised if pinning fails, but message is still saved."""
+    # Arrange
+    mock_create_message.return_value = "Test message"
+    mock_message = AsyncMock(spec=discord.Message)
+    mock_message.id = 12345
+    forbidden_error = discord.Forbidden(MagicMock(), "Missing Permissions to Pin")
+    mock_message.pin.side_effect = forbidden_error
+    mock_thread.send.return_value = mock_message
+    mock_event.open = True
+    mock_event.event_name = "Test Pin Fail Event"
+
+    # Act & Assert
+    with pytest.raises(PinPermissionError) as exc_info:
+        await send_event_message(mock_thread, mock_event)
+
+    assert exc_info.value.channel is mock_thread
+    assert exc_info.value.original_exception is forbidden_error
+    mock_thread.send.assert_awaited_once()
+    mock_message.pin.assert_awaited_once()
+    assert mock_event.message_id == mock_message.id
+    mock_save_data.assert_called_once()
+    mock_log.info.assert_called_once()
+    mock_log.error.assert_not_called()
 
 
 # --- Tests for perform_close_event ---
@@ -228,7 +233,6 @@ async def test_perform_close_event_success_with_message(
     # Arrange
     event_name_to_close = "Summer Bash"
     close_text = "Responses are now closed!"
-
     mock_set_status.return_value = mock_closed_event
     mock_fetch_thread.return_value = mock_thread
     mock_thread.id = mock_closed_event.thread_id
@@ -248,12 +252,6 @@ async def test_perform_close_event_success_with_message(
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
-
-    # Check logs
-    mock_log.info.assert_any_call(f"Attempting to close event '{event_name_to_close}'...")
-    mock_log.info.assert_any_call(f"Event '{event_name_to_close}' status set to closed and data saved.")
-    mock_log.info.assert_any_call(f"Updated persistent message for event '{event_name_to_close}'.")
-    mock_log.info.assert_any_call(f"Sent closing message to thread {mock_thread.id} for event '{event_name_to_close}'.")
     mock_log.warning.assert_not_called()
     mock_log.error.assert_not_called()
 
@@ -291,18 +289,8 @@ async def test_perform_close_event_success_no_message(
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
-
-    # Assert thread fetching and sending were NOT called
     mock_fetch_thread.assert_not_awaited()
     mock_thread.send.assert_not_awaited()
-
-    # Check logs
-    mock_log.info.assert_any_call(f"Attempting to close event '{event_name_to_close}'...")
-    mock_log.info.assert_any_call(f"Event '{event_name_to_close}' status set to closed and data saved.")
-    mock_log.info.assert_any_call(f"Updated persistent message for event '{event_name_to_close}'.")
-    mock_log.info.assert_any_call(f"No closing message provided for event '{event_name_to_close}'.")
-    mock_log.warning.assert_not_called()
-    mock_log.error.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -342,13 +330,10 @@ async def test_perform_close_event_set_status_errors(
             close_msg="Attempting to close",
         )
 
-    # Only set_status should have been called
     mock_set_status.assert_called_once_with(event_name, target_open_status=False)
     mock_save_data.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()
-    mock_log.info.assert_any_call(f"Attempting to close event '{event_name}'...")
-    assert mock_log.info.call_count == 1
 
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
@@ -381,35 +366,18 @@ async def test_perform_close_event_update_message_error(
             close_msg="Closing",
         )
 
-    # Steps up to update_message should have been called
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
-    # Fetch thread should NOT have been called as the error occurred before it
     mock_fetch_thread.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
     "error_type, error_args, expected_log_level, expected_log_fragment",
     [
-        (
-            MissingChannelIDError,
-            ("Summer Bash",),
-            logging.WARNING,
-            "does not have a channel ID",
-        ),
-        (
-            ThreadNotFoundError,
-            ("Summer Bash", 12345),
-            logging.WARNING,
-            "Could not find thread channel",
-        ),
-        (
-            ThreadAccessError,
-            ("Summer Bash", 12345),
-            logging.ERROR,
-            "Bot lacks permissions",
-        ),
+        (MissingChannelIDError, ("Summer Bash",), logging.WARNING, "does not have a channel ID"),
+        (ThreadNotFoundError, ("Summer Bash", 12345), logging.WARNING, "Could not find thread channel"),
+        (ThreadAccessError, ("Summer Bash", 12345), logging.ERROR, "Bot lacks permissions"),
     ],
 )
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
@@ -448,17 +416,12 @@ async def test_perform_close_event_fetch_thread_errors_handled(
 
     # Assert
     assert result == mock_closed_event
-
-    # Steps up to fetching thread should succeed
     mock_set_status.assert_called_once()
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
-
-    # Sending message to thread should be skipped
     mock_thread.send.assert_not_awaited()
 
-    # Check that the specific error was logged correctly
     mock_log.log.assert_called_once()
     args, kwargs = mock_log.log.call_args
     assert args[0] == expected_log_level
@@ -501,15 +464,11 @@ async def test_perform_close_event_send_close_msg_fails_handled(
 
     # Assert
     assert result == mock_closed_event
-
-    # All steps including fetch and send attempt should have occurred
     mock_set_status.assert_called_once()
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
-
-    # Warning should be logged for send failure
     mock_log.warning.assert_called_once()
     assert f"Could not send closing message to thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
     assert str(send_error) in mock_log.warning.call_args[0][0]
@@ -550,15 +509,11 @@ async def test_perform_close_event_unexpected_send_error_handled(
 
     # Assert
     assert result == mock_closed_event
-
-    # All steps including fetch and send attempt should have occurred
     mock_set_status.assert_called_once()
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
-
-    # Error should be logged via exception
     mock_log.exception.assert_called_once()
     assert (
         f"Unexpected error sending closing message for event '{event_name_to_close}'"

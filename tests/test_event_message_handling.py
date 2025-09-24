@@ -1,5 +1,3 @@
-# tests/test_event_message_handling.py
-
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +15,7 @@ from offkai_bot.errors import (
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
+
 
 # --- Fixtures ---
 
@@ -297,7 +296,8 @@ async def test_send_message_http_error(mock_log, mock_create_msg, mock_save, moc
     mock_thread.send.assert_awaited_once()
     mock_save.assert_not_called()  # Save should not happen on error
     mock_log.error.assert_called_once()
-    assert "Failed to send event message" in mock_log.error.call_args[0][0]
+    # CORRECTED ASSERTION
+    assert "Failed to send or pin event message" in mock_log.error.call_args[0][0]
 
 
 # --- Tests for update_event_message ---
