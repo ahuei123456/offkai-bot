@@ -1,4 +1,3 @@
-# src/offkai_bot/main.py
 import argparse
 import contextlib
 import functools
@@ -33,6 +32,7 @@ from .errors import (
     EventNotFoundError,
     InvalidChannelTypeError,
     MissingChannelIDError,
+    PinPermissionError,  # Import the new error
     ThreadAccessError,
     ThreadCreationError,
     ThreadNotFoundError,
@@ -86,6 +86,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 client = OffkaiClient(intents=intents)
+
 
 # --- Logging ---
 
@@ -329,7 +330,6 @@ async def close_offkai(interaction: discord.Interaction, event_name: str, close_
 @client.tree.command(
     name="reopen_offkai",
     description="Reopen responses for an offkai.",
-    # guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.",
@@ -351,7 +351,6 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str, reope
     if reopen_msg:
         try:
             # Fetch the thread using the helper.
-            # This handles missing ID, not found, wrong type, and access errors by raising.
             thread = await fetch_thread_for_event(client, reopened_event)
 
             # If fetch_thread_for_event succeeded, 'thread' is a valid discord.Thread
@@ -363,7 +362,6 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str, reope
 
         except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
             # Log specific errors related to getting the thread, but don't fail the command
-            # Use the error's defined log level if available, otherwise default to WARNING
             log_level = getattr(e, "log_level", logging.WARNING)
             _log.log(log_level, f"Could not send reopening message for event '{event_name}': {e}")
         except Exception as e:
@@ -378,7 +376,6 @@ async def reopen_offkai(interaction: discord.Interaction, event_name: str, reope
 @client.tree.command(
     name="archive_offkai",
     description="Archive an offkai.",
-    # guilds=config.GUILDS,
 )
 @app_commands.describe(
     event_name="The name of the event.",
@@ -398,7 +395,6 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
     # 4. Optionally archive the Discord thread itself (REFACTORED BLOCK)
     try:
         # Fetch the thread using the helper.
-        # This handles missing ID, not found, wrong type, and access errors by raising.
         thread = await fetch_thread_for_event(client, archived_event)
 
         # If fetch succeeded, 'thread' is a valid discord.Thread
@@ -409,12 +405,9 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
             except discord.HTTPException as e:
                 # Log warning for edit failure, but don't fail the command
                 _log.warning(f"Could not archive thread {thread.id}: {e}")
-        # else: # Optional: Log if thread was already archived
-        #     _log.info(f"Thread {thread.id} for event '{event_name}' was already archived.")
 
     except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
         # Log specific errors related to getting the thread, but don't fail the command
-        # Use the error's defined log level if available, otherwise default to WARNING
         log_level = getattr(e, "log_level", logging.WARNING)
         _log.log(log_level, f"Could not archive thread for event '{event_name}': {e}")
     except Exception as e:
@@ -429,7 +422,6 @@ async def archive_offkai(interaction: discord.Interaction, event_name: str):
 @client.tree.command(
     name="broadcast",
     description="Sends a message to the offkai channel.",
-    # guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.", message="Message to broadcast.")
 @app_commands.checks.has_role("Offkai Organizer")
@@ -451,7 +443,6 @@ async def broadcast(interaction: discord.Interaction, event_name: str, message: 
 @client.tree.command(
     name="delete_response",
     description="Deletes a specific user's response to an offkai.",
-    # guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.", member="The member whose response to remove.")
 @app_commands.checks.has_role("Offkai Organizer")
@@ -461,8 +452,6 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
     event = get_event(event_name)
 
     # 2. Attempt to remove the response using the data layer function
-    #    This will now raise ResponseNotFoundError if the response doesn't exist.
-    #    No try...except needed here, let the global handler catch ResponseNotFoundError.
     remove_response(event_name, member.id)
 
     # --- Success Path (only runs if remove_response didn't raise error) ---
@@ -491,7 +480,6 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
 @client.tree.command(
     name="attendance",
     description="Gets the list of attendees and count for an event.",
-    # guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.")
 @app_commands.checks.has_role("Offkai Organizer")
@@ -523,7 +511,6 @@ async def attendance(interaction: discord.Interaction, event_name: str):
 @client.tree.command(
     name="drinks",
     description="Gets the list of drinks and count for an event, if any.",
-    # guilds=config.GUILDS,
 )
 @app_commands.describe(event_name="The name of the event.")
 @app_commands.checks.has_role("Offkai Organizer")
@@ -568,14 +555,12 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
     match error:
         case app_commands.MissingRole():
             message = "❌ You need the Offkai Organizer role to use this command."
-            # Keep specific logging here as it's not a BotCommandError
             _log.warning(f"{user_info} - Missing Offkai Organizer role for command '{command_name}'.")
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
 
         case app_commands.CheckFailure():
             message = "❌ You do not have permission to use this command."
-            # Keep specific logging here
             _log.warning(f"{user_info} - CheckFailure for command '{command_name}'.")
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
@@ -586,22 +571,29 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
 
     # Now, match against the original error type
     match original_error:
-        # --- Unified Case for ALL handled custom errors ---
+        # --- Handle PinPermissionError gracefully ---
+        # This error is not critical; the command succeeded but the pin failed.
+        # We send a followup instead of the standard error message.
+        case PinPermissionError() as e:
+            log_level = getattr(e, "log_level", logging.WARNING)
+            _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {e}")
+            # The initial response was already sent by the command, so we use a followup
+            await interaction.followup.send(str(e), ephemeral=True)
+            return  # Handled
+
+        # --- Unified Case for other custom errors ---
         case BotCommandError() as e:
             message = str(e)
-            # Use the log level defined in the error class
-            log_level = getattr(e, "log_level", logging.INFO)  # Get level, default INFO if missing
+            log_level = getattr(e, "log_level", logging.INFO)
             _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {message}")
 
         # --- Specific Discord Errors (Keep separate) ---
         case discord.Forbidden():
             message = "❌ The bot lacks permissions to perform this action."
-            # Keep specific logging here
             _log.warning(f"{user_info} - Encountered discord.Forbidden for command '{command_name}'.")
 
         # --- Default Case for Unhandled Errors (Keep separate) ---
         case _:
-            # Keep specific logging here
             _log.error(
                 f"{user_info} - Unhandled command error for '{command_name}': {error}",
                 exc_info=original_error,

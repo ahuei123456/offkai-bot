@@ -217,6 +217,20 @@ class ThreadCreationError(BotCommandError):
         super().__init__(f"❌ Failed to create the event thread for '{event_name}'. Check bot permissions.")
 
 
+class PinPermissionError(BotCommandError):
+    """Raised when the bot fails to pin a message, likely due to lack of permissions."""
+
+    log_level = logging.WARNING
+
+    def __init__(self, channel: Thread, original_exception: Forbidden):
+        self.channel = channel
+        self.original_exception = original_exception
+        super().__init__(
+            f"❌ Failed to pin the event message in {channel.mention}. "
+            "Please ensure the bot has the 'Manage Messages' permission in this channel."
+        )
+
+
 class BroadcastPermissionError(BotCommandError):
     log_level = logging.WARNING
 

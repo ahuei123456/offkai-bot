@@ -1,4 +1,3 @@
-# src/offkai_bot/event_actions.py
 import contextlib
 import logging
 from datetime import timedelta
@@ -7,8 +6,21 @@ import discord
 
 from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
 
-from .data.event import Event, create_event_message, load_event_data, save_event_data, set_event_open_status
-from .errors import AlertTimeInPastError, BotCommandError, MissingChannelIDError, ThreadAccessError, ThreadNotFoundError
+from .data.event import (
+    Event,
+    create_event_message,
+    load_event_data,
+    save_event_data,
+    set_event_open_status,
+)
+from .errors import (
+    AlertTimeInPastError,
+    BotCommandError,
+    MissingChannelIDError,
+    PinPermissionError,
+    ThreadAccessError,
+    ThreadNotFoundError,
+)
 from .interactions import ClosedEvent, OpenEvent
 
 _log = logging.getLogger(__name__)
@@ -69,20 +81,37 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 
 
 async def send_event_message(channel: discord.Thread, event: Event):
-    """Sends a new event message and saves the message ID."""
+    """Sends a new event message, pins it, and saves the message ID."""
     if not isinstance(event, Event):
         _log.error(f"send_event_message received non-Event object: {type(event)}")
         return
 
     view = OpenEvent(event) if event.open else ClosedEvent(event)
+    message = None
     try:
         message_content = create_event_message(event)  # Use util function
         message = await channel.send(message_content, view=view)
-        event.message_id = message.id  # Update the Event object directly
-        save_event_data()  # Save the list containing the updated event
+
+        # Update and save the event BEFORE trying to pin. This ensures the message
+        # is tracked even if pinning fails.
+        event.message_id = message.id
+        save_event_data()
         _log.info(f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}")
+
+        # Now, attempt to pin the message
+        await message.pin(reason="New event message.")
+
+    except discord.Forbidden as e:
+        # This will catch permission errors on both .send() and .pin()
+        if message:  # If message exists, send succeeded and pin failed
+            _log.warning(f"Failed to pin message for '{event.event_name}' due to permissions: {e}")
+            raise PinPermissionError(channel, e) from e
+        else:  # Send itself failed
+            _log.error(f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}")
+            raise  # Re-raise the original Forbidden error
     except discord.HTTPException as e:
-        _log.error(f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}")
+        # Catch other HTTP errors from send or pin
+        _log.error(f"Failed to send or pin event message for {event.event_name} in channel {channel.id}: {e}")
     except Exception as e:
         _log.exception(f"Unexpected error sending event message for {event.event_name}: {e}")
 
