@@ -156,17 +156,28 @@ class GatheringModal(ui.Modal):
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
-        # Confirm submission
+        # 1. Create the confirmation message string
         drinks_msg = f"\n🍺 Drinks: {', '.join(response.drinks)}" if response.drinks else ""
-        await interaction.response.send_message(
+        confirmation_message = (
             f"✅ Attendance confirmed for **{self.event.event_name}**!\n"
             f"👥 Bringing: {response.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
-            f"{drinks_msg}",
-            ephemeral=True,
+            f"{drinks_msg}"
         )
-        # Add user to the thread
+
+        # 2. Attempt to DM the user first
+        try:
+            await interaction.user.send(confirmation_message)
+            # If DM succeeds, send a brief confirmation to the channel
+            await interaction.response.send_message(
+                "✅ Your attendance is confirmed! I've sent you a DM with the details.", ephemeral=True
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            # 3. If DM fails, fall back to sending an ephemeral message in the channel
+            await interaction.response.send_message(confirmation_message, ephemeral=True)
+
+        # 4. Add user to the thread
         try:
             if interaction.channel and isinstance(interaction.channel, discord.Thread):
                 await interaction.channel.add_user(interaction.user)
@@ -273,11 +284,21 @@ class OpenEvent(EventView):
             remove_response(self.event.event_name, interaction.user.id)
 
             # --- Success Path (only runs if remove_response didn't raise error) ---
-            await interaction.response.send_message(
-                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.",
-                ephemeral=True,
-            )
-            # Remove user from the thread
+            # 1. Create the withdrawal message string
+            withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
+
+            # 2. Attempt to DM the user first
+            try:
+                await interaction.user.send(withdrawal_message)
+                # If DM succeeds, send a brief confirmation to the channel
+                await interaction.response.send_message(
+                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                # 3. If DM fails, fall back to sending an ephemeral message in the channel
+                await interaction.response.send_message(withdrawal_message, ephemeral=True)
+
+            # 4. Remove user from the thread
             try:
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
                     await interaction.channel.remove_user(interaction.user)
