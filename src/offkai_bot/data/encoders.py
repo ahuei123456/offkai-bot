@@ -6,6 +6,7 @@ from datetime import datetime
 
 class DataclassJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for dataclasses, converting datetimes to ISO format."""
+
     def default(self, o):
         if is_dataclass(o):
             data = asdict(o)
@@ -15,4 +16,3 @@ class DataclassJSONEncoder(json.JSONEncoder):
                     data[key] = value.isoformat()
             return data
         return super().default(o)
-
