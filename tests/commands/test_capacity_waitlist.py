@@ -28,10 +28,9 @@ def clear_test_caches(mock_paths):
 
     # Clear caches
     response_data.RESPONSE_DATA_CACHE = None
-    response_data.WAITLIST_DATA_CACHE = None
 
     # Initialize the temp files with empty dicts
-    for file_path in [mock_paths["responses"], mock_paths.get("waitlist", "")]:
+    for file_path in [mock_paths["responses"]]:
         if file_path:
             # Create parent directory if needed
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -43,7 +42,6 @@ def clear_test_caches(mock_paths):
 
     # Clean up after test
     response_data.RESPONSE_DATA_CACHE = None
-    response_data.WAITLIST_DATA_CACHE = None
 
 
 @pytest.fixture
@@ -1179,3 +1177,147 @@ async def test_withdrawal_from_post_deadline_event_promotes_from_waitlist():
     assert any(r.user_id == 300 for r in responses)  # User C promoted
     assert len(waitlist) == 0
     assert get_current_attendance_count(event.event_name) == 2
+
+
+@pytest.mark.asyncio
+async def test_withdraw_from_waitlist_when_capacity_exceeded(event_with_capacity, mock_interaction):
+    """Test that user can withdraw from waitlist when added due to capacity exceeded."""
+    from offkai_bot.interactions import OpenEvent
+
+    # Fill event to 1 spot remaining (capacity is 3)
+    add_response(
+        event_with_capacity.event_name,
+        Response(
+            user_id=999,
+            username="ExistingUser",
+            extra_people=1,  # 2 people
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # User joins with +1 (2 people total) - exceeds capacity, added to waitlist
+    add_to_waitlist(
+        event_with_capacity.event_name,
+        WaitlistEntry(
+            user_id=123,
+            username="TestUser",
+            extra_people=1,
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # Verify initial state
+    assert len(get_responses(event_with_capacity.event_name)) == 1
+    assert len(get_waitlist(event_with_capacity.event_name)) == 1
+
+    # User tries to withdraw
+    view = OpenEvent(event=event_with_capacity)
+    mock_interaction.user.id = 123
+    mock_interaction.user.send = AsyncMock()
+
+    await view.withdraw.callback(mock_interaction)
+
+    # Verify user was removed from waitlist
+    responses = get_responses(event_with_capacity.event_name)
+    waitlist = get_waitlist(event_with_capacity.event_name)
+
+    assert len(responses) == 1  # Original user still there
+    assert len(waitlist) == 0  # User removed from waitlist
+    assert mock_interaction.response.send_message.called or mock_interaction.user.send.called
+
+
+@pytest.mark.asyncio
+async def test_withdraw_from_waitlist_does_not_promote_others(event_with_capacity, mock_interaction):
+    """Test that withdrawing from waitlist doesn't promote others (no capacity freed)."""
+    from offkai_bot.interactions import OpenEvent
+
+    # Fill event to capacity (3 people)
+    add_response(
+        event_with_capacity.event_name,
+        Response(
+            user_id=999,
+            username="ExistingUser",
+            extra_people=2,  # 3 people total
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # User A joins waitlist
+    add_to_waitlist(
+        event_with_capacity.event_name,
+        WaitlistEntry(
+            user_id=123,
+            username="UserA",
+            extra_people=0,
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # User B joins waitlist
+    add_to_waitlist(
+        event_with_capacity.event_name,
+        WaitlistEntry(
+            user_id=456,
+            username="UserB",
+            extra_people=0,
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # Verify initial state
+    assert len(get_responses(event_with_capacity.event_name)) == 1
+    assert len(get_waitlist(event_with_capacity.event_name)) == 2
+
+    # User A withdraws from waitlist
+    view = OpenEvent(event=event_with_capacity)
+    mock_interaction.user.id = 123
+    mock_interaction.user.send = AsyncMock()
+
+    await view.withdraw.callback(mock_interaction)
+
+    # Verify User A removed, User B NOT promoted (no capacity freed)
+    responses = get_responses(event_with_capacity.event_name)
+    waitlist = get_waitlist(event_with_capacity.event_name)
+
+    assert len(responses) == 1  # Still just original user
+    assert responses[0].user_id == 999  # Original user
+    assert len(waitlist) == 1  # User A removed, User B still waiting
+    assert waitlist[0].user_id == 456  # User B still in waitlist
+
+
+@pytest.mark.asyncio
+async def test_withdraw_fails_when_user_not_registered(event_with_capacity, mock_interaction):
+    """Test that withdrawal fails with proper error when user not registered."""
+    from offkai_bot.interactions import OpenEvent
+
+    # User tries to withdraw without being registered
+    view = OpenEvent(event=event_with_capacity)
+    mock_interaction.user.id = 123
+    mock_interaction.user.send = AsyncMock()
+
+    await view.withdraw.callback(mock_interaction)
+
+    # Verify error message was sent
+    assert mock_interaction.response.send_message.called
+    error_call = mock_interaction.response.send_message.call_args
+    assert "have not registered" in str(error_call).lower() or "cannot withdraw" in str(error_call).lower()

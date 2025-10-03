@@ -18,6 +18,7 @@ from .data.response import (
     get_responses,
     get_waitlist,
     promote_from_waitlist,
+    remove_from_waitlist,
     remove_response,
 )
 
@@ -67,6 +68,77 @@ def get_remaining_capacity(event: Event) -> int | None:
 
     current_count = get_current_attendance_count(event.event_name)
     return max(0, event.max_capacity - current_count)
+
+
+async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[int]:
+    """
+    Promote users from waitlist to fill available capacity.
+
+    Returns list of promoted user IDs.
+    """
+    promoted_user_ids: list[int] = []
+    promoted_count = 0
+
+    while True:
+        # Check if we should continue promoting
+        if event.max_capacity is None:
+            # No capacity limit, only promote one person (original behavior for unlimited events)
+            if promoted_count >= 1:
+                break
+        else:
+            # Check if we're at capacity
+            if is_event_at_capacity(event):
+                break
+
+            # Check if there's anyone on the waitlist
+            waitlist = get_waitlist(event.event_name)
+            if not waitlist:
+                break
+
+            # Check if the next person fits
+            next_entry = waitlist[0]
+            next_total_people = 1 + next_entry.extra_people
+            remaining_capacity = get_remaining_capacity(event)
+            if remaining_capacity is not None and next_total_people > remaining_capacity:
+                # Next person doesn't fit, stop promoting
+                break
+
+        # Promote the next person
+        promoted_entry = promote_from_waitlist(event.event_name)
+        if not promoted_entry:
+            # Waitlist is empty
+            break
+
+        # Convert waitlist entry to regular response
+        promoted_response = Response(
+            user_id=promoted_entry.user_id,
+            username=promoted_entry.username,
+            extra_people=promoted_entry.extra_people,
+            behavior_confirmed=promoted_entry.behavior_confirmed,
+            arrival_confirmed=promoted_entry.arrival_confirmed,
+            event_name=promoted_entry.event_name,
+            timestamp=promoted_entry.timestamp,
+            drinks=promoted_entry.drinks,
+        )
+        add_response(event.event_name, promoted_response)
+        promoted_count += 1
+        promoted_user_ids.append(promoted_entry.user_id)
+
+        # Notify the promoted user
+        try:
+            promoted_user = await client.fetch_user(promoted_entry.user_id)
+            await promoted_user.send(
+                f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
+                f"You've been automatically moved from the waitlist to confirmed attendees.\n\n"
+                f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+                f"If you withdraw late, you are fully responsible for any consequences, including "
+                f"payment requests from the event organizer and potential server moderation action."
+            )
+            _log.info(f"Promoted user {promoted_entry.user_id} from waitlist for event '{event.event_name}'.")
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            _log.warning(f"Could not notify promoted user {promoted_entry.user_id} for event '{event.event_name}': {e}")
+
+    return promoted_user_ids
 
 
 # Class to handle the modal for event attendance
@@ -205,7 +277,10 @@ class GatheringModal(ui.Modal):
             f"👥 Bringing: {response.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
-            f"{drinks_msg}"
+            f"{drinks_msg}\n\n"
+            f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+            f"If you withdraw late, you are fully responsible for any consequences, including "
+            f"payment requests from the event organizer and potential server moderation action."
         )
 
         # 2. Attempt to DM the user first
@@ -240,7 +315,10 @@ class GatheringModal(ui.Modal):
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
             f"{drinks_msg}\n\n"
-            f"You will be automatically added to the event if a spot opens up."
+            f"You will be automatically added to the event if a spot opens up.\n\n"
+            f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+            f"If you withdraw late, you are fully responsible for any consequences, including "
+            f"payment requests from the event organizer and potential server moderation action."
         )
 
         # 2. Attempt to DM the user first
@@ -476,11 +554,36 @@ class OpenEvent(EventView):
         custom_id="withdraw_button",  # Use danger style
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        removed_from_responses = False
         try:
-            # Call remove_response (raises ResponseNotFoundError on failure)
+            # Try to remove from responses first
             remove_response(self.event.event_name, interaction.user.id)
+            removed_from_responses = True
 
-            # --- Success Path (only runs if remove_response didn't raise error) ---
+        except ResponseNotFoundError:
+            # User not in responses, try waitlist
+            try:
+                remove_from_waitlist(self.event.event_name, interaction.user.id)
+                removed_from_responses = False
+            except ResponseNotFoundError:
+                # User not in responses or waitlist
+                await error_message(
+                    interaction,
+                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
+                )
+                return
+
+        except Exception as e:
+            # Catch any other unexpected errors during removal
+            _log.error(
+                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # --- Success Path (user was removed from either responses or waitlist) ---
+        try:
             # 1. Create the withdrawal message string
             withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
 
@@ -507,95 +610,17 @@ class OpenEvent(EventView):
             except discord.HTTPException as e:
                 _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
 
-            # 5. Promote users from the waitlist while capacity is available
-            # Keep promoting while:
-            # - Waitlist is not empty
-            # - Event has capacity limits
-            # - Next person on waitlist fits within remaining capacity
-            promoted_count = 0
-            while True:
-                # Check if we should continue promoting
-                if self.event.max_capacity is None:
-                    # No capacity limit, only promote one person (original behavior for unlimited events)
-                    if promoted_count >= 1:
-                        break
-                else:
-                    # Check if we're at capacity
-                    if is_event_at_capacity(self.event):
-                        break
-
-                    # Check if there's anyone on the waitlist
-                    waitlist = get_waitlist(self.event.event_name)
-                    if not waitlist:
-                        break
-
-                    # Check if the next person fits
-                    next_entry = waitlist[0]
-                    next_total_people = 1 + next_entry.extra_people
-                    remaining_capacity = get_remaining_capacity(self.event)
-                    if remaining_capacity is not None and next_total_people > remaining_capacity:
-                        # Next person doesn't fit, stop promoting
-                        break
-
-                # Promote the next person
-                promoted_entry = promote_from_waitlist(self.event.event_name)
-                if not promoted_entry:
-                    # Waitlist is empty
-                    break
-
-                # Convert waitlist entry to regular response
-                promoted_response = Response(
-                    user_id=promoted_entry.user_id,
-                    username=promoted_entry.username,
-                    extra_people=promoted_entry.extra_people,
-                    behavior_confirmed=promoted_entry.behavior_confirmed,
-                    arrival_confirmed=promoted_entry.arrival_confirmed,
-                    event_name=promoted_entry.event_name,
-                    timestamp=promoted_entry.timestamp,
-                    drinks=promoted_entry.drinks,
-                )
-                add_response(self.event.event_name, promoted_response)
-                promoted_count += 1
-
-                # Notify the promoted user
-                try:
-                    promoted_user = await interaction.client.fetch_user(promoted_entry.user_id)
-                    await promoted_user.send(
-                        f"🎉 Great news! A spot has opened up for **{self.event.event_name}**!\n"
-                        f"You've been automatically moved from the waitlist to confirmed attendees."
-                    )
-                    _log.info(
-                        f"Promoted user {promoted_entry.user_id} from waitlist for event '{self.event.event_name}'."
-                    )
-                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-                    _log.warning(
-                        f"Could not notify promoted user {promoted_entry.user_id} "
-                        f"for event '{self.event.event_name}': {e}"
-                    )
-
-            # --- End Success Path ---
-
-        except ResponseNotFoundError:
-            # --- Failure Path (response wasn't found) ---
-            # Use the error message directly, or customize if needed
-            # The default message from the modified error is:
-            # "❌ Could not find a response from user ID {user_id} for '{event_name}'."
-            # Let's make it slightly more user-friendly for the button context:
-            await error_message(
-                interaction,
-                f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-                # Alternatively, use str(e) if the default error message is preferred:
-                # await error_message(interaction, str(e))
-            )
-            # --- End Failure Path ---
+            # 5. Promote users from the waitlist only if removed from responses
+            # (not from waitlist, since that doesn't free up capacity)
+            if removed_from_responses:
+                await promote_waitlist_batch(self.event, interaction.client)
 
         except Exception as e:
-            # Catch any other unexpected errors during removal or thread interaction
+            # Catch any errors during notification/promotion
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
                 exc_info=True,
             )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
 
 
 class ClosedEvent(EventView):
@@ -631,13 +656,43 @@ class ClosedEvent(EventView):
         custom_id="withdraw_button_closed",
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        removed_from_responses = False
         try:
-            # Call remove_response (raises ResponseNotFoundError on failure)
+            # Try to remove from responses first
             remove_response(self.event.event_name, interaction.user.id)
+            removed_from_responses = True
 
-            # --- Success Path (only runs if remove_response didn't raise error) ---
+        except ResponseNotFoundError:
+            # User not in responses, try waitlist
+            try:
+                remove_from_waitlist(self.event.event_name, interaction.user.id)
+                removed_from_responses = False
+            except ResponseNotFoundError:
+                # User not in responses or waitlist
+                await error_message(
+                    interaction,
+                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
+                )
+                return
+
+        except Exception as e:
+            # Catch any other unexpected errors during removal
+            _log.error(
+                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # --- Success Path (user was removed from either responses or waitlist) ---
+        try:
             # 1. Create the withdrawal message string
-            withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
+            withdrawal_message = (
+                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
+                f"⚠️ **Important:** Withdrawing after responses are closed is your full responsibility. "
+                f"You may be contacted by the event organizer for payment if needed. "
+                f"Failure to comply may result in server moderation action."
+            )
 
             # 2. Attempt to DM the user first
             try:
@@ -662,85 +717,37 @@ class ClosedEvent(EventView):
             except discord.HTTPException as e:
                 _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
 
-            # 5. Promote users from the waitlist while capacity is available
-            promoted_count = 0
-            while True:
-                # Check if we should continue promoting
-                if self.event.max_capacity is None:
-                    # No capacity limit, only promote one person (original behavior for unlimited events)
-                    if promoted_count >= 1:
-                        break
-                else:
-                    # Check if we're at capacity
-                    if is_event_at_capacity(self.event):
-                        break
-
-                    # Check if there's anyone on the waitlist
-                    waitlist = get_waitlist(self.event.event_name)
-                    if not waitlist:
-                        break
-
-                    # Check if the next person fits
-                    next_entry = waitlist[0]
-                    next_total_people = 1 + next_entry.extra_people
-                    remaining_capacity = get_remaining_capacity(self.event)
-                    if remaining_capacity is not None and next_total_people > remaining_capacity:
-                        # Next person doesn't fit, stop promoting
-                        break
-
-                # Promote the next person
-                promoted_entry = promote_from_waitlist(self.event.event_name)
-                if not promoted_entry:
-                    # Waitlist is empty
-                    break
-
-                # Convert waitlist entry to regular response
-                promoted_response = Response(
-                    user_id=promoted_entry.user_id,
-                    username=promoted_entry.username,
-                    extra_people=promoted_entry.extra_people,
-                    behavior_confirmed=promoted_entry.behavior_confirmed,
-                    arrival_confirmed=promoted_entry.arrival_confirmed,
-                    event_name=promoted_entry.event_name,
-                    timestamp=promoted_entry.timestamp,
-                    drinks=promoted_entry.drinks,
-                )
-                add_response(self.event.event_name, promoted_response)
-                promoted_count += 1
-
-                # Notify the promoted user
+            # 4.5. Notify event creator about withdrawal (only after responses are closed)
+            if self.event.creator_id:
                 try:
-                    promoted_user = await interaction.client.fetch_user(promoted_entry.user_id)
-                    await promoted_user.send(
-                        f"🎉 Great news! A spot has opened up for **{self.event.event_name}**!\n"
-                        f"You've been automatically moved from the waitlist to confirmed attendees."
+                    creator = await interaction.client.fetch_user(self.event.creator_id)
+                    await creator.send(
+                        f"⚠️ **Withdrawal Notification**\n\n"
+                        f"User {interaction.user.mention} ({interaction.user.name}) "
+                        f"has withdrawn from **{self.event.event_name}**.\n"
+                        f"This withdrawal occurred after responses were closed."
                     )
                     _log.info(
-                        f"Promoted user {promoted_entry.user_id} from waitlist for event '{self.event.event_name}'."
+                        f"Notified creator {self.event.creator_id} about withdrawal by {interaction.user.id} "
+                        f"from closed event '{self.event.event_name}'."
                     )
                 except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
                     _log.warning(
-                        f"Could not notify promoted user {promoted_entry.user_id} "
-                        f"for event '{self.event.event_name}': {e}"
+                        f"Could not notify creator {self.event.creator_id} about withdrawal "
+                        f"from event '{self.event.event_name}': {e}"
                     )
 
-            # --- End Success Path ---
-
-        except ResponseNotFoundError:
-            # --- Failure Path (response wasn't found) ---
-            await error_message(
-                interaction,
-                f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-            )
-            # --- End Failure Path ---
+            # 5. Promote users from the waitlist only if removed from responses
+            # (not from waitlist, since that doesn't free up capacity)
+            if removed_from_responses:
+                await promote_waitlist_batch(self.event, interaction.client)
 
         except Exception as e:
-            # Catch any other unexpected errors during removal or thread interaction
+            # Catch any errors during notification/promotion
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
                 exc_info=True,
             )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
 
 
 class PostDeadlineEvent(EventView):
@@ -766,13 +773,43 @@ class PostDeadlineEvent(EventView):
         custom_id="withdraw_button_deadline",
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        removed_from_responses = False
         try:
-            # Call remove_response (raises ResponseNotFoundError on failure)
+            # Try to remove from responses first
             remove_response(self.event.event_name, interaction.user.id)
+            removed_from_responses = True
 
-            # --- Success Path (only runs if remove_response didn't raise error) ---
+        except ResponseNotFoundError:
+            # User not in responses, try waitlist
+            try:
+                remove_from_waitlist(self.event.event_name, interaction.user.id)
+                removed_from_responses = False
+            except ResponseNotFoundError:
+                # User not in responses or waitlist
+                await error_message(
+                    interaction,
+                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
+                )
+                return
+
+        except Exception as e:
+            # Catch any other unexpected errors during removal
+            _log.error(
+                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # --- Success Path (user was removed from either responses or waitlist) ---
+        try:
             # 1. Create the withdrawal message string
-            withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
+            withdrawal_message = (
+                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
+                f"⚠️ **Important:** Withdrawing after the deadline is your full responsibility. "
+                f"You may be contacted by the event organizer for payment if needed. "
+                f"Failure to comply may result in server moderation action."
+            )
 
             # 2. Attempt to DM the user first
             try:
@@ -797,82 +834,34 @@ class PostDeadlineEvent(EventView):
             except discord.HTTPException as e:
                 _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
 
-            # 5. Promote users from the waitlist while capacity is available
-            promoted_count = 0
-            while True:
-                # Check if we should continue promoting
-                if self.event.max_capacity is None:
-                    # No capacity limit, only promote one person (original behavior for unlimited events)
-                    if promoted_count >= 1:
-                        break
-                else:
-                    # Check if we're at capacity
-                    if is_event_at_capacity(self.event):
-                        break
-
-                    # Check if there's anyone on the waitlist
-                    waitlist = get_waitlist(self.event.event_name)
-                    if not waitlist:
-                        break
-
-                    # Check if the next person fits
-                    next_entry = waitlist[0]
-                    next_total_people = 1 + next_entry.extra_people
-                    remaining_capacity = get_remaining_capacity(self.event)
-                    if remaining_capacity is not None and next_total_people > remaining_capacity:
-                        # Next person doesn't fit, stop promoting
-                        break
-
-                # Promote the next person
-                promoted_entry = promote_from_waitlist(self.event.event_name)
-                if not promoted_entry:
-                    # Waitlist is empty
-                    break
-
-                # Convert waitlist entry to regular response
-                promoted_response = Response(
-                    user_id=promoted_entry.user_id,
-                    username=promoted_entry.username,
-                    extra_people=promoted_entry.extra_people,
-                    behavior_confirmed=promoted_entry.behavior_confirmed,
-                    arrival_confirmed=promoted_entry.arrival_confirmed,
-                    event_name=promoted_entry.event_name,
-                    timestamp=promoted_entry.timestamp,
-                    drinks=promoted_entry.drinks,
-                )
-                add_response(self.event.event_name, promoted_response)
-                promoted_count += 1
-
-                # Notify the promoted user
+            # 4.5. Notify event creator about withdrawal (only after deadline)
+            if self.event.creator_id:
                 try:
-                    promoted_user = await interaction.client.fetch_user(promoted_entry.user_id)
-                    await promoted_user.send(
-                        f"🎉 Great news! A spot has opened up for **{self.event.event_name}**!\n"
-                        f"You've been automatically moved from the waitlist to confirmed attendees."
+                    creator = await interaction.client.fetch_user(self.event.creator_id)
+                    await creator.send(
+                        f"⚠️ **Withdrawal Notification**\n\n"
+                        f"User {interaction.user.mention} ({interaction.user.name}) "
+                        f"has withdrawn from **{self.event.event_name}**.\n"
+                        f"This withdrawal occurred after the deadline."
                     )
                     _log.info(
-                        f"Promoted user {promoted_entry.user_id} from waitlist for event '{self.event.event_name}'."
+                        f"Notified creator {self.event.creator_id} about withdrawal by {interaction.user.id} "
+                        f"from post-deadline event '{self.event.event_name}'."
                     )
                 except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
                     _log.warning(
-                        f"Could not notify promoted user {promoted_entry.user_id} "
-                        f"for event '{self.event.event_name}': {e}"
+                        f"Could not notify creator {self.event.creator_id} about withdrawal "
+                        f"from event '{self.event.event_name}': {e}"
                     )
 
-            # --- End Success Path ---
-
-        except ResponseNotFoundError:
-            # --- Failure Path (response wasn't found) ---
-            await error_message(
-                interaction,
-                f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-            )
-            # --- End Failure Path ---
+            # 5. Promote users from the waitlist only if removed from responses
+            # (not from waitlist, since that doesn't free up capacity)
+            if removed_from_responses:
+                await promote_waitlist_batch(self.event, interaction.client)
 
         except Exception as e:
-            # Catch any other unexpected errors during removal or thread interaction
+            # Catch any errors during notification/promotion
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
                 exc_info=True,
             )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")

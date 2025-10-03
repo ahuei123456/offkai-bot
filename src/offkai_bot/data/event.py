@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from offkai_bot.errors import (
+    CapacityReductionError,
+    CapacityReductionWithWaitlistError,
     EventAlreadyArchivedError,
     EventAlreadyClosedError,
     EventAlreadyOpenError,
@@ -56,6 +58,7 @@ class Event:
     archived: bool = False
     drinks: list[str] = field(default_factory=list)
     max_capacity: int | None = None  # None means unlimited capacity
+    creator_id: int | None = None  # Discord user ID of the event creator
 
     @property
     def has_drinks(self):
@@ -326,6 +329,7 @@ def add_event(
     event_deadline: datetime | None = None,  # Signup deadline is optional
     announce_msg: str | None = None,  # Pass announce_msg if you want to store it on Event
     max_capacity: int | None = None,  # Max capacity is optional (None = unlimited)
+    creator_id: int | None = None,  # Discord user ID of the event creator
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
 
@@ -349,6 +353,7 @@ def add_event(
         drinks=drinks_list,
         message=announce_msg,  # Store announce_msg if desired
         max_capacity=max_capacity,
+        creator_id=creator_id,
     )
 
     # Step 3: State Modification
@@ -369,6 +374,7 @@ def update_event_details(
     date_time_str: str | None = None,
     deadline_str: str | None = None,
     drinks_str: str | None = None,
+    max_capacity: int | None = None,
 ) -> Event:
     """
     Finds an event by name, validates inputs, applies modifications if changes exist,
@@ -407,6 +413,23 @@ def update_event_details(
         # Assuming parse_drinks doesn't raise errors, just returns a list
         parsed_drinks = parse_drinks(drinks_str)
 
+    # Validate max_capacity changes
+    if max_capacity is not None and event.max_capacity != max_capacity:
+        # Import here to avoid circular imports
+        from .response import get_responses, get_waitlist
+
+        # Get current attendee count and waitlist
+        responses = get_responses(event_name)
+        current_count = sum(1 + r.extra_people for r in responses)
+        waitlist = get_waitlist(event_name)
+
+        # If reducing capacity, validate constraints
+        if max_capacity < (event.max_capacity or 0):
+            if max_capacity < current_count:
+                raise CapacityReductionError(event_name, max_capacity, current_count)
+            if len(waitlist) > 0:
+                raise CapacityReductionWithWaitlistError(event_name)
+
     # 3. Determine if Any Changes Would Occur
     modified = False
     if venue is not None and event.venue != venue:
@@ -422,6 +445,9 @@ def update_event_details(
         modified = True
     # Check parsed drinks only if input string was provided
     if drinks_str is not None and set(event.drinks) != set(parsed_drinks):  # Use set comparison
+        modified = True
+    # Check max_capacity
+    if max_capacity is not None and event.max_capacity != max_capacity:
         modified = True
 
     # 4. Raise Error if No Changes Detected
@@ -441,6 +467,8 @@ def update_event_details(
         event.event_deadline = parsed_deadline
     if drinks_str is not None:  # Apply the parsed drinks
         event.drinks = parsed_drinks
+    if max_capacity is not None:  # Apply the max_capacity
+        event.max_capacity = max_capacity
 
     # 6. Log and Return
     _log.info(f"Event '{event_name}' details updated in cache.")

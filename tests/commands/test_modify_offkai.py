@@ -13,6 +13,8 @@ from discord import app_commands
 from offkai_bot import main
 from offkai_bot.data.event import Event  # To create return value
 from offkai_bot.errors import (
+    CapacityReductionError,
+    CapacityReductionWithWaitlistError,
     EventArchivedError,
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
@@ -146,6 +148,7 @@ async def test_modify_offkai_success(
         date_time_str=new_dt_str,
         deadline_str=new_deadline_str,
         drinks_str=new_drinks_str,
+        max_capacity=None,
     )
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_modified_event)
@@ -214,6 +217,7 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
         date_time_str=None,
         deadline_str=None,  # Verify deadline is None
         drinks_str=None,
+        max_capacity=None,
     )
     # 2. Check save data
     mock_save_data.assert_called_once()
@@ -315,6 +319,8 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
         (EventDateTimeInPastError, ()),  # New validation error
         (EventDeadlineInPastError, ()),  # New validation error
         (EventDeadlineAfterEventError, ()),  # New validation error
+        (CapacityReductionError, ("Test Event", 5, 10)),  # Capacity validation error
+        (CapacityReductionWithWaitlistError, ("Test Event",)),  # Waitlist validation error
     ],
 )
 # Patches updated to include fetch_thread_for_event
@@ -322,9 +328,11 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
 @patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.main.save_event_data")
 @patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main.get_event")
 @patch("offkai_bot.main._log")
 async def test_modify_offkai_data_layer_errors(
     mock_log,
+    mock_get_event,
     mock_update_details,
     mock_save_data,
     mock_update_msg_view,
@@ -334,11 +342,19 @@ async def test_modify_offkai_data_layer_errors(
     error_args,
     prepopulated_event_cache,  # Use fixture to ensure events exist for errors
 ):
-    """Test handling of errors raised by update_event_details."""
+    """Test handling of errors raised by update_event_details or get_event."""
     # Arrange
     # Use the event name from error_args if provided, otherwise default
     event_name = error_args[0] if error_args else "Summer Bash"
-    mock_update_details.side_effect = error_type(*error_args)
+
+    # For EventNotFoundError, it should come from get_event
+    if error_type == EventNotFoundError:
+        mock_get_event.side_effect = error_type(*error_args)
+    else:
+        # For other errors, mock get_event to return a valid event
+        original_event = next(e for e in prepopulated_event_cache if e.event_name == "Summer Bash")
+        mock_get_event.return_value = original_event
+        mock_update_details.side_effect = error_type(*error_args)
 
     # Act & Assert
     with pytest.raises(error_type):
@@ -350,8 +366,14 @@ async def test_modify_offkai_data_layer_errors(
             deadline="3000-12-12 12:00",  # Include deadline in call
         )
 
-    # Assert update_details was called
-    mock_update_details.assert_called_once()
+    # Assert get_event was called (except for non-EventNotFound errors where it returns successfully)
+    if error_type == EventNotFoundError:
+        mock_get_event.assert_called_once()
+        mock_update_details.assert_not_called()
+    else:
+        mock_get_event.assert_called_once()
+        mock_update_details.assert_called_once()
+
     # Assert subsequent steps were NOT called/awaited
     mock_save_data.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
@@ -485,3 +507,354 @@ async def test_modify_offkai_send_update_fails(
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
+
+
+# --- Capacity Modification Tests ---
+
+
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_increase_capacity_success(
+    mock_log,
+    mock_update_details,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_thread,
+    prepopulated_event_cache,
+):
+    """Test successfully increasing event capacity."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Capacity increased!"
+    original_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_modify)
+    event_after_update = copy.deepcopy(original_event)
+    event_after_update.max_capacity = 50  # Increase from whatever it was
+
+    mock_update_details.return_value = event_after_update
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.id = event_after_update.thread_id
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        max_capacity=50,
+    )
+
+    # Assert
+    mock_update_details.assert_called_once_with(
+        event_name=event_name_to_modify,
+        venue=None,
+        address=None,
+        google_maps_link=None,
+        date_time_str=None,
+        deadline_str=None,
+        drinks_str=None,
+        max_capacity=50,
+    )
+    mock_save_data.assert_called_once()
+    mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
+    mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
+    mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
+    )
+
+
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_decrease_capacity_success(
+    mock_log,
+    mock_update_details,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_thread,
+    prepopulated_event_cache,
+):
+    """Test successfully decreasing event capacity when valid (new capacity > current count, no waitlist)."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Capacity decreased!"
+    original_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_modify)
+    event_after_update = copy.deepcopy(original_event)
+    event_after_update.max_capacity = 30  # Decrease to 30 (assuming current count < 30)
+
+    mock_update_details.return_value = event_after_update
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.id = event_after_update.thread_id
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        max_capacity=30,
+    )
+
+    # Assert
+    mock_update_details.assert_called_once_with(
+        event_name=event_name_to_modify,
+        venue=None,
+        address=None,
+        google_maps_link=None,
+        date_time_str=None,
+        deadline_str=None,
+        drinks_str=None,
+        max_capacity=30,
+    )
+    mock_save_data.assert_called_once()
+    mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
+    mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
+    mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
+    )
+
+
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_decrease_capacity_below_current_count_fails(
+    mock_log,
+    mock_update_details,
+    mock_interaction,
+    prepopulated_event_cache,
+):
+    """Test that decreasing capacity below current attendee count raises CapacityReductionError."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    new_capacity = 5
+    current_count = 10
+    mock_update_details.side_effect = CapacityReductionError(event_name_to_modify, new_capacity, current_count)
+
+    # Act & Assert
+    with pytest.raises(CapacityReductionError) as exc_info:
+        await main.modify_offkai.callback(
+            mock_interaction,
+            event_name=event_name_to_modify,
+            update_msg="Trying to decrease capacity",
+            max_capacity=new_capacity,
+        )
+
+    assert exc_info.value.event_name == event_name_to_modify
+    assert exc_info.value.new_capacity == new_capacity
+    assert exc_info.value.current_count == current_count
+    mock_update_details.assert_called_once()
+
+
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_decrease_capacity_with_waitlist_fails(
+    mock_log,
+    mock_update_details,
+    mock_interaction,
+    prepopulated_event_cache,
+):
+    """Test that decreasing capacity when waitlist is not empty raises CapacityReductionWithWaitlistError."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    mock_update_details.side_effect = CapacityReductionWithWaitlistError(event_name_to_modify)
+
+    # Act & Assert
+    with pytest.raises(CapacityReductionWithWaitlistError) as exc_info:
+        await main.modify_offkai.callback(
+            mock_interaction,
+            event_name=event_name_to_modify,
+            update_msg="Trying to decrease capacity",
+            max_capacity=20,
+        )
+
+    assert exc_info.value.event_name == event_name_to_modify
+    mock_update_details.assert_called_once()
+
+
+# --- Capacity Increase with Waitlist Promotion Tests ---
+
+
+@patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.data.response.save_responses")
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_capacity_increase_promotes_waitlist(
+    mock_log,
+    mock_get_event,
+    mock_update_details,
+    mock_save_event_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_save_responses,
+    mock_promote_waitlist_batch,
+    mock_interaction,
+    mock_thread,
+    prepopulated_event_cache,
+):
+    """Test that increasing capacity promotes users from waitlist."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Capacity increased!"
+
+    # Original event with capacity 10
+    original_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_modify)
+    event_before_update = copy.deepcopy(original_event)
+    event_before_update.max_capacity = 10
+
+    # Updated event with capacity 20
+    event_after_update = copy.deepcopy(event_before_update)
+    event_after_update.max_capacity = 20
+
+    mock_get_event.return_value = event_before_update
+    mock_update_details.return_value = event_after_update
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.id = event_after_update.thread_id
+
+    # Simulate 2 users promoted from waitlist
+    mock_promote_waitlist_batch.return_value = [111, 222]
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        max_capacity=20,
+    )
+
+    # Assert
+    mock_update_details.assert_called_once()
+    mock_save_event_data.assert_called_once()
+
+    # Verify waitlist promotion was called
+    mock_promote_waitlist_batch.assert_awaited_once_with(event_after_update, ANY)
+
+    # Verify responses were saved after promotion
+    mock_save_responses.assert_called_once()
+
+    # Verify logging
+    mock_log.info.assert_any_call("Promoted 2 user(s) from waitlist after capacity increase for event 'Summer Bash'.")
+
+    mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
+    mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
+    mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
+
+
+@patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_capacity_increase_empty_waitlist(
+    mock_log,
+    mock_get_event,
+    mock_update_details,
+    mock_save_event_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_promote_waitlist_batch,
+    mock_interaction,
+    mock_thread,
+    prepopulated_event_cache,
+):
+    """Test that increasing capacity with empty waitlist doesn't call promotion."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Capacity increased!"
+
+    original_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_modify)
+    event_before_update = copy.deepcopy(original_event)
+    event_before_update.max_capacity = 10
+
+    event_after_update = copy.deepcopy(event_before_update)
+    event_after_update.max_capacity = 20
+
+    mock_get_event.return_value = event_before_update
+    mock_update_details.return_value = event_after_update
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.id = event_after_update.thread_id
+
+    # Simulate empty waitlist (no promotions)
+    mock_promote_waitlist_batch.return_value = []
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        max_capacity=20,
+    )
+
+    # Assert
+    mock_update_details.assert_called_once()
+    mock_save_event_data.assert_called_once()
+
+    # Verify waitlist promotion was called
+    mock_promote_waitlist_batch.assert_awaited_once_with(event_after_update, ANY)
+
+    # Verify the promotion log was NOT called (no promotions)
+    assert not any("Promoted" in str(call) and "from waitlist" in str(call) for call in mock_log.info.call_args_list)
+
+
+@patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.save_event_data")
+@patch("offkai_bot.main.update_event_details")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
+async def test_modify_offkai_non_capacity_change_no_promotion(
+    mock_log,
+    mock_get_event,
+    mock_update_details,
+    mock_save_event_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_promote_waitlist_batch,
+    mock_interaction,
+    mock_thread,
+    prepopulated_event_cache,
+):
+    """Test that modifying non-capacity fields doesn't trigger promotion."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+    update_text = "Venue changed!"
+
+    original_event = next(e for e in prepopulated_event_cache if e.event_name == event_name_to_modify)
+    event_before_update = copy.deepcopy(original_event)
+    event_before_update.max_capacity = 10
+
+    event_after_update = copy.deepcopy(event_before_update)
+    event_after_update.venue = "New Venue"  # Only venue changed, not capacity
+
+    mock_get_event.return_value = event_before_update
+    mock_update_details.return_value = event_after_update
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.id = event_after_update.thread_id
+
+    # Act
+    await main.modify_offkai.callback(
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg=update_text,
+        venue="New Venue",
+    )
+
+    # Assert
+    mock_update_details.assert_called_once()
+    mock_save_event_data.assert_called_once()
+
+    # Verify waitlist promotion was NOT called (capacity didn't change)
+    mock_promote_waitlist_batch.assert_not_awaited()

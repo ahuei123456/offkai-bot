@@ -37,8 +37,10 @@ This bot replaces manual methods of collecting attendance such as:
 
 - **📅 Event Management**
   - Create events with venue, address, Google Maps links, and deadlines
-  - Set maximum capacity limits for events
-  - Modify event details after creation
+  - Set maximum capacity limits for events (with smart validation)
+  - Modify event details including capacity (with safety checks)
+  - Capacity increase allowed anytime, decrease only when safe
+  - Cannot reduce capacity below current attendee count or with active waitlist
   - Open/close event registrations
   - Archive old events
 
@@ -57,11 +59,12 @@ This bot replaces manual methods of collecting attendance such as:
   - Join waitlist after registration deadline or when event is closed
 
 - **🔔 Smart Notifications**
-  - DM notifications for successful registrations
-  - DM notifications when promoted from waitlist
-  - DM notifications when withdrawing from events
+  - DM notifications for successful registrations (with responsibility warnings)
+  - DM notifications when promoted from waitlist (with responsibility warnings)
+  - DM notifications when withdrawing from events (with post-deadline warnings)
   - Fallback to ephemeral channel messages if DMs are disabled
   - Thread notifications when capacity is reached
+  - Clear warnings about post-deadline withdrawal consequences
 
 - **🎯 Registration Controls**
   - Prevent duplicate registrations (same user can't register twice for same event)
@@ -69,6 +72,8 @@ This bot replaces manual methods of collecting attendance such as:
   - Event isolation (registrations are per-event)
   - Withdrawal with automatic waitlist promotion
   - Withdrawal allowed even after event is closed or deadline passed
+  - Post-deadline withdrawal warnings inform users of their responsibilities
+  - Unified data structure with automatic migration from legacy format
 
 - **💬 Communication Tools**
   - Broadcast messages to all event attendees
@@ -80,6 +85,21 @@ This bot replaces manual methods of collecting attendance such as:
   - Delete individual user responses
   - View drinks summary for catering
   - Archive completed events
+
+### Data Architecture
+
+- **Unified Storage Model**
+  - Attendees and waitlist stored together in a single file per event
+  - Each event contains separate `attendees` and `waitlist` arrays
+  - Automatic migration from legacy separate-file format
+  - Thread-safe operations with in-memory caching
+  - JSON-based persistence for easy inspection and backup
+
+- **Responsibility System**
+  - All registrations include clear warnings about post-deadline withdrawals
+  - Users informed of potential payment obligations and moderation consequences
+  - Warnings shown at registration, waitlist join, and promotion
+  - Post-deadline withdrawal messages emphasize user responsibility
 
 ## Prerequisites
 
@@ -127,7 +147,6 @@ Before running Offkai Bot, you need:
        "DISCORD_TOKEN": "YOUR_BOT_TOKEN_HERE",
        "EVENTS_FILE": "data/events.json",
        "RESPONSES_FILE": "data/responses.json",
-       "WAITLIST_FILE": "data/waitlist.json",
        "GUILDS": [
            123456789012345678
        ]
@@ -140,9 +159,10 @@ Before running Offkai Bot, you need:
    |-------|------|----------|-------------|
    | `DISCORD_TOKEN` | string | ✅ | Your Discord bot token. **Keep this secret!** |
    | `EVENTS_FILE` | string | ✅ | Path to events data file (e.g., `data/events.json`) |
-   | `RESPONSES_FILE` | string | ✅ | Path to responses data file (e.g., `data/responses.json`) |
-   | `WAITLIST_FILE` | string | ✅ | Path to waitlist data file (e.g., `data/waitlist.json`) |
+   | `RESPONSES_FILE` | string | ✅ | Path to responses data file (includes both attendees and waitlist) |
    | `GUILDS` | array | ✅ | List of Discord server IDs where bot will be active |
+
+   **Note:** The `WAITLIST_FILE` field is deprecated. Waitlist data is now stored in the responses file alongside attendee data. If you have an old `waitlist.json` file, it will be automatically migrated on first run.
 
 3. **Data Directory:**
 
@@ -202,7 +222,8 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
   - Parameters: name, venue, address, maps_link, datetime, deadline (optional), drinks (optional), max_capacity (optional)
 
 - `/modify_offkai` - Modify an existing event
-  - Parameters: event_name, new details (venue, address, datetime, etc.)
+  - Parameters: event_name, update_msg, venue (optional), address (optional), google_maps_link (optional), date_time (optional), deadline (optional), drinks (optional), max_capacity (optional)
+  - Note: Capacity can be increased anytime, but can only be decreased if new capacity ≥ current attendee count AND waitlist is empty
 
 - `/close_offkai` - Close event registrations
   - Parameters: event_name, close_msg (optional)
@@ -347,8 +368,28 @@ uvx mypy src/
 
 ---
 
-**License:** [Specify your license]
+## License
 
-**Maintainers:** [List maintainers]
+This project is licensed under the MIT License - see below for details:
 
-**Support:** For questions, join our Discord server or open a discussion on GitHub.
+```
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

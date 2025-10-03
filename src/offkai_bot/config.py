@@ -28,11 +28,12 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
             data = json.load(f, object_hook=lambda d: dict(**d))
 
         # --- Basic Validation (Optional but Recommended) ---
-        required_keys = ["DISCORD_TOKEN", "EVENTS_FILE", "RESPONSES_FILE", "WAITLIST_FILE", "GUILDS"]
+        required_keys = ["DISCORD_TOKEN", "EVENTS_FILE", "RESPONSES_FILE", "GUILDS"]
         for key in required_keys:
             if key not in data:
                 raise ConfigError(f"Missing required key '{key}' in {path}")
         # Add more specific type checks if needed
+        # Note: WAITLIST_FILE is optional for backward compatibility during migration
         # -----------------------------------------------------
 
         _config_cache = data

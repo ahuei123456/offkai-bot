@@ -28,10 +28,9 @@ def test_event_isolation_across_multiple_events():
     now = datetime.now(UTC)
 
     # Initialize cache
-    from offkai_bot.data.response import load_responses, load_waitlist
+    from offkai_bot.data.response import load_responses
 
-    load_responses()
-    load_waitlist()
+    load_responses()  # Loads both attendees and waitlist
 
     # User A joins test1 with +1 (2 people)
     response_a_test1 = Response(
@@ -132,10 +131,9 @@ def test_cannot_add_to_waitlist_if_in_responses():
     now = datetime.now(UTC)
 
     # Initialize cache
-    from offkai_bot.data.response import load_responses, load_waitlist
+    from offkai_bot.data.response import load_responses
 
-    load_responses()
-    load_waitlist()
+    load_responses()  # Loads both attendees and waitlist
 
     # User joins responses
     response = Response(
@@ -179,10 +177,9 @@ def test_cannot_add_to_responses_if_in_waitlist():
     now = datetime.now(UTC)
 
     # Initialize cache
-    from offkai_bot.data.response import load_responses, load_waitlist
+    from offkai_bot.data.response import load_responses
 
-    load_responses()
-    load_waitlist()
+    load_responses()  # Loads both attendees and waitlist
 
     # User joins waitlist
     waitlist_entry = WaitlistEntry(
@@ -226,10 +223,9 @@ def test_promotion_removes_from_waitlist_before_adding_to_responses():
     now = datetime.now(UTC)
 
     # Initialize cache
-    from offkai_bot.data.response import load_responses, load_waitlist
+    from offkai_bot.data.response import load_responses
 
-    load_responses()
-    load_waitlist()
+    load_responses()  # Loads both attendees and waitlist
 
     # User joins waitlist
     waitlist_entry = WaitlistEntry(
