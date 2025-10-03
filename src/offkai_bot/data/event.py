@@ -55,6 +55,7 @@ class Event:
     open: bool = False
     archived: bool = False
     drinks: list[str] = field(default_factory=list)
+    max_capacity: int | None = None  # None means unlimited capacity
 
     @property
     def has_drinks(self):
@@ -222,6 +223,7 @@ def _load_event_data() -> list[Event]:
                         open=event_dict.get("open", False),
                         archived=event_dict.get("archived", False),
                         drinks=drinks,
+                        max_capacity=event_dict.get("max_capacity"),
                     )
                 else:
                     # Old format, so we ignore channel_id and event_deadline
@@ -239,6 +241,7 @@ def _load_event_data() -> list[Event]:
                         open=event_dict.get("open", False),
                         archived=event_dict.get("archived", False),
                         drinks=drinks,
+                        max_capacity=event_dict.get("max_capacity"),
                     )
                     _log.info(
                         f"Found old events.json format for {event.event_name}. Successfully converted to new format."
@@ -322,6 +325,7 @@ def add_event(
     drinks_list: list[str],
     event_deadline: datetime | None = None,  # Signup deadline is optional
     announce_msg: str | None = None,  # Pass announce_msg if you want to store it on Event
+    max_capacity: int | None = None,  # Max capacity is optional (None = unlimited)
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
 
@@ -344,6 +348,7 @@ def add_event(
         archived=False,
         drinks=drinks_list,
         message=announce_msg,  # Store announce_msg if desired
+        max_capacity=max_capacity,
     )
 
     # Step 3: State Modification

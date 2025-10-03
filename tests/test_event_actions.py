@@ -67,13 +67,11 @@ def mock_closed_event(sample_event_list):
 
 @patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.create_event_message")
-@patch("offkai_bot.event_actions.ClosedEvent")
-@patch("offkai_bot.event_actions.OpenEvent")
+@patch("offkai_bot.event_actions.get_event_view")
 @patch("offkai_bot.event_actions._log")
 async def test_send_event_message_sends_and_pins_for_open_event(
     mock_log,
-    mock_open_event_view,
-    mock_closed_event_view,
+    mock_get_event_view,
     mock_create_message,
     mock_save_data,
     mock_thread,
@@ -93,9 +91,8 @@ async def test_send_event_message_sends_and_pins_for_open_event(
     await send_event_message(mock_thread, mock_event)
 
     # Assert
-    mock_open_event_view.assert_called_once_with(mock_event)
-    mock_closed_event_view.assert_not_called()
-    mock_thread.send.assert_awaited_once_with(message_content, view=mock_open_event_view.return_value)
+    mock_get_event_view.assert_called_once_with(mock_event)
+    mock_thread.send.assert_awaited_once_with(message_content, view=mock_get_event_view.return_value)
     mock_message.pin.assert_awaited_once_with(reason="New event message.")
     assert mock_event.message_id == mock_message.id
     mock_save_data.assert_called_once()

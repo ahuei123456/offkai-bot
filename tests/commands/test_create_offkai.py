@@ -94,6 +94,7 @@ def mock_created_event():
         archived=False,
         drinks=["Test Drink"],
         message="Test Announce Msg",
+        max_capacity=None,  # Add max_capacity field
     )
 
 

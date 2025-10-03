@@ -23,7 +23,7 @@ from .data.event import (
     set_event_open_status,
     update_event_details,
 )
-from .data.response import calculate_attendance, calculate_drinks, load_responses, remove_response
+from .data.response import calculate_attendance, calculate_drinks, load_responses, load_waitlist, remove_response
 from .errors import (
     BotCommandError,
     BroadcastPermissionError,
@@ -70,6 +70,7 @@ class OffkaiClient(discord.Client):
     async def setup_hook(self):
         load_event_data()
         load_responses()
+        load_waitlist()
         _log.info("Initial data loaded into cache.")
 
         for guild_id in settings["GUILDS"]:
@@ -148,6 +149,7 @@ async def hello(interaction: discord.Interaction):
     deadline="The date and time of the deadline to sign up (YYYY-MM-DD HH:MM). Assumed JST.",
     drinks="Optional: Comma-separated list of allowed drinks.",
     announce_msg="Optional: A message to post in the main channel.",
+    max_capacity="Optional: Maximum number of attendees (including +1s). Leave empty for unlimited.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
@@ -161,6 +163,7 @@ async def create_offkai(
     deadline: str | None = None,
     drinks: str | None = None,
     announce_msg: str | None = None,
+    max_capacity: int | None = None,
 ):
     # 1. Business Logic Validation
     with contextlib.suppress(EventNotFoundError):
@@ -202,6 +205,7 @@ async def create_offkai(
         thread_id=thread.id,
         drinks_list=drinks_list,
         announce_msg=announce_msg,  # Pass announce_msg if stored on Event
+        max_capacity=max_capacity,
     )
 
     register_deadline_reminders(client, new_event, thread)

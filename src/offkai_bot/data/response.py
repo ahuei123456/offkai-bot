@@ -28,6 +28,19 @@ class Response:
     drinks: list[str] = field(default_factory=list)
 
 
+# --- Waitlist Entry Dataclass ---
+@dataclass
+class WaitlistEntry:
+    user_id: int
+    username: str
+    extra_people: int
+    behavior_confirmed: bool
+    arrival_confirmed: bool
+    event_name: str
+    timestamp: datetime
+    drinks: list[str] = field(default_factory=list)
+
+
 # --- Response Data Handling ---
 
 RESPONSE_DATA_CACHE: dict[str, list[Response]] | None = None
@@ -176,7 +189,7 @@ def add_response(event_name: str, response: Response) -> None:  # Changed return
     """Adds a response to the specified event.
 
     Raises:
-        DuplicateResponseError: If the user has already responded to this event.
+        DuplicateResponseError: If the user has already responded to this event or is on the waitlist.
     """
     all_responses = load_responses()
     event_responses = all_responses.get(event_name, [])
@@ -184,7 +197,13 @@ def add_response(event_name: str, response: Response) -> None:  # Changed return
     # Check for duplicate response
     if any(r.user_id == response.user_id for r in event_responses):
         _log.warning(f"User {response.user_id} already responded to event {event_name}. Raising error.")
-        # Raise the specific exception instead of returning False
+        raise DuplicateResponseError(event_name, response.user_id)
+
+    # Check if user is on waitlist
+    all_waitlists = load_waitlist()
+    event_waitlist = all_waitlists.get(event_name, [])
+    if any(e.user_id == response.user_id for e in event_waitlist):
+        _log.warning(f"User {response.user_id} is on waitlist for event {event_name}. Cannot add to responses.")
         raise DuplicateResponseError(event_name, response.user_id)
 
     # If no duplicate, proceed with adding
@@ -283,3 +302,217 @@ def calculate_drinks(event_name: str) -> tuple[int, dict[str, int]]:
     else:
         _log.info(f"No drinks found for '{event_name}'.")
         return 0, {}
+
+
+# --- Waitlist Data Handling ---
+
+WAITLIST_DATA_CACHE: dict[str, list[WaitlistEntry]] | None = None
+
+
+def _load_waitlist() -> dict[str, list[WaitlistEntry]]:
+    """
+    Loads waitlist data from JSON, converts to WaitlistEntry dataclasses,
+    and handles missing or empty files. (Internal use)
+    """
+    global WAITLIST_DATA_CACHE
+    settings = get_config()
+    waitlist_dict: dict[str, list[WaitlistEntry]] = {}
+    file_path = settings["WAITLIST_FILE"]
+
+    try:
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            raise FileNotFoundError
+
+        with open(file_path, "r", encoding="utf-8") as file:
+            raw_data = json.load(file)
+
+        if not isinstance(raw_data, dict):
+            _log.error(
+                f"Invalid format in {file_path}: "
+                f"Expected a JSON object (dict), got {type(raw_data)}. Loading empty waitlist."
+            )
+            raw_data = {}
+
+        for event_name, waitlist_list in raw_data.items():
+            processed_entries = []
+            if not isinstance(waitlist_list, list):
+                _log.warning(
+                    f"Invalid format for event '{event_name}' in {file_path}: "
+                    f"Expected a list, got {type(waitlist_list)}. Skipping."
+                )
+                continue
+
+            for entry_dict in waitlist_list:
+                if not isinstance(entry_dict, dict):
+                    _log.warning(
+                        f"Invalid waitlist entry for event '{event_name}' in {file_path}: "
+                        f"Expected a dict, got {type(entry_dict)}. Skipping."
+                    )
+                    continue
+
+                ts = None
+                if "timestamp" in entry_dict and entry_dict["timestamp"]:
+                    try:
+                        ts = datetime.fromisoformat(entry_dict["timestamp"])
+                    except (ValueError, TypeError):
+                        _log.warning(
+                            f"Could not parse ISO timestamp '{entry_dict.get('timestamp')}' for {event_name}, "
+                            f"user {entry_dict.get('user_id')}"
+                        )
+                        ts = None
+
+                drinks = entry_dict.get("drinks", [])
+
+                try:
+                    extra_people = int(entry_dict.get("extra_people", 0))
+                    behavior_confirmed_raw = entry_dict.get("behavior_confirmed", False)
+                    arrival_confirmed_raw = entry_dict.get("arrival_confirmed", False)
+                    behavior_confirmed = str(behavior_confirmed_raw).lower() == "yes" or behavior_confirmed_raw is True
+                    arrival_confirmed = str(arrival_confirmed_raw).lower() == "yes" or arrival_confirmed_raw is True
+
+                    entry = WaitlistEntry(
+                        user_id=int(entry_dict.get("user_id", 0)),
+                        username=entry_dict.get("username", "Unknown User"),
+                        extra_people=extra_people,
+                        behavior_confirmed=behavior_confirmed,
+                        arrival_confirmed=arrival_confirmed,
+                        event_name=entry_dict.get("event_name", event_name),
+                        timestamp=(ts if ts is not None else datetime.now()),
+                        drinks=drinks,
+                    )
+                    processed_entries.append(entry)
+                except (TypeError, ValueError) as e:
+                    _log.error(
+                        f"Error creating WaitlistEntry object for event {event_name} from dict {entry_dict}: {e}"
+                    )
+
+            waitlist_dict[event_name] = processed_entries
+
+    except FileNotFoundError:
+        _log.warning(f"{file_path} not found or empty. Creating default empty file.")
+        try:
+            with open(file_path, "w", encoding="utf-8") as file:
+                json.dump({}, file, indent=4)
+            _log.info(f"Created empty waitlist file at {file_path}")
+        except OSError as e:
+            _log.error(f"Could not create default waitlist file at {file_path}: {e}")
+        WAITLIST_DATA_CACHE = {}
+        return {}
+    except json.JSONDecodeError:
+        _log.error(f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty waitlist.")
+        WAITLIST_DATA_CACHE = {}
+        return {}
+    except Exception as e:
+        _log.exception(f"An unexpected error occurred loading waitlist data from {file_path}: {e}")
+        WAITLIST_DATA_CACHE = {}
+        return {}
+
+    WAITLIST_DATA_CACHE = waitlist_dict
+    return waitlist_dict
+
+
+def load_waitlist() -> dict[str, list[WaitlistEntry]]:
+    """Returns cached waitlist data or loads it if cache is empty."""
+    if WAITLIST_DATA_CACHE is not None:
+        return WAITLIST_DATA_CACHE
+    else:
+        return _load_waitlist()
+
+
+def save_waitlist():
+    """Saves the current state of WAITLIST_DATA_CACHE to the JSON file."""
+    global WAITLIST_DATA_CACHE
+    settings = get_config()
+    if WAITLIST_DATA_CACHE is None:
+        _log.error("Attempted to save waitlist data before loading.")
+        return
+
+    file_path = settings["WAITLIST_FILE"]
+    try:
+        with open(file_path, "w", encoding="utf-8") as file:
+            json.dump(
+                WAITLIST_DATA_CACHE,
+                file,
+                indent=4,
+                cls=DataclassJSONEncoder,
+                ensure_ascii=False,
+            )
+    except OSError as e:
+        _log.error(f"Error writing waitlist data to {file_path}: {e}")
+    except Exception as e:
+        _log.exception(f"An unexpected error occurred saving waitlist data: {e}")
+
+
+def get_waitlist(event_name: str) -> list[WaitlistEntry]:
+    """Gets the list of WaitlistEntry objects for a specific event from cache."""
+    waitlist = load_waitlist()
+    return waitlist.get(event_name, [])
+
+
+def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:
+    """Adds an entry to the waitlist for the specified event.
+
+    Raises:
+        DuplicateResponseError: If the user is already on the waitlist or has already responded to this event.
+    """
+    all_waitlists = load_waitlist()
+    event_waitlist = all_waitlists.get(event_name, [])
+
+    # Check for duplicate entry in waitlist
+    if any(e.user_id == entry.user_id for e in event_waitlist):
+        _log.warning(f"User {entry.user_id} already on waitlist for event {event_name}. Raising error.")
+        raise DuplicateResponseError(event_name, entry.user_id)
+
+    # Check if user has already responded
+    all_responses = load_responses()
+    event_responses = all_responses.get(event_name, [])
+    if any(r.user_id == entry.user_id for r in event_responses):
+        _log.warning(f"User {entry.user_id} already responded to event {event_name}. Cannot add to waitlist.")
+        raise DuplicateResponseError(event_name, entry.user_id)
+
+    # If no duplicate, proceed with adding
+    event_waitlist.append(entry)
+    all_waitlists[event_name] = event_waitlist
+    save_waitlist()
+    _log.info(f"Added user {entry.user_id} to waitlist for event {event_name}.")
+
+
+def remove_from_waitlist(event_name: str, user_id: int) -> None:
+    """Removes an entry from the waitlist for the specified event.
+
+    Raises:
+        ResponseNotFoundError: If the user is not found on the waitlist.
+    """
+    all_waitlists = load_waitlist()
+    event_waitlist = all_waitlists.get(event_name, [])
+
+    initial_count = len(event_waitlist)
+    new_event_waitlist = [e for e in event_waitlist if e.user_id != user_id]
+
+    if len(new_event_waitlist) == initial_count:
+        _log.warning(f"No waitlist entry found for user {user_id} in event {event_name}. Raising error.")
+        raise ResponseNotFoundError(event_name, user_id)
+    else:
+        all_waitlists[event_name] = new_event_waitlist
+        save_waitlist()
+        _log.info(f"Removed user {user_id} from waitlist for event {event_name}.")
+
+
+def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
+    """
+    Removes and returns the first entry from the waitlist (FIFO).
+    Returns None if the waitlist is empty.
+    """
+    all_waitlists = load_waitlist()
+    event_waitlist = all_waitlists.get(event_name, [])
+
+    if not event_waitlist:
+        return None
+
+    # Get the first entry (FIFO)
+    first_entry = event_waitlist.pop(0)
+    all_waitlists[event_name] = event_waitlist
+    save_waitlist()
+    _log.info(f"Promoted user {first_entry.user_id} from waitlist for event {event_name}.")
+
+    return first_entry

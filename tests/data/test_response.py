@@ -417,12 +417,14 @@ def test_add_response_new(mock_paths):
     # Mock save_responses to check it gets called
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
+        patch("offkai_bot.data.response.load_waitlist", return_value={}) as mock_load_waitlist,
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         response_data.add_response("Event A", RESP_2_OBJ)  # Add the second response
 
         mock_load.assert_called_once()
+        mock_load_waitlist.assert_called_once()
         # Check cache was updated
         assert len(initial_cache["Event A"]) == 2
         assert RESP_1_OBJ in initial_cache["Event A"]
@@ -441,12 +443,14 @@ def test_add_response_new_event(mock_paths):
 
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
+        patch("offkai_bot.data.response.load_waitlist", return_value={}) as mock_load_waitlist,
         patch("offkai_bot.data.response.save_responses") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         response_data.add_response("Event B", RESP_3_OBJ)  # Add response for new event
 
         mock_load.assert_called_once()
+        mock_load_waitlist.assert_called_once()
         # Check cache was updated
         assert "Event B" in initial_cache
         assert len(initial_cache["Event B"]) == 1

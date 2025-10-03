@@ -17,9 +17,11 @@ def mock_config(tmp_path_factory):  # Use tmp_path_factory (session-scoped)
     module_tmp_dir = tmp_path_factory.mktemp("data_module")
     events_file = module_tmp_dir / "test_events.json"
     responses_file = module_tmp_dir / "test_responses.json"
+    waitlist_file = module_tmp_dir / "test_waitlist.json"
     return {
         "EVENTS_FILE": str(events_file),
         "RESPONSES_FILE": str(responses_file),
+        "WAITLIST_FILE": str(waitlist_file),
         # Add other necessary mock config values if needed by other modules
     }
 
@@ -30,10 +32,12 @@ def clear_caches():
     # Before test
     event_data.EVENT_DATA_CACHE = None
     response_data.RESPONSE_DATA_CACHE = None
+    response_data.WAITLIST_DATA_CACHE = None
     yield  # Test runs here
     # After test
     event_data.EVENT_DATA_CACHE = None
     response_data.RESPONSE_DATA_CACHE = None
+    response_data.WAITLIST_DATA_CACHE = None
 
 
 @pytest.fixture
@@ -42,6 +46,7 @@ def mock_paths(mock_config):
     return {
         "events": mock_config["EVENTS_FILE"],
         "responses": mock_config["RESPONSES_FILE"],
+        "waitlist": mock_config["WAITLIST_FILE"],
     }
 
 
@@ -75,6 +80,7 @@ def sample_event_list():
             open=True,
             archived=False,
             drinks=["Juice", "Soda"],
+            max_capacity=None,
         ),
         Event(
             event_name="Autumn Meetup",
@@ -89,6 +95,7 @@ def sample_event_list():
             open=False,
             archived=False,
             drinks=[],
+            max_capacity=None,
         ),
         Event(
             event_name="Archived Party",
@@ -103,6 +110,7 @@ def sample_event_list():
             open=False,
             archived=True,
             drinks=[],
+            max_capacity=None,
         ),
     ]
 
