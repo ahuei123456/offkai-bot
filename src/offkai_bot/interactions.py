@@ -79,15 +79,30 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
     promoted_user_ids: list[int] = []
     promoted_count = 0
 
+    # Determine the target capacity for promotion
+    # If event was closed with a specific count, don't exceed that count
+    # Otherwise, use the max_capacity
+    target_capacity: int | None = None
+    if event.closed_attendance_count is not None:
+        # Event was closed with X people, don't exceed min(closed_count, max_capacity)
+        if event.max_capacity is not None:
+            target_capacity = min(event.closed_attendance_count, event.max_capacity)
+        else:
+            target_capacity = event.closed_attendance_count
+    else:
+        # Event is still open or was never closed, use max_capacity
+        target_capacity = event.max_capacity
+
     while True:
         # Check if we should continue promoting
-        if event.max_capacity is None:
+        if target_capacity is None:
             # No capacity limit, only promote one person (original behavior for unlimited events)
             if promoted_count >= 1:
                 break
         else:
-            # Check if we're at capacity
-            if is_event_at_capacity(event):
+            # Check if we're at target capacity
+            current_count = get_current_attendance_count(event.event_name)
+            if current_count >= target_capacity:
                 break
 
             # Check if there's anyone on the waitlist
@@ -98,8 +113,8 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             # Check if the next person fits
             next_entry = waitlist[0]
             next_total_people = 1 + next_entry.extra_people
-            remaining_capacity = get_remaining_capacity(event)
-            if remaining_capacity is not None and next_total_people > remaining_capacity:
+            remaining_capacity = target_capacity - current_count
+            if next_total_people > remaining_capacity:
                 # Next person doesn't fit, stop promoting
                 break
 

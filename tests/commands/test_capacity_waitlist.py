@@ -1018,6 +1018,7 @@ async def test_withdrawal_from_closed_event_promotes_from_waitlist():
         archived=False,
         drinks=[],
         max_capacity=2,
+        closed_attendance_count=2,  # Event was closed with 2 people
     )
 
     # User A joins (2 spots - at capacity)

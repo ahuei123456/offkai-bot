@@ -821,7 +821,8 @@ def test_set_event_open_status_open_to_close():
         assert updated_event is test_event
         assert updated_event.open is False
         mock_save.assert_not_called()
-        mock_log.info.assert_called_once_with(f"Event '{test_event.event_name}' marked as closed in cache.")
+        # Now logs twice: once for attendance count, once for status
+        mock_log.info.assert_any_call(f"Event '{test_event.event_name}' marked as closed in cache.")
 
 
 def test_set_event_open_status_close_to_open():
@@ -839,7 +840,8 @@ def test_set_event_open_status_close_to_open():
         assert updated_event is test_event
         assert updated_event.open is True
         mock_save.assert_not_called()
-        mock_log.info.assert_called_once_with(f"Event '{test_event.event_name}' marked as open in cache.")
+        # Now logs twice: once for clearing attendance count, once for status
+        mock_log.info.assert_any_call(f"Event '{test_event.event_name}' marked as open in cache.")
 
 
 def test_set_event_open_status_already_open():

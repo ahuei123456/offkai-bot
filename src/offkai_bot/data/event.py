@@ -59,6 +59,7 @@ class Event:
     drinks: list[str] = field(default_factory=list)
     max_capacity: int | None = None  # None means unlimited capacity
     creator_id: int | None = None  # Discord user ID of the event creator
+    closed_attendance_count: int | None = None  # Attendance count when event was closed
 
     @property
     def has_drinks(self):
@@ -227,6 +228,8 @@ def _load_event_data() -> list[Event]:
                         archived=event_dict.get("archived", False),
                         drinks=drinks,
                         max_capacity=event_dict.get("max_capacity"),
+                        creator_id=event_dict.get("creator_id"),
+                        closed_attendance_count=event_dict.get("closed_attendance_count"),
                     )
                 else:
                     # Old format, so we ignore channel_id and event_deadline
@@ -245,6 +248,8 @@ def _load_event_data() -> list[Event]:
                         archived=event_dict.get("archived", False),
                         drinks=drinks,
                         max_capacity=event_dict.get("max_capacity"),
+                        creator_id=event_dict.get("creator_id"),
+                        closed_attendance_count=event_dict.get("closed_attendance_count"),
                     )
                     _log.info(
                         f"Found old events.json format for {event.event_name}. Successfully converted to new format."
@@ -506,6 +511,20 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
 
     # Apply the change
     event.open = target_open_status
+
+    # Handle closed_attendance_count
+    if target_open_status:
+        # Reopening the event - clear the closed attendance count
+        event.closed_attendance_count = None
+        _log.info(f"Event '{event_name}' reopened, cleared closed_attendance_count.")
+    else:
+        # Closing the event - capture current attendance count
+        from .response import get_responses
+
+        responses = get_responses(event_name)
+        event.closed_attendance_count = sum(1 + r.extra_people for r in responses)
+        _log.info(f"Event '{event_name}' closed with {event.closed_attendance_count} attendees.")
+
     status_text = "open" if target_open_status else "closed"
     _log.info(f"Event '{event_name}' marked as {status_text} in cache.")
     return event
