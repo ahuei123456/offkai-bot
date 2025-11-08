@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from offkai_bot.errors import (
+    CapacityReductionError,
+    CapacityReductionWithWaitlistError,
     EventAlreadyArchivedError,
     EventAlreadyClosedError,
     EventAlreadyOpenError,
@@ -55,6 +57,9 @@ class Event:
     open: bool = False
     archived: bool = False
     drinks: list[str] = field(default_factory=list)
+    max_capacity: int | None = None  # None means unlimited capacity
+    creator_id: int | None = None  # Discord user ID of the event creator
+    closed_attendance_count: int | None = None  # Attendance count when event was closed
 
     @property
     def has_drinks(self):
@@ -222,6 +227,9 @@ def _load_event_data() -> list[Event]:
                         open=event_dict.get("open", False),
                         archived=event_dict.get("archived", False),
                         drinks=drinks,
+                        max_capacity=event_dict.get("max_capacity"),
+                        creator_id=event_dict.get("creator_id"),
+                        closed_attendance_count=event_dict.get("closed_attendance_count"),
                     )
                 else:
                     # Old format, so we ignore channel_id and event_deadline
@@ -239,6 +247,9 @@ def _load_event_data() -> list[Event]:
                         open=event_dict.get("open", False),
                         archived=event_dict.get("archived", False),
                         drinks=drinks,
+                        max_capacity=event_dict.get("max_capacity"),
+                        creator_id=event_dict.get("creator_id"),
+                        closed_attendance_count=event_dict.get("closed_attendance_count"),
                     )
                     _log.info(
                         f"Found old events.json format for {event.event_name}. Successfully converted to new format."
@@ -322,6 +333,8 @@ def add_event(
     drinks_list: list[str],
     event_deadline: datetime | None = None,  # Signup deadline is optional
     announce_msg: str | None = None,  # Pass announce_msg if you want to store it on Event
+    max_capacity: int | None = None,  # Max capacity is optional (None = unlimited)
+    creator_id: int | None = None,  # Discord user ID of the event creator
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
 
@@ -344,6 +357,8 @@ def add_event(
         archived=False,
         drinks=drinks_list,
         message=announce_msg,  # Store announce_msg if desired
+        max_capacity=max_capacity,
+        creator_id=creator_id,
     )
 
     # Step 3: State Modification
@@ -364,6 +379,7 @@ def update_event_details(
     date_time_str: str | None = None,
     deadline_str: str | None = None,
     drinks_str: str | None = None,
+    max_capacity: int | None = None,
 ) -> Event:
     """
     Finds an event by name, validates inputs, applies modifications if changes exist,
@@ -402,6 +418,23 @@ def update_event_details(
         # Assuming parse_drinks doesn't raise errors, just returns a list
         parsed_drinks = parse_drinks(drinks_str)
 
+    # Validate max_capacity changes
+    if max_capacity is not None and event.max_capacity != max_capacity:
+        # Import here to avoid circular imports
+        from .response import get_responses, get_waitlist
+
+        # Get current attendee count and waitlist
+        responses = get_responses(event_name)
+        current_count = sum(1 + r.extra_people for r in responses)
+        waitlist = get_waitlist(event_name)
+
+        # If reducing capacity, validate constraints
+        if max_capacity < (event.max_capacity or 0):
+            if max_capacity < current_count:
+                raise CapacityReductionError(event_name, max_capacity, current_count)
+            if len(waitlist) > 0:
+                raise CapacityReductionWithWaitlistError(event_name)
+
     # 3. Determine if Any Changes Would Occur
     modified = False
     if venue is not None and event.venue != venue:
@@ -417,6 +450,9 @@ def update_event_details(
         modified = True
     # Check parsed drinks only if input string was provided
     if drinks_str is not None and set(event.drinks) != set(parsed_drinks):  # Use set comparison
+        modified = True
+    # Check max_capacity
+    if max_capacity is not None and event.max_capacity != max_capacity:
         modified = True
 
     # 4. Raise Error if No Changes Detected
@@ -436,6 +472,8 @@ def update_event_details(
         event.event_deadline = parsed_deadline
     if drinks_str is not None:  # Apply the parsed drinks
         event.drinks = parsed_drinks
+    if max_capacity is not None:  # Apply the max_capacity
+        event.max_capacity = max_capacity
 
     # 6. Log and Return
     _log.info(f"Event '{event_name}' details updated in cache.")
@@ -473,6 +511,20 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
 
     # Apply the change
     event.open = target_open_status
+
+    # Handle closed_attendance_count
+    if target_open_status:
+        # Reopening the event - clear the closed attendance count
+        event.closed_attendance_count = None
+        _log.info(f"Event '{event_name}' reopened, cleared closed_attendance_count.")
+    else:
+        # Closing the event - capture current attendance count
+        from .response import get_responses
+
+        responses = get_responses(event_name)
+        event.closed_attendance_count = sum(1 + r.extra_people for r in responses)
+        _log.info(f"Event '{event_name}' closed with {event.closed_attendance_count} attendees.")
+
     status_text = "open" if target_open_status else "closed"
     _log.info(f"Event '{event_name}' marked as {status_text} in cache.")
     return event

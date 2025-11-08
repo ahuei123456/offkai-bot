@@ -187,6 +187,29 @@ class EventDeadlineAfterEventError(BotCommandError):
         super().__init__("❌ Event deadline must be set *before* the event date/time.")
 
 
+class CapacityReductionError(BotCommandError):
+    """Raised when trying to reduce capacity below current attendee count."""
+
+    def __init__(self, event_name: str, new_capacity: int, current_count: int):
+        self.event_name = event_name
+        self.new_capacity = new_capacity
+        self.current_count = current_count
+        super().__init__(
+            f"❌ Cannot reduce capacity of '{event_name}' to {new_capacity}. Current attendee count is {current_count}."
+        )
+
+
+class CapacityReductionWithWaitlistError(BotCommandError):
+    """Raised when trying to reduce capacity while there are users on the waitlist."""
+
+    def __init__(self, event_name: str):
+        self.event_name = event_name
+        super().__init__(
+            f"❌ Cannot reduce capacity of '{event_name}' while there are users on the waitlist. "
+            "Please wait for the waitlist to be empty."
+        )
+
+
 class AlertTimeInPastError(BotCommandError):
     """Raised when attempting to register an alert for a time in the past."""
 

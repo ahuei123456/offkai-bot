@@ -75,6 +75,7 @@ def sample_event_list():
             open=True,
             archived=False,
             drinks=["Juice", "Soda"],
+            max_capacity=None,
         ),
         Event(
             event_name="Autumn Meetup",
@@ -89,6 +90,7 @@ def sample_event_list():
             open=False,
             archived=False,
             drinks=[],
+            max_capacity=None,
         ),
         Event(
             event_name="Archived Party",
@@ -103,6 +105,7 @@ def sample_event_list():
             open=False,
             archived=True,
             drinks=[],
+            max_capacity=None,
         ),
     ]
 

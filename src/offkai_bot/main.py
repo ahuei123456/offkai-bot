@@ -69,7 +69,7 @@ class OffkaiClient(discord.Client):
 
     async def setup_hook(self):
         load_event_data()
-        load_responses()
+        load_responses()  # Loads both attendees and waitlist
         _log.info("Initial data loaded into cache.")
 
         for guild_id in settings["GUILDS"]:
@@ -148,6 +148,7 @@ async def hello(interaction: discord.Interaction):
     deadline="The date and time of the deadline to sign up (YYYY-MM-DD HH:MM). Assumed JST.",
     drinks="Optional: Comma-separated list of allowed drinks.",
     announce_msg="Optional: A message to post in the main channel.",
+    max_capacity="Optional: Maximum number of attendees (including +1s). Leave empty for unlimited.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
@@ -161,6 +162,7 @@ async def create_offkai(
     deadline: str | None = None,
     drinks: str | None = None,
     announce_msg: str | None = None,
+    max_capacity: int | None = None,
 ):
     # 1. Business Logic Validation
     with contextlib.suppress(EventNotFoundError):
@@ -202,6 +204,8 @@ async def create_offkai(
         thread_id=thread.id,
         drinks_list=drinks_list,
         announce_msg=announce_msg,  # Pass announce_msg if stored on Event
+        max_capacity=max_capacity,
+        creator_id=interaction.user.id,
     )
 
     register_deadline_reminders(client, new_event, thread)
@@ -229,7 +233,9 @@ async def create_offkai(
     address="Optional: The new address.",
     google_maps_link="Optional: The new Google Maps link.",
     date_time="Optional: The new date and time (YYYY-MM-DD HH:MM).",
+    deadline="Optional: The new registration deadline (YYYY-MM-DD HH:MM).",
     drinks="Optional: New comma-separated list of allowed drinks. Overwrites existing.",
+    max_capacity="Optional: The new maximum capacity for the event.",
     update_msg="Message to post in the event thread announcing the update.",
 )
 @app_commands.checks.has_role("Offkai Organizer")
@@ -242,13 +248,18 @@ async def modify_offkai(
     address: str | None = None,
     google_maps_link: str | None = None,
     date_time: str | None = None,
-    deadline: str | None = None,  # Added deadline parameter
+    deadline: str | None = None,
     drinks: str | None = None,
+    max_capacity: int | None = None,
 ):
     # --- ADD Context Validation EARLY ---
     # Ensure we are in a valid channel before proceeding, needed for channel ID assignment
     validate_interaction_context(interaction)
     # --- END Context Validation ---
+
+    # 0.5. Get old capacity before modification
+    old_event = get_event(event_name)
+    old_capacity = old_event.max_capacity
 
     # 1. Call the data layer function to handle validation and modification
     modified_event = update_event_details(
@@ -259,6 +270,7 @@ async def modify_offkai(
         date_time_str=date_time,
         deadline_str=deadline,
         drinks_str=drinks,
+        max_capacity=max_capacity,
     )
 
     # *** NEW: Assign channel_id if missing ***
@@ -275,6 +287,27 @@ async def modify_offkai(
 
     # 2. Save the changes to disk (includes potentially added channel_id)
     save_event_data()
+
+    # 2.5. Check if capacity increased and promote from waitlist
+    capacity_increased = False
+    if max_capacity is not None and (old_capacity is None or max_capacity > old_capacity):
+        # Capacity increased (or changed from unlimited to limited with high value)
+        capacity_increased = True
+
+    if capacity_increased:
+        # Import here to avoid circular import
+        from offkai_bot.interactions import promote_waitlist_batch
+
+        promoted_user_ids = await promote_waitlist_batch(modified_event, client)
+        if promoted_user_ids:
+            # Save responses after promotion
+            from offkai_bot.data.response import save_responses
+
+            save_responses()
+            _log.info(
+                f"Promoted {len(promoted_user_ids)} user(s) from waitlist "
+                f"after capacity increase for event '{event_name}'."
+            )
 
     # 3. Update the persistent message in the Discord thread
     #    This now uses the potentially updated modified_event object

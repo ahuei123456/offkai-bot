@@ -21,9 +21,19 @@ from .errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
-from .interactions import ClosedEvent, OpenEvent
+from .interactions import ClosedEvent, OpenEvent, PostDeadlineEvent
 
 _log = logging.getLogger(__name__)
+
+
+def get_event_view(event: Event):
+    """Determines the appropriate view for an event based on its state."""
+    if not event.open:
+        return ClosedEvent(event)
+    elif event.is_past_deadline:
+        return PostDeadlineEvent(event)
+    else:
+        return OpenEvent(event)
 
 
 async def perform_close_event(client: discord.Client, event_name: str, close_msg: str | None = None) -> Event:
@@ -86,7 +96,7 @@ async def send_event_message(channel: discord.Thread, event: Event):
         _log.error(f"send_event_message received non-Event object: {type(event)}")
         return
 
-    view = OpenEvent(event) if event.open else ClosedEvent(event)
+    view = get_event_view(event)
     message = None
     try:
         message_content = create_event_message(event)  # Use util function
@@ -236,7 +246,7 @@ async def update_event_message(client: discord.Client, event: Event):
         return
 
     # 3. Determine Action: Edit or Send New
-    view = OpenEvent(event) if event.open else ClosedEvent(event)
+    view = get_event_view(event)
     message_content = create_event_message(event)
 
     if message:

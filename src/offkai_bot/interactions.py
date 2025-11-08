@@ -10,7 +10,17 @@ from offkai_bot.errors import (
 )
 
 from .data.event import Event
-from .data.response import Response, add_response, get_responses, remove_response
+from .data.response import (
+    Response,
+    WaitlistEntry,
+    add_response,
+    add_to_waitlist,
+    get_responses,
+    get_waitlist,
+    promote_from_waitlist,
+    remove_from_waitlist,
+    remove_response,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -25,6 +35,125 @@ class ValidationError(Exception):
 # --- Helper ---
 async def error_message(interaction: discord.Interaction, message: str):
     await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+
+
+def get_current_attendance_count(event_name: str) -> int:
+    """Calculate total current attendance including extra people."""
+    responses = get_responses(event_name)
+    return sum(1 + response.extra_people for response in responses)
+
+
+def is_event_at_capacity(event: Event) -> bool:
+    """Check if the event has reached its maximum capacity."""
+    if event.max_capacity is None:
+        return False  # Unlimited capacity
+
+    current_count = get_current_attendance_count(event.event_name)
+    return current_count >= event.max_capacity
+
+
+def would_exceed_capacity(event: Event, num_people: int) -> bool:
+    """Check if adding num_people would exceed the event's capacity."""
+    if event.max_capacity is None:
+        return False  # Unlimited capacity
+
+    current_count = get_current_attendance_count(event.event_name)
+    return (current_count + num_people) > event.max_capacity
+
+
+def get_remaining_capacity(event: Event) -> int | None:
+    """Get the number of remaining spots. Returns None if unlimited capacity."""
+    if event.max_capacity is None:
+        return None
+
+    current_count = get_current_attendance_count(event.event_name)
+    return max(0, event.max_capacity - current_count)
+
+
+async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[int]:
+    """
+    Promote users from waitlist to fill available capacity.
+
+    Returns list of promoted user IDs.
+    """
+    promoted_user_ids: list[int] = []
+    promoted_count = 0
+
+    # Determine the target capacity for promotion
+    # If event was closed with a specific count, don't exceed that count
+    # Otherwise, use the max_capacity
+    target_capacity: int | None = None
+    if event.closed_attendance_count is not None:
+        # Event was closed with X people, don't exceed min(closed_count, max_capacity)
+        if event.max_capacity is not None:
+            target_capacity = min(event.closed_attendance_count, event.max_capacity)
+        else:
+            target_capacity = event.closed_attendance_count
+    else:
+        # Event is still open or was never closed, use max_capacity
+        target_capacity = event.max_capacity
+
+    while True:
+        # Check if we should continue promoting
+        if target_capacity is None:
+            # No capacity limit, only promote one person (original behavior for unlimited events)
+            if promoted_count >= 1:
+                break
+        else:
+            # Check if we're at target capacity
+            current_count = get_current_attendance_count(event.event_name)
+            if current_count >= target_capacity:
+                break
+
+            # Check if there's anyone on the waitlist
+            waitlist = get_waitlist(event.event_name)
+            if not waitlist:
+                break
+
+            # Check if the next person fits
+            next_entry = waitlist[0]
+            next_total_people = 1 + next_entry.extra_people
+            remaining_capacity = target_capacity - current_count
+            if next_total_people > remaining_capacity:
+                # Next person doesn't fit, stop promoting
+                break
+
+        # Promote the next person
+        promoted_entry = promote_from_waitlist(event.event_name)
+        if not promoted_entry:
+            # Waitlist is empty
+            break
+
+        # Convert waitlist entry to regular response
+        promoted_response = Response(
+            user_id=promoted_entry.user_id,
+            username=promoted_entry.username,
+            extra_people=promoted_entry.extra_people,
+            behavior_confirmed=promoted_entry.behavior_confirmed,
+            arrival_confirmed=promoted_entry.arrival_confirmed,
+            event_name=promoted_entry.event_name,
+            timestamp=promoted_entry.timestamp,
+            drinks=promoted_entry.drinks,
+        )
+        add_response(event.event_name, promoted_response)
+        promoted_count += 1
+        promoted_user_ids.append(promoted_entry.user_id)
+
+        # Notify the promoted user
+        try:
+            promoted_user = await client.fetch_user(promoted_entry.user_id)
+            await promoted_user.send(
+                f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
+                f"You've been automatically moved from the waitlist to confirmed attendees.\n\n"
+                f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+                f"If you withdraw late, you are fully responsible for any consequences, including "
+                f"payment requests from the event organizer and potential server moderation action."
+            )
+            _log.info(f"Promoted user {promoted_entry.user_id} from waitlist for event '{event.event_name}'.")
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            _log.warning(f"Could not notify promoted user {promoted_entry.user_id} for event '{event.event_name}': {e}")
+
+    return promoted_user_ids
 
 
 # Class to handle the modal for event attendance
@@ -163,7 +292,10 @@ class GatheringModal(ui.Modal):
             f"👥 Bringing: {response.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
-            f"{drinks_msg}"
+            f"{drinks_msg}\n\n"
+            f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+            f"If you withdraw late, you are fully responsible for any consequences, including "
+            f"payment requests from the event organizer and potential server moderation action."
         )
 
         # 2. Attempt to DM the user first
@@ -188,6 +320,101 @@ class GatheringModal(ui.Modal):
         except discord.HTTPException as e:
             _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
 
+    async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
+        """Handles actions after a user is added to the waitlist."""
+        # 1. Create the waitlist confirmation message
+        drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
+        waitlist_message = (
+            f"📋 You've been added to the waitlist for **{self.event.event_name}**!\n"
+            f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
+            f"✔ Behavior Confirmed\n"
+            f"✔ Arrival Confirmed"
+            f"{drinks_msg}\n\n"
+            f"You will be automatically added to the event if a spot opens up.\n\n"
+            f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+            f"If you withdraw late, you are fully responsible for any consequences, including "
+            f"payment requests from the event organizer and potential server moderation action."
+        )
+
+        # 2. Attempt to DM the user first
+        try:
+            await interaction.user.send(waitlist_message)
+            # If DM succeeds, send a brief confirmation to the channel
+            await interaction.response.send_message(
+                "📋 You've been added to the waitlist! I've sent you a DM with the details.", ephemeral=True
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            # 3. If DM fails, fall back to sending an ephemeral message in the channel
+            await interaction.response.send_message(waitlist_message, ephemeral=True)
+
+        # 4. Add user to the thread
+        try:
+            if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                await interaction.channel.add_user(interaction.user)
+            else:
+                _log.warning(
+                    f"Could not add user {interaction.user.id} to thread {interaction.channel_id} (not a thread?)."
+                )
+        except discord.HTTPException as e:
+            _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+
+    async def _handle_waitlist_capacity_exceeded(
+        self, interaction: discord.Interaction, entry: WaitlistEntry, total_people_in_group: int, remaining_spots: int
+    ):
+        """Handles actions when a user's group exceeds capacity and is added to waitlist."""
+        # 1. Create the capacity exceeded + waitlist message
+        drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
+        waitlist_message = (
+            f"❌ Sorry, your group of {total_people_in_group} people would exceed the capacity "
+            f"for **{self.event.event_name}**.\n"
+            f"Only {remaining_spots} spot(s) remaining out of {self.event.max_capacity} total.\n\n"
+            f"📋 For now you will be added to the waiting list.\n"
+            f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
+            f"✔ Behavior Confirmed\n"
+            f"✔ Arrival Confirmed"
+            f"{drinks_msg}\n\n"
+            f"You can choose to leave the offkai and re-apply with fewer people, "
+            f"or stay on the waitlist and be automatically added if a spot opens up."
+        )
+
+        # 2. Attempt to DM the user first
+        try:
+            await interaction.user.send(waitlist_message)
+            # If DM succeeds, send a brief confirmation to the channel
+            await interaction.response.send_message(
+                "📋 Your group exceeds capacity. You've been added to the waitlist! "
+                "I've sent you a DM with the details.",
+                ephemeral=True,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            # 3. If DM fails, fall back to sending an ephemeral message in the channel
+            await interaction.response.send_message(waitlist_message, ephemeral=True)
+
+        # 4. Add user to the thread
+        try:
+            if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                await interaction.channel.add_user(interaction.user)
+            else:
+                _log.warning(
+                    f"Could not add user {interaction.user.id} to thread {interaction.channel_id} (not a thread?)."
+                )
+        except discord.HTTPException as e:
+            _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+
+    async def _send_capacity_reached_message(self, interaction: discord.Interaction):
+        """Sends a message to the thread when capacity is first reached."""
+        try:
+            if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                await interaction.channel.send(
+                    f"⚠️ **Maximum capacity has been reached for {self.event.event_name}!**\n"
+                    f"New registrations will be added to the waitlist."
+                )
+                _log.info(f"Sent capacity reached message to thread for event '{self.event.event_name}'.")
+            else:
+                _log.warning(f"Could not send capacity message to thread {interaction.channel_id} (not a thread?).")
+        except discord.HTTPException as e:
+            _log.error(f"Failed to send capacity message to thread {interaction.channel_id}: {e}")
+
     async def on_submit(self, interaction: discord.Interaction):
         # 1. Get Input Values
         extra_people_str = self.extra_people_input.value
@@ -201,23 +428,86 @@ class GatheringModal(ui.Modal):
             self._validate_confirmations(behave_confirm_str, arrival_confirm_str)
             selected_drinks = self._validate_drinks(drink_choice_str, num_extra_people + 1)
 
-            # 3. Create Response Object (Only runs if validation passed)
-            new_response = Response(
-                user_id=interaction.user.id,
-                username=interaction.user.name,
-                extra_people=num_extra_people,  # Use validated value directly
-                behavior_confirmed=True,  # Use validated value directly
-                arrival_confirmed=True,  # Use validated value directly
-                event_name=self.event.event_name,
-                timestamp=datetime.now(UTC),
-                drinks=selected_drinks,  # Use validated value directly
-            )
+            # 3. Calculate total people in this registration
+            total_people_in_group = 1 + num_extra_people
 
-            # 4. Add Response using Util function
-            add_response(self.event.event_name, new_response)
+            # 4. Check if event has reached capacity, if deadline has passed, or if event is closed
+            is_past_deadline = self.event.is_past_deadline
+            is_closed = not self.event.open
+            at_capacity = is_event_at_capacity(self.event)
 
-            # 5. Handle Outcome
-            await self._handle_successful_submission(interaction, new_response)
+            # 5. Determine whether to add to responses or waitlist
+            # If deadline has passed OR event is closed OR event is at capacity, add to waitlist
+            if is_past_deadline or is_closed or at_capacity:
+                # Add to waitlist
+                new_entry = WaitlistEntry(
+                    user_id=interaction.user.id,
+                    username=interaction.user.name,
+                    extra_people=num_extra_people,
+                    behavior_confirmed=True,
+                    arrival_confirmed=True,
+                    event_name=self.event.event_name,
+                    timestamp=datetime.now(UTC),
+                    drinks=selected_drinks,
+                )
+
+                add_to_waitlist(self.event.event_name, new_entry)
+
+                # Send waitlist confirmation
+                await self._handle_waitlist_submission(interaction, new_entry)
+
+                # Check if this is the first time capacity was reached - send thread message
+                # Only send this if capacity just reached (not if deadline passed or event closed)
+                if at_capacity and not is_past_deadline and not is_closed:
+                    current_count = get_current_attendance_count(self.event.event_name)
+                    if current_count == self.event.max_capacity:
+                        await self._send_capacity_reached_message(interaction)
+
+            elif would_exceed_capacity(self.event, total_people_in_group):
+                # Registration would exceed capacity - add to waitlist with special message
+                remaining = get_remaining_capacity(self.event)
+                # would_exceed_capacity only returns True when there's a capacity limit
+                assert remaining is not None, "Capacity should be set if would_exceed_capacity is True"
+
+                # Create waitlist entry
+                new_entry = WaitlistEntry(
+                    user_id=interaction.user.id,
+                    username=interaction.user.name,
+                    extra_people=num_extra_people,
+                    behavior_confirmed=True,
+                    arrival_confirmed=True,
+                    event_name=self.event.event_name,
+                    timestamp=datetime.now(UTC),
+                    drinks=selected_drinks,
+                )
+
+                # Add to waitlist
+                add_to_waitlist(self.event.event_name, new_entry)
+
+                # Send capacity exceeded + waitlist confirmation
+                await self._handle_waitlist_capacity_exceeded(interaction, new_entry, total_people_in_group, remaining)
+
+            else:
+                # Event is not at capacity and deadline hasn't passed - add to regular responses
+                new_response = Response(
+                    user_id=interaction.user.id,
+                    username=interaction.user.name,
+                    extra_people=num_extra_people,
+                    behavior_confirmed=True,
+                    arrival_confirmed=True,
+                    event_name=self.event.event_name,
+                    timestamp=datetime.now(UTC),
+                    drinks=selected_drinks,
+                )
+
+                add_response(self.event.event_name, new_response)
+                await self._handle_successful_submission(interaction, new_response)
+
+                # Check if we just reached capacity
+                if self.event.max_capacity is not None and not is_past_deadline and not is_closed:
+                    current_count = get_current_attendance_count(self.event.event_name)
+                    if current_count == self.event.max_capacity:
+                        await self._send_capacity_reached_message(interaction)
 
         except ValidationError as e:
             # Handle specific validation errors raised by helpers
@@ -279,11 +569,36 @@ class OpenEvent(EventView):
         custom_id="withdraw_button",  # Use danger style
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        removed_from_responses = False
         try:
-            # Call remove_response (raises ResponseNotFoundError on failure)
+            # Try to remove from responses first
             remove_response(self.event.event_name, interaction.user.id)
+            removed_from_responses = True
 
-            # --- Success Path (only runs if remove_response didn't raise error) ---
+        except ResponseNotFoundError:
+            # User not in responses, try waitlist
+            try:
+                remove_from_waitlist(self.event.event_name, interaction.user.id)
+                removed_from_responses = False
+            except ResponseNotFoundError:
+                # User not in responses or waitlist
+                await error_message(
+                    interaction,
+                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
+                )
+                return
+
+        except Exception as e:
+            # Catch any other unexpected errors during removal
+            _log.error(
+                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # --- Success Path (user was removed from either responses or waitlist) ---
+        try:
             # 1. Create the withdrawal message string
             withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
 
@@ -309,29 +624,18 @@ class OpenEvent(EventView):
                     )
             except discord.HTTPException as e:
                 _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
-            # --- End Success Path ---
 
-        except ResponseNotFoundError:
-            # --- Failure Path (response wasn't found) ---
-            # Use the error message directly, or customize if needed
-            # The default message from the modified error is:
-            # "❌ Could not find a response from user ID {user_id} for '{event_name}'."
-            # Let's make it slightly more user-friendly for the button context:
-            await error_message(
-                interaction,
-                f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-                # Alternatively, use str(e) if the default error message is preferred:
-                # await error_message(interaction, str(e))
-            )
-            # --- End Failure Path ---
+            # 5. Promote users from the waitlist only if removed from responses
+            # (not from waitlist, since that doesn't free up capacity)
+            if removed_from_responses:
+                await promote_waitlist_batch(self.event, interaction.client)
 
         except Exception as e:
-            # Catch any other unexpected errors during removal or thread interaction
+            # Catch any errors during notification/promotion
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
                 exc_info=True,
             )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
 
 
 class ClosedEvent(EventView):
@@ -349,3 +653,230 @@ class ClosedEvent(EventView):
         # This button is disabled, so this callback shouldn't trigger
         # If it somehow does, send an ephemeral message
         await interaction.response.send_message("Responses are currently closed for this event.", ephemeral=True)
+
+    @discord.ui.button(
+        label="Join Waitlist",
+        style=discord.ButtonStyle.primary,
+        row=1,
+        custom_id="join_waitlist_closed_button",
+    )
+    async def join_waitlist(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show the modal to join waitlist
+        await interaction.response.send_modal(GatheringModal(event=self.event))
+
+    @discord.ui.button(
+        label="Withdraw Attendance",
+        style=discord.ButtonStyle.danger,
+        row=2,
+        custom_id="withdraw_button_closed",
+    )
+    async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        removed_from_responses = False
+        try:
+            # Try to remove from responses first
+            remove_response(self.event.event_name, interaction.user.id)
+            removed_from_responses = True
+
+        except ResponseNotFoundError:
+            # User not in responses, try waitlist
+            try:
+                remove_from_waitlist(self.event.event_name, interaction.user.id)
+                removed_from_responses = False
+            except ResponseNotFoundError:
+                # User not in responses or waitlist
+                await error_message(
+                    interaction,
+                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
+                )
+                return
+
+        except Exception as e:
+            # Catch any other unexpected errors during removal
+            _log.error(
+                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # --- Success Path (user was removed from either responses or waitlist) ---
+        try:
+            # 1. Create the withdrawal message string
+            withdrawal_message = (
+                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
+                f"⚠️ **Important:** Withdrawing after responses are closed is your full responsibility. "
+                f"You may be contacted by the event organizer for payment if needed. "
+                f"Failure to comply may result in server moderation action."
+            )
+
+            # 2. Attempt to DM the user first
+            try:
+                await interaction.user.send(withdrawal_message)
+                # If DM succeeds, send a brief confirmation to the channel
+                await interaction.response.send_message(
+                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                # 3. If DM fails, fall back to sending an ephemeral message in the channel
+                await interaction.response.send_message(withdrawal_message, ephemeral=True)
+
+            # 4. Remove user from the thread
+            try:
+                if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                    await interaction.channel.remove_user(interaction.user)
+                else:
+                    _log.warning(
+                        f"Could not remove user {interaction.user.id} "
+                        f"from channel {interaction.channel_id} (not a thread?)."
+                    )
+            except discord.HTTPException as e:
+                _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
+
+            # 4.5. Notify event creator about withdrawal (only after responses are closed)
+            if self.event.creator_id:
+                try:
+                    creator = await interaction.client.fetch_user(self.event.creator_id)
+                    await creator.send(
+                        f"⚠️ **Withdrawal Notification**\n\n"
+                        f"User {interaction.user.mention} ({interaction.user.name}) "
+                        f"has withdrawn from **{self.event.event_name}**.\n"
+                        f"This withdrawal occurred after responses were closed."
+                    )
+                    _log.info(
+                        f"Notified creator {self.event.creator_id} about withdrawal by {interaction.user.id} "
+                        f"from closed event '{self.event.event_name}'."
+                    )
+                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+                    _log.warning(
+                        f"Could not notify creator {self.event.creator_id} about withdrawal "
+                        f"from event '{self.event.event_name}': {e}"
+                    )
+
+            # 5. Promote users from the waitlist only if removed from responses
+            # (not from waitlist, since that doesn't free up capacity)
+            if removed_from_responses:
+                await promote_waitlist_batch(self.event, interaction.client)
+
+        except Exception as e:
+            # Catch any errors during notification/promotion
+            _log.error(
+                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+
+
+class PostDeadlineEvent(EventView):
+    """View shown after the deadline has passed - allows joining the waitlist only."""
+
+    def __init__(self, event: Event):  # Expect Event object
+        super().__init__(event=event)  # Pass event to parent
+
+    @discord.ui.button(
+        label="Join Waitlist",
+        style=discord.ButtonStyle.primary,
+        row=0,
+        custom_id="join_waitlist_button",
+    )
+    async def join_waitlist(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show the same modal, but it will add to waitlist since deadline has passed
+        await interaction.response.send_modal(GatheringModal(event=self.event))
+
+    @discord.ui.button(
+        label="Withdraw Attendance",
+        style=discord.ButtonStyle.danger,
+        row=1,
+        custom_id="withdraw_button_deadline",
+    )
+    async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        removed_from_responses = False
+        try:
+            # Try to remove from responses first
+            remove_response(self.event.event_name, interaction.user.id)
+            removed_from_responses = True
+
+        except ResponseNotFoundError:
+            # User not in responses, try waitlist
+            try:
+                remove_from_waitlist(self.event.event_name, interaction.user.id)
+                removed_from_responses = False
+            except ResponseNotFoundError:
+                # User not in responses or waitlist
+                await error_message(
+                    interaction,
+                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
+                )
+                return
+
+        except Exception as e:
+            # Catch any other unexpected errors during removal
+            _log.error(
+                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # --- Success Path (user was removed from either responses or waitlist) ---
+        try:
+            # 1. Create the withdrawal message string
+            withdrawal_message = (
+                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
+                f"⚠️ **Important:** Withdrawing after the deadline is your full responsibility. "
+                f"You may be contacted by the event organizer for payment if needed. "
+                f"Failure to comply may result in server moderation action."
+            )
+
+            # 2. Attempt to DM the user first
+            try:
+                await interaction.user.send(withdrawal_message)
+                # If DM succeeds, send a brief confirmation to the channel
+                await interaction.response.send_message(
+                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                # 3. If DM fails, fall back to sending an ephemeral message in the channel
+                await interaction.response.send_message(withdrawal_message, ephemeral=True)
+
+            # 4. Remove user from the thread
+            try:
+                if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                    await interaction.channel.remove_user(interaction.user)
+                else:
+                    _log.warning(
+                        f"Could not remove user {interaction.user.id} "
+                        f"from channel {interaction.channel_id} (not a thread?)."
+                    )
+            except discord.HTTPException as e:
+                _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
+
+            # 4.5. Notify event creator about withdrawal (only after deadline)
+            if self.event.creator_id:
+                try:
+                    creator = await interaction.client.fetch_user(self.event.creator_id)
+                    await creator.send(
+                        f"⚠️ **Withdrawal Notification**\n\n"
+                        f"User {interaction.user.mention} ({interaction.user.name}) "
+                        f"has withdrawn from **{self.event.event_name}**.\n"
+                        f"This withdrawal occurred after the deadline."
+                    )
+                    _log.info(
+                        f"Notified creator {self.event.creator_id} about withdrawal by {interaction.user.id} "
+                        f"from post-deadline event '{self.event.event_name}'."
+                    )
+                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+                    _log.warning(
+                        f"Could not notify creator {self.event.creator_id} about withdrawal "
+                        f"from event '{self.event.event_name}': {e}"
+                    )
+
+            # 5. Promote users from the waitlist only if removed from responses
+            # (not from waitlist, since that doesn't free up capacity)
+            if removed_from_responses:
+                await promote_waitlist_batch(self.event, interaction.client)
+
+        except Exception as e:
+            # Catch any errors during notification/promotion
+            _log.error(
+                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
+                exc_info=True,
+            )
