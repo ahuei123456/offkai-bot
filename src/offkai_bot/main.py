@@ -514,15 +514,19 @@ async def delete_response(interaction: discord.Interaction, event_name: str, mem
     name="attendance",
     description="Gets the list of attendees and count for an event.",
 )
-@app_commands.describe(event_name="The name of the event.")
+@app_commands.describe(
+    event_name="The name of the event.", sort="Whether to sort the attendance list. (default: False)"
+)
 @app_commands.checks.has_role("Offkai Organizer")
 @log_command_usage
-async def attendance(interaction: discord.Interaction, event_name: str):
+async def attendance(interaction: discord.Interaction, event_name: str, sort: bool = False):
     # 1. Check if event exists
     get_event(event_name)
 
     # 2. Calculate attendance using the data layer function
     total_count, attendee_list = calculate_attendance(event_name)
+    if sort:
+        attendee_list.sort(key=str.lower)  # Sorts case-insensitive (A-Z)
 
     # 3. Format output string for Discord
     output = f"**Attendance for {event_name}**\n\n"

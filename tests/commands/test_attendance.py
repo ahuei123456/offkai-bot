@@ -105,6 +105,54 @@ async def test_attendance_success(
 @patch("offkai_bot.main.calculate_attendance")
 @patch("offkai_bot.main.get_event")
 @patch("offkai_bot.main._log")
+async def test_attendance_sort_success(
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_interaction,
+    mock_event_obj,  # From this file
+    prepopulated_event_cache,  # Use fixture to ensure cache is populated
+):
+    """Test the successful path of attendance."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+
+    # Mock the data layer function returning attendance data
+    mock_total_count = 5
+    mock_attendee_list = ["UserC", "UserC +1", "UserA", "UserB", "UserB +1"]
+    mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list)
+
+    # Act
+    await main.attendance.callback(
+        mock_interaction,
+        event_name=event_name_target,
+        sort=True,
+    )
+
+    # Assert
+    # 1. Check get_event call
+    mock_get_event.assert_called_once_with(event_name_target)
+    # 2. Check calculate_attendance call
+    mock_calculate_attendance.assert_called_once_with(event_name_target)
+    # 3. Check final interaction response with correct formatting
+    expected_output = (
+        f"**Attendance for {event_name_target}**\n\n"
+        f"Total Attendees: **{mock_total_count}**\n\n"
+        "1. UserA\n"
+        "2. UserB\n"
+        "3. UserB +1\n"
+        "4. UserC\n"
+        "5. UserC +1"
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    # 4. Check logs (optional)
+    mock_log.warning.assert_not_called()
+
+
+@patch("offkai_bot.main.calculate_attendance")
+@patch("offkai_bot.main.get_event")
+@patch("offkai_bot.main._log")
 async def test_attendance_success_truncation(
     mock_log, mock_get_event, mock_calculate_attendance, mock_interaction, mock_event_obj, prepopulated_event_cache
 ):
