@@ -27,6 +27,7 @@ class Response:
     event_name: str
     timestamp: datetime
     drinks: list[str] = field(default_factory=list)
+    extras_names: list[str] = field(default_factory=list)
 
 
 # --- Waitlist Entry Dataclass ---
@@ -40,6 +41,7 @@ class WaitlistEntry:
     event_name: str
     timestamp: datetime
     drinks: list[str] = field(default_factory=list)
+    extras_names: list[str] = field(default_factory=list)
 
 
 # --- Type Definitions ---
@@ -103,6 +105,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
         arrival_confirmed_raw = resp_dict.get("arrival_confirmed", False)
         behavior_confirmed = str(behavior_confirmed_raw).lower() == "yes" or behavior_confirmed_raw is True
         arrival_confirmed = str(arrival_confirmed_raw).lower() == "yes" or arrival_confirmed_raw is True
+        extras_names = resp_dict.get("extras_names", [])
 
         return Response(
             user_id=int(resp_dict.get("user_id", 0)),
@@ -113,6 +116,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             event_name=resp_dict.get("event_name", event_name),
             timestamp=(ts if ts is not None else datetime.now()),
             drinks=drinks,
+            extras_names=extras_names,
         )
     except (TypeError, ValueError) as e:
         _log.error(f"Error creating Response object for event {event_name} from dict {resp_dict}: {e}")
@@ -139,6 +143,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
         arrival_confirmed_raw = entry_dict.get("arrival_confirmed", False)
         behavior_confirmed = str(behavior_confirmed_raw).lower() == "yes" or behavior_confirmed_raw is True
         arrival_confirmed = str(arrival_confirmed_raw).lower() == "yes" or arrival_confirmed_raw is True
+        extras_names = entry_dict.get("extras_names", [])
 
         return WaitlistEntry(
             user_id=int(entry_dict.get("user_id", 0)),
@@ -149,6 +154,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             event_name=entry_dict.get("event_name", event_name),
             timestamp=(ts if ts is not None else datetime.now()),
             drinks=drinks,
+            extras_names=extras_names,
         )
     except (TypeError, ValueError) as e:
         _log.error(f"Error creating WaitlistEntry object for event {event_name} from dict {entry_dict}: {e}")
@@ -505,8 +511,8 @@ def calculate_attendance(event_name: str) -> tuple[int, list[str]]:
         total_count += 1
 
         # Add extra people
-        for i in range(response.extra_people):
-            attendee_names.append(f"{response.username} +{i + 1}")
+        for i, name in enumerate(response.extras_names):
+            attendee_names.append(f"{name} ({response.username} +{i + 1})")
             total_count += 1
 
         # Add drinks (if required)
