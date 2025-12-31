@@ -43,6 +43,17 @@ RESP_3_DICT = {  # For a different event
     "timestamp": NOW.isoformat(),
     "drinks": [],
 }
+RESP_4_DICT = {  # Response with extras_names
+    "user_id": 999,
+    "username": "User4",
+    "extra_people": 2,
+    "behavior_confirmed": True,
+    "arrival_confirmed": True,
+    "event_name": "Event A",
+    "timestamp": NOW.isoformat(),
+    "drinks": ["Cola", "Water", "Juice"],
+    "extras_names": ["Alice", "Bob"],
+}
 
 RESP_1_OBJ = Response(
     user_id=123,
@@ -74,6 +85,17 @@ RESP_3_OBJ = Response(
     event_name="Event B",
     timestamp=NOW,
     drinks=[],
+)
+RESP_4_OBJ = Response(
+    user_id=999,
+    username="User4",
+    extra_people=2,
+    behavior_confirmed=True,
+    arrival_confirmed=True,
+    event_name="Event A",
+    timestamp=NOW,
+    drinks=["Cola", "Water", "Juice"],
+    extras_names=["Alice", "Bob"],
 )
 
 
@@ -784,3 +806,286 @@ def test_get_waitlist_from_unified_structure(mock_paths):
 
     assert len(responses) == 1
     assert responses[0].user_id == 123
+
+
+# --- Tests for extras_names field ---
+
+
+def test_response_with_extras_names(mock_paths):
+    """Test Response object with extras_names field."""
+    assert RESP_4_OBJ.extras_names == ["Alice", "Bob"]
+    assert RESP_4_OBJ.extra_people == 2
+    assert RESP_4_OBJ.username == "User4"
+
+
+def test_response_without_extras_names_defaults_to_empty(mock_paths):
+    """Test Response object defaults to empty list when extras_names not provided."""
+    assert RESP_1_OBJ.extras_names == []
+    assert RESP_2_OBJ.extras_names == []
+    assert RESP_3_OBJ.extras_names == []
+
+
+def test_parse_response_with_extras_names(mock_paths):
+    """Test parsing Response from dict with extras_names field."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=json.dumps({"Event A": [RESP_4_DICT]}))),
+        patch("offkai_bot.data.response.save_responses"),
+    ):
+        responses = response_data._load_responses()
+
+        assert len(responses["Event A"]["attendees"]) == 1
+        loaded_resp = responses["Event A"]["attendees"][0]
+        assert loaded_resp.extras_names == ["Alice", "Bob"]
+        assert loaded_resp.user_id == 999
+        assert loaded_resp.extra_people == 2
+
+
+def test_parse_response_without_extras_names_field(mock_paths):
+    """Test parsing Response from dict without extras_names field defaults to empty list."""
+    # Use RESP_1_DICT which doesn't have extras_names
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=json.dumps({"Event A": [RESP_1_DICT]}))),
+        patch("offkai_bot.data.response.save_responses"),
+    ):
+        responses = response_data._load_responses()
+
+        assert len(responses["Event A"]["attendees"]) == 1
+        loaded_resp = responses["Event A"]["attendees"][0]
+        assert loaded_resp.extras_names == []  # Should default to empty list
+        assert loaded_resp.user_id == 123
+
+
+def test_save_response_with_extras_names(mock_paths):
+    """Test saving Response with extras_names to file."""
+    response_data.RESPONSE_DATA_CACHE = {"Event A": make_event_data([RESP_4_OBJ])}
+
+    m_open = mock_open()
+    with (
+        patch("builtins.open", m_open) as mock_file_constructor,
+        patch("json.dump") as mock_json_dump,
+    ):
+        response_data.save_responses()
+
+        # Verify json.dump was called
+        mock_json_dump.assert_called_once()
+        args, kwargs = mock_json_dump.call_args
+
+        # Check the data being saved includes extras_names
+        saved_data = args[0]
+        assert saved_data["Event A"]["attendees"][0].extras_names == ["Alice", "Bob"]
+
+
+def test_waitlist_entry_with_extras_names(mock_paths):
+    """Test WaitlistEntry object with extras_names field."""
+    from offkai_bot.data.response import WaitlistEntry
+
+    waitlist_entry = WaitlistEntry(
+        user_id=888,
+        username="WaitlistUser",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=NOW,
+        drinks=["Tea"],
+        extras_names=["Charlie"],
+    )
+
+    assert waitlist_entry.extras_names == ["Charlie"]
+    assert waitlist_entry.extra_people == 1
+
+
+def test_parse_waitlist_entry_with_extras_names(mock_paths):
+    """Test parsing WaitlistEntry from dict with extras_names field."""
+    waitlist_dict = {
+        "user_id": 888,
+        "username": "WaitlistUser",
+        "extra_people": 1,
+        "behavior_confirmed": True,
+        "arrival_confirmed": True,
+        "event_name": "Event A",
+        "timestamp": NOW.isoformat(),
+        "drinks": ["Tea"],
+        "extras_names": ["Charlie"],
+    }
+
+    new_format_data = {
+        "Event A": {
+            "attendees": [],
+            "waitlist": [waitlist_dict],
+        },
+    }
+
+    with open(mock_paths["responses"], "w") as f:
+        json.dump(new_format_data, f)
+
+    response_data.RESPONSE_DATA_CACHE = None
+    result = response_data.load_responses()
+
+    assert len(result["Event A"]["waitlist"]) == 1
+    loaded_entry = result["Event A"]["waitlist"][0]
+    assert loaded_entry.extras_names == ["Charlie"]
+    assert loaded_entry.user_id == 888
+
+
+def test_parse_waitlist_entry_without_extras_names_field(mock_paths):
+    """Test parsing WaitlistEntry from dict without extras_names field defaults to empty list."""
+    waitlist_dict = {
+        "user_id": 888,
+        "username": "WaitlistUser",
+        "extra_people": 1,
+        "behavior_confirmed": True,
+        "arrival_confirmed": True,
+        "event_name": "Event A",
+        "timestamp": NOW.isoformat(),
+        "drinks": [],
+        # No extras_names field
+    }
+
+    new_format_data = {
+        "Event A": {
+            "attendees": [],
+            "waitlist": [waitlist_dict],
+        },
+    }
+
+    with open(mock_paths["responses"], "w") as f:
+        json.dump(new_format_data, f)
+
+    response_data.RESPONSE_DATA_CACHE = None
+    result = response_data.load_responses()
+
+    assert len(result["Event A"]["waitlist"]) == 1
+    loaded_entry = result["Event A"]["waitlist"][0]
+    assert loaded_entry.extras_names == []  # Should default to empty list
+
+
+# --- Tests for calculate_attendance with extras_names ---
+
+
+def test_calculate_attendance_with_extras_names(mock_paths):
+    """Test calculate_attendance shows extras names properly formatted."""
+    # Create responses with extras names
+    resp_with_extras = Response(
+        user_id=111,
+        username="UserA",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=["Alice", "Bob"],
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event X": make_event_data([resp_with_extras])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event X")
+
+    # Should have 3 total attendees (1 primary + 2 extras)
+    assert total_count == 3
+    assert len(attendee_names) == 3
+
+    # Check the names are formatted correctly
+    assert attendee_names[0] == "UserA"
+    assert attendee_names[1] == "Alice (UserA +1)"
+    assert attendee_names[2] == "Bob (UserA +2)"
+
+
+def test_calculate_attendance_multiple_users_with_extras_names(mock_paths):
+    """Test calculate_attendance with multiple users having extras with names."""
+    resp1 = Response(
+        user_id=111,
+        username="UserA",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Y",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=["Alice", "Bob"],
+    )
+
+    resp2 = Response(
+        user_id=222,
+        username="UserB",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Y",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=["Charlie"],
+    )
+
+    resp3 = Response(
+        user_id=333,
+        username="UserC",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Y",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event Y": make_event_data([resp1, resp2, resp3])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event Y")
+
+    # Should have 6 total attendees (3 primary + 2 extras from resp1 + 1 extra from resp2)
+    assert total_count == 6
+    assert len(attendee_names) == 6
+
+    # Check the names are in the list
+    assert "UserA" in attendee_names
+    assert "Alice (UserA +1)" in attendee_names
+    assert "Bob (UserA +2)" in attendee_names
+    assert "UserB" in attendee_names
+    assert "Charlie (UserB +1)" in attendee_names
+    assert "UserC" in attendee_names
+
+
+def test_calculate_attendance_no_extras(mock_paths):
+    """Test calculate_attendance with users having no extras."""
+    resp1 = Response(
+        user_id=111,
+        username="UserA",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Z",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+
+    resp2 = Response(
+        user_id=222,
+        username="UserB",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Z",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event Z": make_event_data([resp1, resp2])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event Z")
+
+    # Should have 2 total attendees
+    assert total_count == 2
+    assert len(attendee_names) == 2
+    assert "UserA" in attendee_names
+    assert "UserB" in attendee_names
