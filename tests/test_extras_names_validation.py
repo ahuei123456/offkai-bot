@@ -1,14 +1,12 @@
 """Tests for extras names validation functionality."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
 
 from offkai_bot.data.event import Event
-from offkai_bot.interactions import GatheringModal, ValidationError
-
 
 # --- Fixtures ---
 
@@ -127,10 +125,7 @@ def test_validate_extra_people_names_empty_when_extras_expected():
     extras = ""
     num_extra = 1
 
-    if extras == "":
-        names = []
-    else:
-        names = extras.split(",")
+    names = [] if extras == "" else extras.split(",")
 
     assert len(names) != num_extra
 

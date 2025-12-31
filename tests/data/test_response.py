@@ -865,7 +865,7 @@ def test_save_response_with_extras_names(mock_paths):
 
     m_open = mock_open()
     with (
-        patch("builtins.open", m_open) as mock_file_constructor,
+        patch("builtins.open", m_open),
         patch("json.dump") as mock_json_dump,
     ):
         response_data.save_responses()
