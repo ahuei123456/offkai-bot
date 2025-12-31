@@ -208,7 +208,7 @@ class GatheringModal(ui.Modal):
             )
             self.add_item(self.drink_choice_input)
 
-        self.extras_names_input = ui.TextInput(
+        self.extras_names_input: ui.TextInput[str] = ui.TextInput(
             label="👥 Extras names",  # Show available drinks
             placeholder="Enter you extras names. Separate with commas.",
             required=False,
