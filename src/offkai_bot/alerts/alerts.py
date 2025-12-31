@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 
-from discord.ext import tasks
+from discord.ext import tasks  # type: ignore[attr-defined]
 
 from offkai_bot.errors import AlertTimeInPastError
 
