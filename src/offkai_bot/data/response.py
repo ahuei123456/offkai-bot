@@ -511,8 +511,10 @@ def calculate_attendance(event_name: str) -> tuple[int, list[str]]:
         total_count += 1
 
         # Add extra people
-        for i, name in enumerate(response.extras_names):
-            attendee_names.append(f"{name} ({response.username} +{i + 1})")
+        for i in range(response.extra_people):
+            name = response.extras_names[i] if i < len(response.extras_names) else " "
+            name += f" ({response.username} +{i + 1})"
+            attendee_names.append(name)
             total_count += 1
 
         # Add drinks (if required)

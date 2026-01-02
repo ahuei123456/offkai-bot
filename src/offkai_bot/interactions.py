@@ -293,7 +293,6 @@ class GatheringModal(ui.Modal):
         return selected_drinks
 
     def _validate_extra_people_names(self, extras: str, num_extra: int) -> list[str]:
-        print(f"{extras=}")
         names: list[str] = []
         if extras == "":
             names = []
