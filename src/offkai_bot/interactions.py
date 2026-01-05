@@ -134,6 +134,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             event_name=promoted_entry.event_name,
             timestamp=promoted_entry.timestamp,
             drinks=promoted_entry.drinks,
+            extras_names=promoted_entry.extras_names,
         )
         add_response(event.event_name, promoted_response)
         promoted_count += 1
@@ -206,6 +207,14 @@ class GatheringModal(ui.Modal):
                 custom_id="drink_choice",
             )
             self.add_item(self.drink_choice_input)
+
+        self.extras_names_input: ui.TextInput = ui.TextInput(
+            label="👥 Extras names",  # Show available drinks
+            placeholder="Enter you extras names. Separate with commas.",
+            required=False,
+            custom_id="extras_names",
+        )
+        self.add_item(self.extras_names_input)
 
     @property
     def event_name(self) -> str:
@@ -282,6 +291,20 @@ class GatheringModal(ui.Modal):
             selected_drinks = []  # Ensure it's an empty list
 
         return selected_drinks
+
+    def _validate_extra_people_names(self, extras: str, num_extra: int) -> list[str]:
+        names: list[str] = []
+        if extras == "":
+            names = []
+        else:
+            names = extras.split(",")
+            print(f"{len(names)=}, {num_extra=}")
+            if len(names) != num_extra:
+                raise ValidationError(
+                    f"Please provide exactly {num_extra} names "
+                    "(one for each person you are bringing), separated by commas."
+                )
+        return names
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
@@ -421,12 +444,14 @@ class GatheringModal(ui.Modal):
         behave_confirm_str = self.behave_checkbox_input.value
         arrival_confirm_str = self.arrival_checkbox_input.value
         drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
+        extra_names_str = self.extras_names_input.value
 
         try:
             # 2. Validate Inputs using Helpers (Raises ValidationError on failure)
             num_extra_people = self._validate_extra_people(extra_people_str)
             self._validate_confirmations(behave_confirm_str, arrival_confirm_str)
             selected_drinks = self._validate_drinks(drink_choice_str, num_extra_people + 1)
+            extra_people_names = self._validate_extra_people_names(extra_names_str, num_extra_people)
 
             # 3. Calculate total people in this registration
             total_people_in_group = 1 + num_extra_people
@@ -449,6 +474,7 @@ class GatheringModal(ui.Modal):
                     event_name=self.event.event_name,
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
+                    extras_names=extra_people_names,
                 )
 
                 add_to_waitlist(self.event.event_name, new_entry)
@@ -479,6 +505,7 @@ class GatheringModal(ui.Modal):
                     event_name=self.event.event_name,
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
+                    extras_names=extra_people_names,
                 )
 
                 # Add to waitlist
@@ -498,6 +525,7 @@ class GatheringModal(ui.Modal):
                     event_name=self.event.event_name,
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
+                    extras_names=extra_people_names,
                 )
 
                 add_response(self.event.event_name, new_response)
