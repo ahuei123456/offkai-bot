@@ -6,6 +6,7 @@ import discord
 import pytest
 
 from offkai_bot.data import event as event_data
+from offkai_bot.data import ranking as ranking_data
 from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event
 
@@ -17,9 +18,11 @@ def mock_config(tmp_path_factory):  # Use tmp_path_factory (session-scoped)
     module_tmp_dir = tmp_path_factory.mktemp("data_module")
     events_file = module_tmp_dir / "test_events.json"
     responses_file = module_tmp_dir / "test_responses.json"
+    ranking_file = module_tmp_dir / "test_ranking.json"
     return {
         "EVENTS_FILE": str(events_file),
         "RESPONSES_FILE": str(responses_file),
+        "RANKING_FILE": str(ranking_file),
         # Add other necessary mock config values if needed by other modules
     }
 
@@ -30,10 +33,12 @@ def clear_caches():
     # Before test
     event_data.EVENT_DATA_CACHE = None
     response_data.RESPONSE_DATA_CACHE = None
+    ranking_data.RANKING_DATA_CACHE = None
     yield  # Test runs here
     # After test
     event_data.EVENT_DATA_CACHE = None
     response_data.RESPONSE_DATA_CACHE = None
+    ranking_data.RANKING_DATA_CACHE = None
 
 
 @pytest.fixture
@@ -42,6 +47,7 @@ def mock_paths(mock_config):
     return {
         "events": mock_config["EVENTS_FILE"],
         "responses": mock_config["RESPONSES_FILE"],
+        "ranking": mock_config["RANKING_FILE"],
     }
 
 
@@ -51,7 +57,8 @@ def mock_config_patch(mock_config):
     with (
         patch("offkai_bot.data.event.get_config", return_value=mock_config),
         patch("offkai_bot.data.response.get_config", return_value=mock_config),
-    ):  # Also patch for response if needed indirectly
+        patch("offkai_bot.data.ranking.get_config", return_value=mock_config),
+    ):
         yield
 
 

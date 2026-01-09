@@ -28,7 +28,7 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
             data = json.load(f, object_hook=lambda d: dict(**d))
 
         # --- Basic Validation (Optional but Recommended) ---
-        required_keys = ["DISCORD_TOKEN", "EVENTS_FILE", "RESPONSES_FILE", "GUILDS"]
+        required_keys = ["DISCORD_TOKEN", "EVENTS_FILE", "RESPONSES_FILE", "RANKING_FILE", "GUILDS"]
         for key in required_keys:
             if key not in data:
                 raise ConfigError(f"Missing required key '{key}' in {path}")
