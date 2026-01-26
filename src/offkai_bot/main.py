@@ -23,6 +23,7 @@ from .data.event import (
     set_event_open_status,
     update_event_details,
 )
+from .data.ranking import load_rankings
 from .data.response import calculate_attendance, calculate_drinks, load_responses, remove_response
 from .errors import (
     BotCommandError,
@@ -70,6 +71,7 @@ class OffkaiClient(discord.Client):
     async def setup_hook(self):
         load_event_data()
         load_responses()  # Loads both attendees and waitlist
+        load_rankings()
         _log.info("Initial data loaded into cache.")
 
         for guild_id in settings["GUILDS"]:

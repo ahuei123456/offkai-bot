@@ -659,51 +659,58 @@ async def test_modal_capacity_exceeded_message_content(event_with_capacity, mock
 @pytest.mark.asyncio
 async def test_capacity_reached_message_sent_when_filling_event(event_with_capacity, mock_interaction):
     """Test that capacity reached message is sent when a registration fills the event."""
-    # Start with empty event (capacity is 3)
-    # User joins with +1 (2 people total) - not at capacity yet
-    modal = GatheringModal(event=event_with_capacity)
-    modal.extra_people_input = MagicMock()
-    modal.extra_people_input.value = "1"  # +1 person (2 total)
-    modal.behave_checkbox_input = MagicMock()
-    modal.behave_checkbox_input.value = "Yes"
-    modal.arrival_checkbox_input = MagicMock()
-    modal.arrival_checkbox_input.value = "Yes"
-    modal.drink_choice_input = None
+    # Mock ranking functions to isolate this test from ranking behavior
+    with (
+        patch("offkai_bot.interactions.update_rank"),
+        patch("offkai_bot.interactions.get_rank", return_value=2),  # Non-milestone rank
+        patch("offkai_bot.interactions.can_rank_message_sent", return_value=False),
+        patch("offkai_bot.interactions.mark_achieved_rank"),
+    ):
+        # Start with empty event (capacity is 3)
+        # User joins with +1 (2 people total) - not at capacity yet
+        modal = GatheringModal(event=event_with_capacity)
+        modal.extra_people_input = MagicMock()
+        modal.extra_people_input.value = "1"  # +1 person (2 total)
+        modal.behave_checkbox_input = MagicMock()
+        modal.behave_checkbox_input.value = "Yes"
+        modal.arrival_checkbox_input = MagicMock()
+        modal.arrival_checkbox_input.value = "Yes"
+        modal.drink_choice_input = None
 
-    await modal.on_submit(mock_interaction)
+        await modal.on_submit(mock_interaction)
 
-    # Should have sent to channel (not at capacity yet, so no message)
-    assert not mock_interaction.channel.send.called
+        # Should have sent to channel (not at capacity yet, so no message)
+        assert not mock_interaction.channel.send.called
 
-    # Now another user joins with 0 extra (1 person) - this fills to capacity
-    mock_interaction2 = MagicMock(spec=discord.Interaction)
-    mock_interaction2.user = MagicMock(spec=discord.Member)
-    mock_interaction2.user.id = 456  # Different user
-    mock_interaction2.user.name = "TestUser2"
-    mock_interaction2.channel = MagicMock(spec=discord.Thread)
-    mock_interaction2.channel.id = 456
-    mock_interaction2.channel.send = AsyncMock()
-    mock_interaction2.channel.add_user = AsyncMock()
-    mock_interaction2.response = MagicMock()
-    mock_interaction2.response.send_message = AsyncMock()
-    mock_interaction2.user.send = AsyncMock()
+        # Now another user joins with 0 extra (1 person) - this fills to capacity
+        mock_interaction2 = MagicMock(spec=discord.Interaction)
+        mock_interaction2.user = MagicMock(spec=discord.Member)
+        mock_interaction2.user.id = 456  # Different user
+        mock_interaction2.user.name = "TestUser2"
+        mock_interaction2.channel = MagicMock(spec=discord.Thread)
+        mock_interaction2.channel.id = 456
+        mock_interaction2.channel.send = AsyncMock()
+        mock_interaction2.channel.add_user = AsyncMock()
+        mock_interaction2.response = MagicMock()
+        mock_interaction2.response.send_message = AsyncMock()
+        mock_interaction2.user.send = AsyncMock()
 
-    modal2 = GatheringModal(event=event_with_capacity)
-    modal2.extra_people_input = MagicMock()
-    modal2.extra_people_input.value = "0"  # 0 extra (1 total, bringing total to 3)
-    modal2.behave_checkbox_input = MagicMock()
-    modal2.behave_checkbox_input.value = "Yes"
-    modal2.arrival_checkbox_input = MagicMock()
-    modal2.arrival_checkbox_input.value = "Yes"
-    modal2.drink_choice_input = None
+        modal2 = GatheringModal(event=event_with_capacity)
+        modal2.extra_people_input = MagicMock()
+        modal2.extra_people_input.value = "0"  # 0 extra (1 total, bringing total to 3)
+        modal2.behave_checkbox_input = MagicMock()
+        modal2.behave_checkbox_input.value = "Yes"
+        modal2.arrival_checkbox_input = MagicMock()
+        modal2.arrival_checkbox_input.value = "Yes"
+        modal2.drink_choice_input = None
 
-    await modal2.on_submit(mock_interaction2)
+        await modal2.on_submit(mock_interaction2)
 
-    # Now we should have sent the capacity reached message
-    assert mock_interaction2.channel.send.called
-    message = mock_interaction2.channel.send.call_args[0][0]
-    assert "Maximum capacity has been reached" in message
-    assert "waitlist" in message.lower()
+        # Now we should have sent the capacity reached message
+        assert mock_interaction2.channel.send.called
+        message = mock_interaction2.channel.send.call_args[0][0]
+        assert "Maximum capacity has been reached" in message
+        assert "waitlist" in message.lower()
 
 
 @pytest.mark.asyncio
