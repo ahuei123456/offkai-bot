@@ -10,6 +10,7 @@ from offkai_bot.errors import (
     ResponseNotFoundError,
 )
 
+from .messages import MILESTONE_MESSAGES
 from .data.event import Event
 from .data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from .data.response import (
@@ -332,34 +333,11 @@ class GatheringModal(ui.Modal):
             )
             if isinstance(interaction.channel, discord.abc.Messageable):
                 update_rank(interaction.user.name)
-                match [get_rank(interaction.user.name), can_rank_message_sent(interaction.user.name)]:
-                    case [1, True]:
-                        first_time_messages = [
-                            f"🏆 <@{interaction.user.id}> First offkai 🎉 I hope they have insurance for their liver.",
-                            f"🏆 <@{interaction.user.id}> is attending their first offkai! 🥳 Welcome to the deep end.",
-                            f"🏆 <@{interaction.user.id}> just signed up for their first offkai! 🍻 May your glass always be full.",
-                            f"🏆 A new challenger appears! <@{interaction.user.id}> is joining their first offkai! 🎊",
-                        ]
-                        await interaction.channel.send(random.choice(first_time_messages))
-                        mark_achieved_rank(interaction.user.name)
-                    case [5, True]:
-                        fifth_time_messages = [
-                            f"🏆 <@{interaction.user.id}> 5th offkai 🎉 Probably their pronouns are karaage/oobaka",
-                            f"🏆 <@{interaction.user.id}> is on their 5th offkai! 🍻 At this point, it's a lifestyle.",
-                            f"🏆 5 offkais for <@{interaction.user.id}>! 🥳 They've officially lost control of their life.",
-                            f"🏆 <@{interaction.user.id}> reached 5 offkais! 🎊 Still standing (mostly).",
-                        ]
-                        await interaction.channel.send(random.choice(fifth_time_messages))
-                        mark_achieved_rank(interaction.user.name)
-                    case [10, True]:
-                        tenth_time_messages = [
-                            f"🏆 <@{interaction.user.id}> 10th offkai 🎉 We should start charging you rent at this point.",
-                            f"🏆 10 offkais! <@{interaction.user.id}> is now a permanent fixture of the venue. 🍻",
-                            f"🏆 <@{interaction.user.id}> reached the double digits! 🥳 10 offkais and still going strong.",
-                            f"🏆 <@{interaction.user.id}> hit 10 offkais! 🎊 Legend says they haven't been home since the first one.",
-                        ]
-                        await interaction.channel.send(random.choice(tenth_time_messages))
-                        mark_achieved_rank(interaction.user.name)
+                rank = get_rank(interaction.user.name)
+                if rank in MILESTONE_MESSAGES and can_rank_message_sent(interaction.user.name):
+                    msg_template = random.choice(MILESTONE_MESSAGES[rank])
+                    await interaction.channel.send(msg_template.format(user_id=interaction.user.id))
+                    mark_achieved_rank(interaction.user.name)
 
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
