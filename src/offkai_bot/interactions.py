@@ -1,4 +1,5 @@
 import logging
+import random
 from datetime import UTC, datetime
 
 import discord
@@ -9,6 +10,7 @@ from offkai_bot.errors import (
     ResponseNotFoundError,
 )
 
+from .messages import MILESTONE_MESSAGES
 from .data.event import Event
 from .data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from .data.response import (
@@ -331,24 +333,11 @@ class GatheringModal(ui.Modal):
             )
             if isinstance(interaction.channel, discord.abc.Messageable):
                 update_rank(interaction.user.name)
-                match [get_rank(interaction.user.name), can_rank_message_sent(interaction.user.name)]:
-                    case [1, True]:
-                        await interaction.channel.send(
-                            f"🏆 <@{interaction.user.id}> First offkai 🎉 I hope they have insurance for their liver."
-                        )
-                        mark_achieved_rank(interaction.user.name)
-                    case [5, True]:
-                        await interaction.channel.send(
-                            f"🏆 <@{interaction.user.id}> 5th offkai 🎉 Probably their pronouns are karaage/oobaka"
-                        )
-                        mark_achieved_rank(interaction.user.name)
-                    case [10, True]:
-                        msg = (
-                            f"🏆 <@{interaction.user.id}> 10th offkai 🎉 "
-                            "We should start charging you rent at this point."
-                        )
-                        await interaction.channel.send(msg)
-                        mark_achieved_rank(interaction.user.name)
+                rank = get_rank(interaction.user.name)
+                if rank in MILESTONE_MESSAGES and can_rank_message_sent(interaction.user.name):
+                    msg_template = random.choice(MILESTONE_MESSAGES[rank])
+                    await interaction.channel.send(msg_template.format(user_id=interaction.user.id))
+                    mark_achieved_rank(interaction.user.name)
 
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
