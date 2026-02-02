@@ -245,7 +245,7 @@ class PinPermissionError(BotCommandError):
 
     log_level = logging.WARNING
 
-    def __init__(self, channel: Thread, original_exception: Forbidden):
+    def __init__(self, channel, original_exception: Forbidden):
         self.channel = channel
         self.original_exception = original_exception
         super().__init__(

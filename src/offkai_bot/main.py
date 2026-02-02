@@ -224,6 +224,16 @@ async def create_offkai(
     announce_text += f"Join the discussion and RSVP here: {thread.mention}"
     await interaction.response.send_message(announce_text)
 
+    message = await interaction.original_response()
+    try:
+        await message.pin()
+    except discord.Forbidden as e:
+        if message:
+            _log.warning("Failed to pin message: Missing 'Pins' permission.")
+            raise PinPermissionError(message.channel, e) from e
+    except discord.HTTPException as e:
+        _log.error(f"Failed to pin message due to HTTP error: {e}")
+
 
 @client.tree.command(
     name="modify_offkai",
