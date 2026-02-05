@@ -204,6 +204,9 @@ uv run pytest --cov=offkai_bot
 ### Code Quality Checks
 
 ```bash
+# Run all pre-commit hooks (via prek)
+uv run prek run --all-files
+
 # Format code
 uvx ruff format .
 
@@ -341,12 +344,14 @@ cd offkai-bot
 # Install development dependencies
 uv sync
 
+# Install git hooks (using prek)
+uv run prek install
+
 # Run tests in watch mode
 uv run pytest-watch
 
 # Check code quality
-uvx ruff check .
-uvx mypy src/
+uv run prek run --all-files
 ```
 
 ### Areas for Contribution
