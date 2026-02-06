@@ -10,7 +10,6 @@ from offkai_bot.errors import (
     ResponseNotFoundError,
 )
 
-from .messages import MILESTONE_MESSAGES
 from .data.event import Event
 from .data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from .data.response import (
@@ -24,6 +23,7 @@ from .data.response import (
     remove_from_waitlist,
     remove_response,
 )
+from .messages import MILESTONE_MESSAGES
 
 _log = logging.getLogger(__name__)
 
