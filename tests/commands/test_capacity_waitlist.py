@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-
+from discord.ext import commands
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event
 from offkai_bot.data.response import Response, WaitlistEntry, add_response, add_to_waitlist, get_responses, get_waitlist
@@ -18,6 +19,13 @@ from offkai_bot.interactions import (
 )
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture(autouse=True)
@@ -223,7 +231,7 @@ def test_is_event_at_capacity_over_full(event_with_capacity):
 @patch("offkai_bot.interactions.add_to_waitlist")
 @patch("offkai_bot.interactions.add_response")
 async def test_modal_adds_to_responses_when_not_at_capacity(
-    mock_add_response, mock_add_to_waitlist, event_with_capacity, mock_interaction
+    mock_add_response, mock_add_to_waitlist, event_with_capacity, mock_interaction, mock_cog
 ):
     """Test that modal adds to responses when event is not at capacity."""
     modal = GatheringModal(event=event_with_capacity)
@@ -246,7 +254,7 @@ async def test_modal_adds_to_responses_when_not_at_capacity(
 @patch("offkai_bot.interactions.add_to_waitlist")
 @patch("offkai_bot.interactions.add_response")
 async def test_modal_adds_to_waitlist_when_at_capacity(
-    mock_add_response, mock_add_to_waitlist, event_with_capacity, mock_interaction
+    mock_add_response, mock_add_to_waitlist, event_with_capacity, mock_interaction, mock_cog
 ):
     """Test that modal adds to waitlist when event is at capacity."""
     # Fill the event to capacity
@@ -284,7 +292,7 @@ async def test_modal_adds_to_waitlist_when_at_capacity(
 @patch("offkai_bot.interactions.add_to_waitlist")
 @patch("offkai_bot.interactions.add_response")
 async def test_modal_adds_to_waitlist_when_past_deadline(
-    mock_add_response, mock_add_to_waitlist, event_past_deadline, mock_interaction
+    mock_add_response, mock_add_to_waitlist, event_past_deadline, mock_interaction, mock_cog
 ):
     """Test that modal adds to waitlist when deadline has passed."""
     modal = GatheringModal(event=event_past_deadline)
@@ -371,7 +379,7 @@ def test_promote_from_empty_waitlist(event_with_capacity):
 
 
 @pytest.mark.asyncio
-async def test_withdraw_promotes_from_waitlist(event_with_capacity, mock_interaction):
+async def test_withdraw_promotes_from_waitlist(event_with_capacity, mock_interaction, mock_cog):
     """Test that withdrawing promotes someone from the waitlist."""
     from offkai_bot.data.response import add_to_waitlist
     from offkai_bot.interactions import OpenEvent
@@ -427,7 +435,7 @@ async def test_withdraw_promotes_from_waitlist(event_with_capacity, mock_interac
 
 
 @pytest.mark.asyncio
-async def test_withdraw_no_promotion_when_waitlist_empty(event_with_capacity, mock_interaction):
+async def test_withdraw_no_promotion_when_waitlist_empty(event_with_capacity, mock_interaction, mock_cog):
     """Test that withdrawing works normally when waitlist is empty."""
     from offkai_bot.interactions import OpenEvent
 
@@ -567,7 +575,7 @@ def test_get_remaining_capacity_full(event_with_capacity):
 
 
 @pytest.mark.asyncio
-async def test_modal_adds_to_waitlist_when_group_exceeds_capacity(event_with_capacity, mock_interaction):
+async def test_modal_adds_to_waitlist_when_group_exceeds_capacity(event_with_capacity, mock_interaction, mock_cog):
     """Test that modal adds to waitlist when registration would exceed capacity."""
     # Fill to 1 spot remaining (2/3)
     add_response(
@@ -607,7 +615,7 @@ async def test_modal_adds_to_waitlist_when_group_exceeds_capacity(event_with_cap
 
 
 @pytest.mark.asyncio
-async def test_modal_capacity_exceeded_message_content(event_with_capacity, mock_interaction):
+async def test_modal_capacity_exceeded_message_content(event_with_capacity, mock_interaction, mock_cog):
     """Test that the capacity exceeded message has the correct content."""
     # Fill to 1 spot remaining (2/3)
     add_response(
@@ -657,7 +665,7 @@ async def test_modal_capacity_exceeded_message_content(event_with_capacity, mock
 
 
 @pytest.mark.asyncio
-async def test_capacity_reached_message_sent_when_filling_event(event_with_capacity, mock_interaction):
+async def test_capacity_reached_message_sent_when_filling_event(event_with_capacity, mock_interaction, mock_cog):
     """Test that capacity reached message is sent when a registration fills the event."""
     # Mock ranking functions to isolate this test from ranking behavior
     with (
@@ -714,7 +722,7 @@ async def test_capacity_reached_message_sent_when_filling_event(event_with_capac
 
 
 @pytest.mark.asyncio
-async def test_closed_event_adds_to_waitlist(event_with_capacity, mock_interaction):
+async def test_closed_event_adds_to_waitlist(event_with_capacity, mock_interaction, mock_cog):
     """Test that joining a closed event adds user to waitlist."""
     # Close the event
     event_with_capacity.open = False
@@ -1188,7 +1196,7 @@ async def test_withdrawal_from_post_deadline_event_promotes_from_waitlist():
 
 
 @pytest.mark.asyncio
-async def test_withdraw_from_waitlist_when_capacity_exceeded(event_with_capacity, mock_interaction):
+async def test_withdraw_from_waitlist_when_capacity_exceeded(event_with_capacity, mock_interaction, mock_cog):
     """Test that user can withdraw from waitlist when added due to capacity exceeded."""
     from offkai_bot.interactions import OpenEvent
 
@@ -1243,7 +1251,7 @@ async def test_withdraw_from_waitlist_when_capacity_exceeded(event_with_capacity
 
 
 @pytest.mark.asyncio
-async def test_withdraw_from_waitlist_does_not_promote_others(event_with_capacity, mock_interaction):
+async def test_withdraw_from_waitlist_does_not_promote_others(event_with_capacity, mock_interaction, mock_cog):
     """Test that withdrawing from waitlist doesn't promote others (no capacity freed)."""
     from offkai_bot.interactions import OpenEvent
 
@@ -1314,7 +1322,7 @@ async def test_withdraw_from_waitlist_does_not_promote_others(event_with_capacit
 
 
 @pytest.mark.asyncio
-async def test_withdraw_fails_when_user_not_registered(event_with_capacity, mock_interaction):
+async def test_withdraw_fails_when_user_not_registered(event_with_capacity, mock_interaction, mock_cog):
     """Test that withdrawal fails with proper error when user not registered."""
     from offkai_bot.interactions import OpenEvent
 

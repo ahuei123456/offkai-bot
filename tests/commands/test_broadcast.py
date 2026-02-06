@@ -5,9 +5,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.errors import (
     BroadcastPermissionError,
     BroadcastSendError,
@@ -21,6 +22,13 @@ from offkai_bot.errors import (
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -53,9 +61,9 @@ def mock_interaction():
 # --- Test Cases ---
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_success(
     mock_log,
     mock_get_event,
@@ -63,6 +71,7 @@ async def test_broadcast_success(
     mock_interaction,
     mock_thread,  # From conftest.py
     prepopulated_event_cache,  # Use fixture to ensure cache is populated
+    mock_cog,
 ):
     """Test the successful path of broadcast."""
     # Arrange
@@ -78,7 +87,8 @@ async def test_broadcast_success(
     mock_thread.mention = f"<#{mock_thread.id}>"
 
     # Act
-    await main.broadcast.callback(
+    await EventsCog.broadcast.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_broadcast,
         message=broadcast_message,
@@ -100,15 +110,16 @@ async def test_broadcast_success(
     mock_log.error.assert_not_called()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_event_not_found(
     mock_log,
     mock_get_event,
     mock_fetch_thread,  # Added mock
     mock_interaction,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test broadcast when the event is not found."""
     # Arrange
@@ -118,7 +129,8 @@ async def test_broadcast_event_not_found(
 
     # Act & Assert
     with pytest.raises(EventNotFoundError):
-        await main.broadcast.callback(
+        await EventsCog.broadcast.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             message=broadcast_message,
@@ -131,15 +143,16 @@ async def test_broadcast_event_not_found(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_missing_channel_id(
     mock_log,
     mock_get_event,
     mock_fetch_thread,  # Added mock
     mock_interaction,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test broadcast when fetch_thread_for_event raises MissingChannelIDError."""
     # Arrange
@@ -153,7 +166,8 @@ async def test_broadcast_missing_channel_id(
 
     # Act & Assert
     with pytest.raises(MissingChannelIDError) as exc_info:
-        await main.broadcast.callback(
+        await EventsCog.broadcast.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             message=broadcast_message,
@@ -167,15 +181,16 @@ async def test_broadcast_missing_channel_id(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_thread_not_found_error(  # Renamed test slightly
     mock_log,
     mock_get_event,
     mock_fetch_thread,  # Added mock
     mock_interaction,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test broadcast when fetch_thread_for_event raises ThreadNotFoundError."""
     # Arrange
@@ -188,7 +203,8 @@ async def test_broadcast_thread_not_found_error(  # Renamed test slightly
 
     # Act & Assert
     with pytest.raises(ThreadNotFoundError) as exc_info:
-        await main.broadcast.callback(
+        await EventsCog.broadcast.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             message=broadcast_message,
@@ -203,15 +219,16 @@ async def test_broadcast_thread_not_found_error(  # Renamed test slightly
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_thread_access_error(  # New test for access error
     mock_log,
     mock_get_event,
     mock_fetch_thread,  # Added mock
     mock_interaction,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test broadcast when fetch_thread_for_event raises ThreadAccessError."""
     # Arrange
@@ -225,7 +242,8 @@ async def test_broadcast_thread_access_error(  # New test for access error
 
     # Act & Assert
     with pytest.raises(ThreadAccessError) as exc_info:
-        await main.broadcast.callback(
+        await EventsCog.broadcast.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             message=broadcast_message,
@@ -241,9 +259,9 @@ async def test_broadcast_thread_access_error(  # New test for access error
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_send_permission_error(
     mock_log,
     mock_get_event,
@@ -251,6 +269,7 @@ async def test_broadcast_send_permission_error(
     mock_interaction,
     mock_thread,  # Need thread mock
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test broadcast when thread.send raises discord.Forbidden."""
     # Arrange
@@ -266,7 +285,8 @@ async def test_broadcast_send_permission_error(
 
     # Act & Assert
     with pytest.raises(BroadcastPermissionError) as exc_info:
-        await main.broadcast.callback(
+        await EventsCog.broadcast.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             message=broadcast_message,
@@ -283,9 +303,9 @@ async def test_broadcast_send_permission_error(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_broadcast_send_http_error(
     mock_log,
     mock_get_event,
@@ -293,6 +313,7 @@ async def test_broadcast_send_http_error(
     mock_interaction,
     mock_thread,  # Need thread mock
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test broadcast when thread.send raises discord.HTTPException."""
     # Arrange
@@ -308,7 +329,8 @@ async def test_broadcast_send_http_error(
 
     # Act & Assert
     with pytest.raises(BroadcastSendError) as exc_info:
-        await main.broadcast.callback(
+        await EventsCog.broadcast.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             message=broadcast_message,

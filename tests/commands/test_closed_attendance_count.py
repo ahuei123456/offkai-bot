@@ -4,12 +4,20 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
+from discord.ext import commands
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data import event as event_data
 from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event, set_event_open_status
 from offkai_bot.data.response import Response, WaitlistEntry, add_response, add_to_waitlist, get_responses, get_waitlist
 from offkai_bot.interactions import ClosedEvent, get_current_attendance_count
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture(autouse=True)

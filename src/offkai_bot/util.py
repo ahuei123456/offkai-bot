@@ -1,4 +1,5 @@
 # src/offkai_bot/util.py
+import functools
 import logging
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -6,7 +7,7 @@ from zoneinfo import ZoneInfo
 import discord
 
 # Use relative imports for sibling modules within the package
-from .errors import (
+from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
     EventDeadlineInPastError,
@@ -101,3 +102,20 @@ def validate_event_deadline(event_datetime: datetime, event_deadline: datetime |
     _log.debug(
         f"Validation success: Deadline {event_deadline} is in the future and before event time {event_datetime}."
     )
+
+
+def log_command_usage(func):
+    """
+    Decorator to log command usage.
+    Logs the user, command name, and arguments.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
+        user = interaction.user
+        command_name = interaction.command.name if interaction.command else func.__name__
+        _log.info(f"User '{user}' (ID: {user.id}) invoked command '{command_name}' in channel '{interaction.channel}'")
+        _log.debug(f"Arguments: args={args}, kwargs={kwargs}")
+        return await func(self, interaction, *args, **kwargs)
+
+    return wrapper

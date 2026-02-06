@@ -5,9 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.errors import (
     EventNotFoundError,
     NoResponsesFoundError,
@@ -17,6 +18,13 @@ from offkai_bot.errors import (
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -55,9 +63,9 @@ def mock_event_obj(sample_event_list):
 # --- Test Cases ---
 
 
-@patch("offkai_bot.main.calculate_attendance")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_attendance_success(
     mock_log,
     mock_get_event,
@@ -65,6 +73,7 @@ async def test_attendance_success(
     mock_interaction,
     mock_event_obj,  # From this file
     prepopulated_event_cache,  # Use fixture to ensure cache is populated
+    mock_cog,
 ):
     """Test the successful path of attendance."""
     # Arrange
@@ -77,7 +86,8 @@ async def test_attendance_success(
     mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list)
 
     # Act
-    await main.attendance.callback(
+    await EventsCog.attendance.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_target,
     )
@@ -102,9 +112,9 @@ async def test_attendance_success(
     mock_log.warning.assert_not_called()
 
 
-@patch("offkai_bot.main.calculate_attendance")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_attendance_sort_success(
     mock_log,
     mock_get_event,
@@ -112,6 +122,7 @@ async def test_attendance_sort_success(
     mock_interaction,
     mock_event_obj,  # From this file
     prepopulated_event_cache,  # Use fixture to ensure cache is populated
+    mock_cog,
 ):
     """Test the successful path of attendance."""
     # Arrange
@@ -124,7 +135,8 @@ async def test_attendance_sort_success(
     mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list)
 
     # Act
-    await main.attendance.callback(
+    await EventsCog.attendance.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_target,
         sort=True,
@@ -150,11 +162,17 @@ async def test_attendance_sort_success(
     mock_log.warning.assert_not_called()
 
 
-@patch("offkai_bot.main.calculate_attendance")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_attendance_success_truncation(
-    mock_log, mock_get_event, mock_calculate_attendance, mock_interaction, mock_event_obj, prepopulated_event_cache
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
 ):
     """Test attendance output truncation when the list is very long."""
     # Arrange
@@ -177,7 +195,8 @@ async def test_attendance_success_truncation(
     expected_truncated_output = full_output[:1900] + "\n... (list truncated)"
 
     # Act
-    await main.attendance.callback(
+    await EventsCog.attendance.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_target,
     )
@@ -188,15 +207,16 @@ async def test_attendance_success_truncation(
     mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
-@patch("offkai_bot.main.calculate_attendance")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_attendance_event_not_found(
     mock_log,
     mock_get_event,
     mock_calculate_attendance,
     mock_interaction,
     prepopulated_event_cache,  # Still useful for setup/teardown
+    mock_cog,
 ):
     """Test attendance when the initial get_event fails."""
     # Arrange
@@ -205,7 +225,8 @@ async def test_attendance_event_not_found(
 
     # Act & Assert
     with pytest.raises(EventNotFoundError):
-        await main.attendance.callback(
+        await EventsCog.attendance.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name_target,
         )
@@ -216,11 +237,17 @@ async def test_attendance_event_not_found(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.calculate_attendance")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_attendance_no_responses_found(
-    mock_log, mock_get_event, mock_calculate_attendance, mock_interaction, mock_event_obj, prepopulated_event_cache
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
 ):
     """Test attendance when calculate_attendance raises NoResponsesFoundError."""
     # Arrange
@@ -230,7 +257,8 @@ async def test_attendance_no_responses_found(
 
     # Act & Assert
     with pytest.raises(NoResponsesFoundError):
-        await main.attendance.callback(
+        await EventsCog.attendance.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name_target,
         )

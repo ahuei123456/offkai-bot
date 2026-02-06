@@ -6,9 +6,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data.event import Event  # To create return value
 from offkai_bot.errors import (
     EventAlreadyOpenError,
@@ -23,6 +24,13 @@ from offkai_bot.errors import (
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -69,11 +77,11 @@ def mock_reopened_event(sample_event_list):
 
 
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_success_with_message(
     mock_log,
     mock_set_status,
@@ -84,6 +92,7 @@ async def test_reopen_offkai_success_with_message(
     mock_thread,  # From conftest.py
     mock_reopened_event,  # From this file
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test the successful path of reopen_offkai with a reopening message."""
@@ -99,7 +108,8 @@ async def test_reopen_offkai_success_with_message(
     mock_thread.mention = f"<#{mock_thread.id}>"
 
     # Act
-    await main.reopen_offkai.callback(
+    await EventsCog.reopen_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_reopen,
         reopen_msg=reopen_text,
@@ -121,11 +131,11 @@ async def test_reopen_offkai_success_with_message(
 
 
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_success_no_message(
     mock_log,
     mock_set_status,
@@ -136,6 +146,7 @@ async def test_reopen_offkai_success_no_message(
     mock_thread,
     mock_reopened_event,
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test the successful path of reopen_offkai without a reopening message."""
@@ -144,7 +155,8 @@ async def test_reopen_offkai_success_no_message(
     mock_set_status.return_value = mock_reopened_event
 
     # Act
-    await main.reopen_offkai.callback(
+    await EventsCog.reopen_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_reopen,
         reopen_msg=None,  # Explicitly None
@@ -174,11 +186,11 @@ async def test_reopen_offkai_success_no_message(
     ],
 )
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_data_layer_errors(
     mock_log,
     mock_set_status,
@@ -189,6 +201,7 @@ async def test_reopen_offkai_data_layer_errors(
     error_type,
     error_args,
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test handling of errors raised by set_event_open_status when reopening."""
@@ -198,7 +211,8 @@ async def test_reopen_offkai_data_layer_errors(
 
     # Act & Assert
     with pytest.raises(error_type):
-        await main.reopen_offkai.callback(
+        await EventsCog.reopen_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             reopen_msg="Attempting to reopen",
@@ -212,11 +226,11 @@ async def test_reopen_offkai_data_layer_errors(
 
 
 # --- UPDATED TEST ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_log,
     mock_set_status,
@@ -226,6 +240,7 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_interaction,
     mock_reopened_event,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test reopen_offkai when fetch_thread_for_event raises ThreadNotFoundError."""
     # Arrange
@@ -236,7 +251,8 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_fetch_thread.side_effect = ThreadNotFoundError(event_name_to_reopen, mock_reopened_event.channel_id)
 
     # Act
-    await main.reopen_offkai.callback(
+    await EventsCog.reopen_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_reopen,
         reopen_msg=reopen_text,
@@ -265,11 +281,11 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
 
 
 # --- NEW TEST ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_fetch_thread_missing_id_error(
     mock_log,
     mock_set_status,
@@ -279,6 +295,7 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
     mock_interaction,
     mock_reopened_event,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test reopen_offkai when fetch_thread_for_event raises MissingChannelIDError."""
     # Arrange
@@ -288,7 +305,8 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
     mock_fetch_thread.side_effect = MissingChannelIDError(event_name_to_reopen)
 
     # Act
-    await main.reopen_offkai.callback(
+    await EventsCog.reopen_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_reopen,
         reopen_msg=reopen_text,
@@ -315,11 +333,11 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
 
 
 # --- NEW TEST ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_fetch_thread_access_error(
     mock_log,
     mock_set_status,
@@ -329,6 +347,7 @@ async def test_reopen_offkai_fetch_thread_access_error(
     mock_interaction,
     mock_reopened_event,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test reopen_offkai when fetch_thread_for_event raises ThreadAccessError."""
     # Arrange
@@ -338,7 +357,8 @@ async def test_reopen_offkai_fetch_thread_access_error(
     mock_fetch_thread.side_effect = ThreadAccessError(event_name_to_reopen, mock_reopened_event.channel_id)
 
     # Act
-    await main.reopen_offkai.callback(
+    await EventsCog.reopen_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_reopen,
         reopen_msg=reopen_text,
@@ -365,11 +385,11 @@ async def test_reopen_offkai_fetch_thread_access_error(
 
 
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.set_event_open_status")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.set_event_open_status")
+@patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_send_reopen_msg_fails(
     mock_log,
     mock_set_status,
@@ -380,6 +400,7 @@ async def test_reopen_offkai_send_reopen_msg_fails(
     mock_thread,  # Need the thread mock here
     mock_reopened_event,
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test reopen_offkai when sending the reopening message fails."""
@@ -394,7 +415,8 @@ async def test_reopen_offkai_send_reopen_msg_fails(
     mock_thread.send.side_effect = send_error
 
     # Act
-    await main.reopen_offkai.callback(
+    await EventsCog.reopen_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_reopen,
         reopen_msg=reopen_text,

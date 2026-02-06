@@ -6,9 +6,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data.event import Event  # To create return value
 from offkai_bot.errors import (
     EventAlreadyArchivedError,
@@ -22,6 +23,13 @@ from offkai_bot.errors import (
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -70,11 +78,11 @@ def mock_archived_event_obj(sample_event_list):
 
 
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_success(
     mock_log,
     mock_archive_event_func,
@@ -85,6 +93,7 @@ async def test_archive_offkai_success(
     mock_thread,  # From conftest.py
     mock_archived_event_obj,  # From this file
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test the successful path of archive_offkai."""
@@ -100,7 +109,8 @@ async def test_archive_offkai_success(
     mock_thread.archived = False  # Ensure thread starts not archived
 
     # Act
-    await main.archive_offkai.callback(
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_archive,
     )
@@ -129,11 +139,11 @@ async def test_archive_offkai_success(
     ],
 )
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_data_layer_errors(
     mock_log,
     mock_archive_event_func,
@@ -144,6 +154,7 @@ async def test_archive_offkai_data_layer_errors(
     error_type,
     error_args,
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test handling of errors raised by archive_event data layer function."""
@@ -153,7 +164,8 @@ async def test_archive_offkai_data_layer_errors(
 
     # Act & Assert
     with pytest.raises(error_type):
-        await main.archive_offkai.callback(
+        await EventsCog.archive_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
         )
@@ -166,11 +178,11 @@ async def test_archive_offkai_data_layer_errors(
 
 
 # --- UPDATED TEST ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_log,
     mock_archive_event_func,
@@ -180,6 +192,7 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_interaction,
     mock_archived_event_obj,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test archive_offkai when fetch_thread_for_event raises ThreadNotFoundError."""
     # Arrange
@@ -189,7 +202,8 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_fetch_thread.side_effect = ThreadNotFoundError(event_name_to_archive, mock_archived_event_obj.channel_id)
 
     # Act
-    await main.archive_offkai.callback(
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_archive,
     )
@@ -217,11 +231,11 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
 
 
 # --- NEW TEST ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_fetch_thread_missing_id_error(
     mock_log,
     mock_archive_event_func,
@@ -231,6 +245,7 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
     mock_interaction,
     mock_archived_event_obj,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test archive_offkai when fetch_thread_for_event raises MissingChannelIDError."""
     # Arrange
@@ -239,7 +254,8 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
     mock_fetch_thread.side_effect = MissingChannelIDError(event_name_to_archive)
 
     # Act
-    await main.archive_offkai.callback(
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_archive,
     )
@@ -265,11 +281,11 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
 
 
 # --- NEW TEST ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_fetch_thread_access_error(
     mock_log,
     mock_archive_event_func,
@@ -279,6 +295,7 @@ async def test_archive_offkai_fetch_thread_access_error(
     mock_interaction,
     mock_archived_event_obj,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test archive_offkai when fetch_thread_for_event raises ThreadAccessError."""
     # Arrange
@@ -287,7 +304,8 @@ async def test_archive_offkai_fetch_thread_access_error(
     mock_fetch_thread.side_effect = ThreadAccessError(event_name_to_archive, mock_archived_event_obj.channel_id)
 
     # Act
-    await main.archive_offkai.callback(
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_archive,
     )
@@ -313,11 +331,11 @@ async def test_archive_offkai_fetch_thread_access_error(
 
 
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_thread_already_archived(
     mock_log,
     mock_archive_event_func,
@@ -328,6 +346,7 @@ async def test_archive_offkai_thread_already_archived(
     mock_thread,  # Need thread mock
     mock_archived_event_obj,
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test archive_offkai when the Discord thread is already archived."""
@@ -339,7 +358,8 @@ async def test_archive_offkai_thread_already_archived(
     mock_thread.archived = True  # Simulate thread already archived
 
     # Act
-    await main.archive_offkai.callback(
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_archive,
     )
@@ -362,11 +382,11 @@ async def test_archive_offkai_thread_already_archived(
 
 
 # --- UPDATED PATCHES ---
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.archive_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_thread_edit_fails(
     mock_log,
     mock_archive_event_func,
@@ -377,6 +397,7 @@ async def test_archive_offkai_thread_edit_fails(
     mock_thread,  # Need the thread mock here
     mock_archived_event_obj,
     prepopulated_event_cache,
+    mock_cog,
 ):
     # --- END UPDATED PATCHES ---
     """Test archive_offkai when editing the thread fails."""
@@ -391,7 +412,8 @@ async def test_archive_offkai_thread_edit_fails(
     mock_thread.edit.side_effect = edit_error
 
     # Act
-    await main.archive_offkai.callback(
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_archive,
     )
