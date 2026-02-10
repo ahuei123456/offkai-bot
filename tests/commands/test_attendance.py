@@ -96,7 +96,7 @@ async def test_attendance_success(
     # 1. Check get_event call
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check calculate_attendance call
-    mock_calculate_attendance.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
     # 3. Check final interaction response with correct formatting
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
@@ -146,7 +146,7 @@ async def test_attendance_sort_success(
     # 1. Check get_event call
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check calculate_attendance call
-    mock_calculate_attendance.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
     # 3. Check final interaction response with correct formatting
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
@@ -203,7 +203,7 @@ async def test_attendance_success_truncation(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
     mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
@@ -265,7 +265,41 @@ async def test_attendance_no_responses_found(
 
     # Assert calls up to calculate_attendance
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
 
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
+
+
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_attendance_with_nicknames(
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that nicknames=True is passed through to calculate_attendance."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_calculate_attendance.return_value = (2, ["foo (goo)", "bar"])
+
+    # Act
+    await EventsCog.attendance.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+        nicknames=True,
+    )
+
+    # Assert
+    mock_get_event.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=True)
+
+    expected_output = f"**Attendance for {event_name_target}**\n\nTotal Attendees: **2**\n\n1. foo (goo)\n2. bar"
+    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
