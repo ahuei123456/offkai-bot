@@ -5,9 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the main module to access the command and client
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 
 # Import specific errors that perform_close_event might raise
 from offkai_bot.errors import EventNotFoundError
@@ -16,6 +17,13 @@ from offkai_bot.errors import EventNotFoundError
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -36,19 +44,18 @@ def mock_interaction():
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
 
-    # Mock the client instance attached to main
-    # We need this because the command callback uses main.client
-    with patch("offkai_bot.main.client", new_callable=MagicMock) as mock_client:
-        interaction.client = mock_client  # Assign mock client to interaction
-        yield interaction  # Yield the interaction with the mocked client
+    # Simple mock client if needed, but not used for patching global state
+    interaction.client = MagicMock(spec=discord.Client)
+
+    return interaction
 
 
 # --- Test Cases ---
 
 
 # Patch the function that the command now calls
-@patch("offkai_bot.main.perform_close_event", new_callable=AsyncMock)
-async def test_close_offkai_command_success_with_message(mock_perform_close, mock_interaction):
+@patch("offkai_bot.cogs.events.perform_close_event", new_callable=AsyncMock)
+async def test_close_offkai_command_success_with_message(mock_perform_close, mock_interaction, mock_cog):
     """Test the close_offkai command successfully calls perform_close_event and responds."""
     # Arrange
     event_name_to_close = "Summer Bash"
@@ -56,16 +63,17 @@ async def test_close_offkai_command_success_with_message(mock_perform_close, moc
     # No need to mock return value unless subsequent code uses it
 
     # Act
-    await main.close_offkai.callback(
+    await EventsCog.close_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_close,
         close_msg=close_text,
     )
 
     # Assert
-    # 1. Check that perform_close_event was called correctly
+    # 1. Check that perform_close_event was called correctly with mock_cog.bot
     mock_perform_close.assert_awaited_once_with(
-        mock_interaction.client,  # Check client instance is passed
+        mock_cog.bot,  # Check bot instance from cog is passed
         event_name_to_close,
         close_text,
     )
@@ -76,15 +84,16 @@ async def test_close_offkai_command_success_with_message(mock_perform_close, moc
     )
 
 
-@patch("offkai_bot.main.perform_close_event", new_callable=AsyncMock)
-async def test_close_offkai_command_success_no_message(mock_perform_close, mock_interaction):
+@patch("offkai_bot.cogs.events.perform_close_event", new_callable=AsyncMock)
+async def test_close_offkai_command_success_no_message(mock_perform_close, mock_interaction, mock_cog):
     """Test the close_offkai command successfully calls perform_close_event without a close message."""
     # Arrange
     event_name_to_close = "Summer Bash"
     # No need to mock return value
 
     # Act
-    await main.close_offkai.callback(
+    await EventsCog.close_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_close,
         close_msg=None,  # Explicitly None
@@ -93,7 +102,7 @@ async def test_close_offkai_command_success_no_message(mock_perform_close, mock_
     # Assert
     # 1. Check that perform_close_event was called correctly
     mock_perform_close.assert_awaited_once_with(
-        mock_interaction.client,
+        mock_cog.bot,
         event_name_to_close,
         None,  # Check None is passed
     )
@@ -104,8 +113,8 @@ async def test_close_offkai_command_success_no_message(mock_perform_close, mock_
     )
 
 
-@patch("offkai_bot.main.perform_close_event", new_callable=AsyncMock)
-async def test_close_offkai_command_error_propagation(mock_perform_close, mock_interaction):
+@patch("offkai_bot.cogs.events.perform_close_event", new_callable=AsyncMock)
+async def test_close_offkai_command_error_propagation(mock_perform_close, mock_interaction, mock_cog):
     """Test that errors from perform_close_event are propagated by the command."""
     # Arrange
     event_name_to_close = "NonExistent Event"
@@ -115,7 +124,8 @@ async def test_close_offkai_command_error_propagation(mock_perform_close, mock_i
     # Act & Assert
     # Check that the specific error raised by the mock is re-raised by the callback
     with pytest.raises(EventNotFoundError) as excinfo:
-        await main.close_offkai.callback(
+        await EventsCog.close_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name_to_close,
             close_msg="Attempting to close",
@@ -126,7 +136,7 @@ async def test_close_offkai_command_error_propagation(mock_perform_close, mock_i
 
     # Assert that perform_close_event was called
     mock_perform_close.assert_awaited_once_with(
-        mock_interaction.client,
+        mock_cog.bot,
         event_name_to_close,
         "Attempting to close",
     )

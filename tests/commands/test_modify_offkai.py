@@ -8,9 +8,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data.event import Event  # To create return value
 from offkai_bot.errors import (
     CapacityReductionError,
@@ -32,6 +33,13 @@ from offkai_bot.util import JST
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -92,11 +100,11 @@ def mock_modified_event():
 # --- Test Cases ---
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_success(
     mock_log,
     mock_update_details,
@@ -107,6 +115,7 @@ async def test_modify_offkai_success(
     mock_thread,  # From conftest.py
     mock_modified_event,  # From this file
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test the successful path of modify_offkai including updating the deadline."""
     # Arrange
@@ -127,7 +136,8 @@ async def test_modify_offkai_success(
     mock_thread.mention = f"<#{mock_thread.id}>"
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -161,11 +171,11 @@ async def test_modify_offkai_success(
     mock_log.error.assert_not_called()
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_success_without_deadline_change(  # New test
     mock_log,
     mock_update_details,
@@ -176,6 +186,7 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
     mock_thread,
     mock_modified_event,  # Use fixture, but deadline won't change
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test the successful path of modify_offkai without changing the deadline."""
     # Arrange
@@ -195,7 +206,8 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
     mock_thread.mention = f"<#{mock_thread.id}>"
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -236,11 +248,11 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
 
 
 # *** NEW TEST for assigning missing channel_id ***
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_assigns_channel_id_if_missing(
     mock_log,
     mock_update_details,
@@ -250,6 +262,7 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
     mock_interaction,  # Use the fixture
     mock_thread,
     prepopulated_event_cache,  # To get an event to modify
+    mock_cog,
 ):
     """Test modify_offkai assigns interaction channel ID if event.channel_id is None."""
     # Arrange
@@ -269,7 +282,8 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
     mock_thread.id = event_returned_by_update.thread_id  # Match thread ID
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -324,12 +338,12 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
     ],
 )
 # Patches updated to include fetch_thread_for_event
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_data_layer_errors(
     mock_log,
     mock_get_event,
@@ -341,6 +355,7 @@ async def test_modify_offkai_data_layer_errors(
     error_type,
     error_args,
     prepopulated_event_cache,  # Use fixture to ensure events exist for errors
+    mock_cog,
 ):
     """Test handling of errors raised by update_event_details or get_event."""
     # Arrange
@@ -358,7 +373,8 @@ async def test_modify_offkai_data_layer_errors(
 
     # Act & Assert
     with pytest.raises(error_type):
-        await main.modify_offkai.callback(
+        await EventsCog.modify_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             update_msg="Update attempt",
@@ -390,11 +406,11 @@ async def test_modify_offkai_data_layer_errors(
         (ThreadAccessError, (0, 4), logging.ERROR, "Bot lacks permissions"),
     ],
 )
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_fetch_thread_errors(
     mock_log,
     mock_update_details,
@@ -408,6 +424,7 @@ async def test_modify_offkai_fetch_thread_errors(
     fetch_error_args_indices,
     expected_log_level,
     log_msg_part,
+    mock_cog,
 ):
     """Test modify_offkai when fetch_thread_for_event raises various errors."""
     # Arrange
@@ -428,7 +445,8 @@ async def test_modify_offkai_fetch_thread_errors(
     mock_fetch_thread.side_effect = fetch_error_type(*error_args)
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -455,11 +473,11 @@ async def test_modify_offkai_fetch_thread_errors(
     )
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_send_update_fails(
     mock_log,
     mock_update_details,
@@ -470,6 +488,7 @@ async def test_modify_offkai_send_update_fails(
     mock_thread,  # Need the thread mock here
     mock_modified_event,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test modify_offkai when sending the update message fails."""
     # Arrange
@@ -484,7 +503,8 @@ async def test_modify_offkai_send_update_fails(
     mock_thread.send.side_effect = send_error
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -512,11 +532,11 @@ async def test_modify_offkai_send_update_fails(
 # --- Capacity Modification Tests ---
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_increase_capacity_success(
     mock_log,
     mock_update_details,
@@ -526,6 +546,7 @@ async def test_modify_offkai_increase_capacity_success(
     mock_interaction,
     mock_thread,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test successfully increasing event capacity."""
     # Arrange
@@ -540,7 +561,8 @@ async def test_modify_offkai_increase_capacity_success(
     mock_thread.id = event_after_update.thread_id
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -567,11 +589,11 @@ async def test_modify_offkai_increase_capacity_success(
     )
 
 
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_decrease_capacity_success(
     mock_log,
     mock_update_details,
@@ -581,6 +603,7 @@ async def test_modify_offkai_decrease_capacity_success(
     mock_interaction,
     mock_thread,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test successfully decreasing event capacity when valid (new capacity > current count, no waitlist)."""
     # Arrange
@@ -595,7 +618,8 @@ async def test_modify_offkai_decrease_capacity_success(
     mock_thread.id = event_after_update.thread_id
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -622,13 +646,10 @@ async def test_modify_offkai_decrease_capacity_success(
     )
 
 
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_decrease_capacity_below_current_count_fails(
-    mock_log,
-    mock_update_details,
-    mock_interaction,
-    prepopulated_event_cache,
+    mock_log, mock_update_details, mock_interaction, prepopulated_event_cache, mock_cog
 ):
     """Test that decreasing capacity below current attendee count raises CapacityReductionError."""
     # Arrange
@@ -639,7 +660,8 @@ async def test_modify_offkai_decrease_capacity_below_current_count_fails(
 
     # Act & Assert
     with pytest.raises(CapacityReductionError) as exc_info:
-        await main.modify_offkai.callback(
+        await EventsCog.modify_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name_to_modify,
             update_msg="Trying to decrease capacity",
@@ -652,13 +674,10 @@ async def test_modify_offkai_decrease_capacity_below_current_count_fails(
     mock_update_details.assert_called_once()
 
 
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_decrease_capacity_with_waitlist_fails(
-    mock_log,
-    mock_update_details,
-    mock_interaction,
-    prepopulated_event_cache,
+    mock_log, mock_update_details, mock_interaction, prepopulated_event_cache, mock_cog
 ):
     """Test that decreasing capacity when waitlist is not empty raises CapacityReductionWithWaitlistError."""
     # Arrange
@@ -667,7 +686,8 @@ async def test_modify_offkai_decrease_capacity_with_waitlist_fails(
 
     # Act & Assert
     with pytest.raises(CapacityReductionWithWaitlistError) as exc_info:
-        await main.modify_offkai.callback(
+        await EventsCog.modify_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name_to_modify,
             update_msg="Trying to decrease capacity",
@@ -683,12 +703,12 @@ async def test_modify_offkai_decrease_capacity_with_waitlist_fails(
 
 @patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.data.response.save_responses")
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_capacity_increase_promotes_waitlist(
     mock_log,
     mock_get_event,
@@ -701,6 +721,7 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
     mock_interaction,
     mock_thread,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test that increasing capacity promotes users from waitlist."""
     # Arrange
@@ -725,7 +746,8 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
     mock_promote_waitlist_batch.return_value = [111, 222]
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -751,12 +773,12 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
 
 
 @patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_capacity_increase_empty_waitlist(
     mock_log,
     mock_get_event,
@@ -768,6 +790,7 @@ async def test_modify_offkai_capacity_increase_empty_waitlist(
     mock_interaction,
     mock_thread,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test that increasing capacity with empty waitlist doesn't call promotion."""
     # Arrange
@@ -790,7 +813,8 @@ async def test_modify_offkai_capacity_increase_empty_waitlist(
     mock_promote_waitlist_batch.return_value = []
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,
@@ -809,12 +833,12 @@ async def test_modify_offkai_capacity_increase_empty_waitlist(
 
 
 @patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.save_event_data")
-@patch("offkai_bot.main.update_event_details")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_non_capacity_change_no_promotion(
     mock_log,
     mock_get_event,
@@ -826,6 +850,7 @@ async def test_modify_offkai_non_capacity_change_no_promotion(
     mock_interaction,
     mock_thread,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test that modifying non-capacity fields doesn't trigger promotion."""
     # Arrange
@@ -845,7 +870,8 @@ async def test_modify_offkai_non_capacity_change_no_promotion(
     mock_thread.id = event_after_update.thread_id
 
     # Act
-    await main.modify_offkai.callback(
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_to_modify,
         update_msg=update_text,

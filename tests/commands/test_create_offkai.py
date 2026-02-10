@@ -5,9 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
-# Import the function to test and relevant errors/classes
-from offkai_bot import main
+# Import the class to test and relevant errors/classes
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data.event import Event  # To create return value for add_event
 from offkai_bot.errors import (
     DuplicateEventError,
@@ -27,6 +28,13 @@ pytestmark = pytest.mark.asyncio
 
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -52,12 +60,10 @@ def mock_interaction():
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
 
-    # Mock the client instance attached to main
-    # We need this because the command callback uses main.client
-    with patch("offkai_bot.main.client", new_callable=MagicMock) as mock_client:
-        interaction.client = mock_client  # Assign mock client to interaction
-        yield interaction  # Yield the interaction with the mocked client
-
+    # Mock the client instance attached to main (or bot in cog)
+    # The cog uses self.bot, which is mocked in mock_cog.
+    # But interaction.client might still be accessed by some utils?
+    # validate_interaction_context checks interaction properties.
     return interaction
 
 
@@ -105,13 +111,13 @@ def mock_created_event():
 @patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
-@patch("offkai_bot.main.register_deadline_reminders")
-@patch("offkai_bot.main.add_event")
-@patch("offkai_bot.main.validate_interaction_context")
-@patch("offkai_bot.main.parse_drinks")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.register_deadline_reminders")
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_create_offkai_success_sends_and_pins_message(
     mock_log,
     mock_get_event,
@@ -126,6 +132,7 @@ async def test_create_offkai_success_sends_and_pins_message(
     mock_interaction,
     mock_thread,
     mock_created_event,
+    mock_cog,
 ):
     """Test create_offkai success, ensuring the event message is sent and pinned."""
     # Arrange
@@ -158,7 +165,9 @@ async def test_create_offkai_success_sends_and_pins_message(
     mock_create_event_message.return_value = "Event message content"
 
     # Act
-    await main.create_offkai.callback(
+    # Act
+    await EventsCog.create_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name,
         venue=venue,
@@ -185,13 +194,13 @@ async def test_create_offkai_success_sends_and_pins_message(
 @patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
-@patch("offkai_bot.main.register_deadline_reminders")
-@patch("offkai_bot.main.add_event")
-@patch("offkai_bot.main.validate_interaction_context")
-@patch("offkai_bot.main.parse_drinks")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.register_deadline_reminders")
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_create_offkai_success_without_deadline_and_pins_message(
     mock_log,
     mock_get_event,
@@ -206,6 +215,7 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     mock_interaction,
     mock_thread,
     mock_created_event,
+    mock_cog,
 ):
     """Test create_offkai without a deadline, including message sending and pinning."""
     # Arrange
@@ -236,7 +246,9 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     mock_create_event_message.return_value = "Event message content"
 
     # Act
-    await main.create_offkai.callback(
+    # Act
+    await EventsCog.create_offkai.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name,
         venue=venue,
@@ -260,14 +272,14 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     mock_interaction.response.send_message.assert_awaited_once()
 
 
-@patch("offkai_bot.main.send_event_message")
-@patch("offkai_bot.main.register_deadline_reminders")
-@patch("offkai_bot.main.add_event")
-@patch("offkai_bot.main.validate_interaction_context")
-@patch("offkai_bot.main.parse_drinks")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.send_event_message")
+@patch("offkai_bot.cogs.events.register_deadline_reminders")
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_create_offkai_raises_pin_permission_error(
     mock_log,
     mock_get_event,
@@ -280,6 +292,7 @@ async def test_create_offkai_raises_pin_permission_error(
     mock_interaction,
     mock_thread,
     mock_created_event,
+    mock_cog,
 ):
     """Test create_offkai correctly propagates PinPermissionError from send_event_message."""
     # Arrange
@@ -295,7 +308,8 @@ async def test_create_offkai_raises_pin_permission_error(
 
     # Act & Assert
     with pytest.raises(PinPermissionError):
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name="Pin Fail Event",
             venue="Venue",
@@ -313,13 +327,13 @@ async def test_create_offkai_raises_pin_permission_error(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.send_event_message")
-@patch("offkai_bot.main.add_event")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main.parse_drinks")
-@patch("offkai_bot.main.validate_interaction_context")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.send_event_message")
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events._log")
 async def test_create_offkai_thread_creation_fails(
     mock_log,
     mock_validate_ctx,
@@ -329,6 +343,7 @@ async def test_create_offkai_thread_creation_fails(
     mock_add_event,
     mock_send_msg,
     mock_interaction,
+    mock_cog,
 ):
     """Test create_offkai when thread creation fails, ensuring pin is not attempted."""
     # Arrange
@@ -342,7 +357,8 @@ async def test_create_offkai_thread_creation_fails(
 
     # Act & Assert
     with pytest.raises(ThreadCreationError):
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             venue="Any",
@@ -357,9 +373,9 @@ async def test_create_offkai_thread_creation_fails(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
-async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_interaction):
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_interaction, mock_cog):
     """Test create_offkai when the event name already exists."""
     # Arrange
     event_name = "Existing Event"
@@ -368,7 +384,8 @@ async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_inte
 
     # Act & Assert
     with pytest.raises(DuplicateEventError) as exc_info:
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             venue="Any",
@@ -382,10 +399,12 @@ async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_inte
     mock_interaction.channel.create_thread.assert_not_awaited()
 
 
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main._log")
-async def test_create_offkai_invalid_datetime_format(mock_log, mock_parse_dt, mock_get_event, mock_interaction):
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events._log")
+async def test_create_offkai_invalid_datetime_format(
+    mock_log, mock_parse_dt, mock_get_event, mock_interaction, mock_cog
+):
     """Test create_offkai with an invalid date/time string format."""
     # Arrange
     event_name = "DateTime Format Test"
@@ -395,7 +414,8 @@ async def test_create_offkai_invalid_datetime_format(mock_log, mock_parse_dt, mo
 
     # Act & Assert
     with pytest.raises(InvalidDateTimeFormatError):
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             venue="Any",
@@ -410,10 +430,12 @@ async def test_create_offkai_invalid_datetime_format(mock_log, mock_parse_dt, mo
     mock_interaction.channel.create_thread.assert_not_awaited()
 
 
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main._log")
-async def test_create_offkai_invalid_deadline_format(mock_log, mock_parse_dt, mock_get_event, mock_interaction):
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events._log")
+async def test_create_offkai_invalid_deadline_format(
+    mock_log, mock_parse_dt, mock_get_event, mock_interaction, mock_cog
+):
     """Test create_offkai with an invalid deadline string format."""
     # Arrange
     event_name = "Deadline Format Test"
@@ -426,7 +448,8 @@ async def test_create_offkai_invalid_deadline_format(mock_log, mock_parse_dt, mo
 
     # Act & Assert
     with pytest.raises(InvalidDateTimeFormatError):
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             venue="Any",
@@ -443,13 +466,13 @@ async def test_create_offkai_invalid_deadline_format(mock_log, mock_parse_dt, mo
     mock_interaction.channel.create_thread.assert_not_awaited()
 
 
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main.parse_drinks")
-@patch("offkai_bot.main.validate_interaction_context")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events._log")
 async def test_create_offkai_invalid_context(
-    mock_log, mock_validate_ctx, mock_parse_drinks, mock_parse_dt, mock_get_event, mock_interaction
+    mock_log, mock_validate_ctx, mock_parse_drinks, mock_parse_dt, mock_get_event, mock_interaction, mock_cog
 ):
     """Test create_offkai when used in an invalid context (e.g., DM)."""
     # Arrange
@@ -461,7 +484,8 @@ async def test_create_offkai_invalid_context(
 
     # Act & Assert
     with pytest.raises(InvalidChannelTypeError):
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             venue="Any",
@@ -482,13 +506,13 @@ async def test_create_offkai_invalid_context(
         EventDeadlineAfterEventError,
     ],
 )
-@patch("offkai_bot.main.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.main.add_event")
-@patch("offkai_bot.main.validate_interaction_context")
-@patch("offkai_bot.main.parse_drinks")
-@patch("offkai_bot.main.parse_event_datetime")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.send_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_create_offkai_add_event_validation_fails(
     mock_log,
     mock_get_event,
@@ -500,6 +524,7 @@ async def test_create_offkai_add_event_validation_fails(
     mock_interaction,
     mock_thread,
     mock_created_event,
+    mock_cog,
     validation_error_type,
 ):
     """Test create_offkai when add_event raises a datetime validation error."""
@@ -515,7 +540,8 @@ async def test_create_offkai_add_event_validation_fails(
 
     # Act & Assert
     with pytest.raises(validation_error_type):
-        await main.create_offkai.callback(
+        await EventsCog.create_offkai.callback(
+            mock_cog,
             mock_interaction,
             event_name=event_name,
             venue="V",

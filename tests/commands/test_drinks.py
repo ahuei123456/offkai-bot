@@ -6,9 +6,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord import app_commands
+from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot import main
+from offkai_bot.cogs.events import EventsCog
 from offkai_bot.errors import (
     EventNotFoundError,
     NoResponsesFoundError,
@@ -18,6 +19,13 @@ from offkai_bot.errors import (
 pytestmark = pytest.mark.asyncio
 
 # --- Fixtures ---
+
+
+@pytest.fixture
+def mock_cog():
+    """Fixture to create a mock EventsCog instance."""
+    bot = MagicMock(spec=commands.Bot)
+    return EventsCog(bot)
 
 
 @pytest.fixture
@@ -53,9 +61,9 @@ def mock_event_obj(sample_event_list):  # Assumes sample_event_list is in confte
 # --- Test Cases ---
 
 
-@patch("offkai_bot.main.calculate_drinks")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_drinks")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_drinks_success(
     mock_log,
     mock_get_event,
@@ -63,6 +71,7 @@ async def test_drinks_success(
     mock_interaction,
     mock_event_obj,
     prepopulated_event_cache,  # Assumes this is in conftest.py
+    mock_cog,
 ):
     """Test the successful path of the drinks command with drinks present."""
     # Arrange
@@ -75,7 +84,8 @@ async def test_drinks_success(
     mock_calculate_drinks.return_value = (mock_total_drink_count, mock_drinks_counter)
 
     # Act
-    await main.drinks.callback(
+    await EventsCog.drinks.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_target,
     )
@@ -89,9 +99,9 @@ async def test_drinks_success(
     mock_log.warning.assert_not_called()
 
 
-@patch("offkai_bot.main.calculate_drinks")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_drinks")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_drinks_success_no_drinks_in_responses(
     mock_log,
     mock_get_event,
@@ -99,6 +109,7 @@ async def test_drinks_success_no_drinks_in_responses(
     mock_interaction,
     mock_event_obj,
     prepopulated_event_cache,
+    mock_cog,
 ):
     """Test the drinks command when responses exist but have no drinks."""
     # Arrange
@@ -110,7 +121,8 @@ async def test_drinks_success_no_drinks_in_responses(
     mock_calculate_drinks.return_value = (mock_total_drink_count, mock_drinks_dict)
 
     # Act
-    await main.drinks.callback(
+    await EventsCog.drinks.callback(
+        mock_cog,
         mock_interaction,
         event_name=event_name_target,
     )
@@ -124,11 +136,17 @@ async def test_drinks_success_no_drinks_in_responses(
     mock_log.warning.assert_not_called()
 
 
-@patch("offkai_bot.main.calculate_drinks")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_drinks")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_drinks_success_truncation(
-    mock_log, mock_get_event, mock_calculate_drinks, mock_interaction, mock_event_obj, prepopulated_event_cache
+    mock_log,
+    mock_get_event,
+    mock_calculate_drinks,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
 ):
     """Test drinks output truncation when the list is very long."""
     # Arrange
@@ -141,7 +159,7 @@ async def test_drinks_success_truncation(
     mock_calculate_drinks.return_value = (mock_total_drink_count, mock_drinks_counter)
 
     # Act
-    await main.drinks.callback(mock_interaction, event_name=event_name_target)
+    await EventsCog.drinks.callback(mock_cog, mock_interaction, event_name=event_name_target)
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
@@ -149,11 +167,11 @@ async def test_drinks_success_truncation(
     mock_interaction.response.send_message.assert_awaited_once_with(ANY, ephemeral=True)
 
 
-@patch("offkai_bot.main.calculate_drinks")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_drinks")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_drinks_event_not_found(
-    mock_log, mock_get_event, mock_calculate_drinks, mock_interaction, prepopulated_event_cache
+    mock_log, mock_get_event, mock_calculate_drinks, mock_interaction, prepopulated_event_cache, mock_cog
 ):
     """Test drinks command when the initial get_event fails."""
     # Arrange
@@ -162,18 +180,24 @@ async def test_drinks_event_not_found(
 
     # Act & Assert
     with pytest.raises(EventNotFoundError):
-        await main.drinks.callback(mock_interaction, event_name=event_name_target)
+        await EventsCog.drinks.callback(mock_cog, mock_interaction, event_name=event_name_target)
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_drinks.assert_not_called()
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.main.calculate_drinks")
-@patch("offkai_bot.main.get_event")
-@patch("offkai_bot.main._log")
+@patch("offkai_bot.cogs.events.calculate_drinks")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
 async def test_drinks_no_responses_found_for_event(
-    mock_log, mock_get_event, mock_calculate_drinks, mock_interaction, mock_event_obj, prepopulated_event_cache
+    mock_log,
+    mock_get_event,
+    mock_calculate_drinks,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
 ):
     """Test drinks command when calculate_drinks raises NoResponsesFoundError."""
     # Arrange
@@ -183,7 +207,7 @@ async def test_drinks_no_responses_found_for_event(
 
     # Act & Assert
     with pytest.raises(NoResponsesFoundError):
-        await main.drinks.callback(mock_interaction, event_name=event_name_target)
+        await EventsCog.drinks.callback(mock_cog, mock_interaction, event_name=event_name_target)
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_drinks.assert_called_once_with(event_name_target)
