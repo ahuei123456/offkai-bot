@@ -138,6 +138,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             timestamp=promoted_entry.timestamp,
             drinks=promoted_entry.drinks,
             extras_names=promoted_entry.extras_names,
+            display_name=promoted_entry.display_name,
         )
         add_response(event.event_name, promoted_response)
         promoted_count += 1
@@ -486,6 +487,7 @@ class GatheringModal(ui.Modal):
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
+                    display_name=interaction.user.display_name,
                 )
 
                 add_to_waitlist(self.event.event_name, new_entry)
@@ -517,6 +519,7 @@ class GatheringModal(ui.Modal):
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
+                    display_name=interaction.user.display_name,
                 )
 
                 # Add to waitlist
@@ -537,6 +540,7 @@ class GatheringModal(ui.Modal):
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
+                    display_name=interaction.user.display_name,
                 )
 
                 add_response(self.event.event_name, new_response)

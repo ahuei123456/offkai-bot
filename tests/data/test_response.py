@@ -54,6 +54,17 @@ RESP_4_DICT = {  # Response with extras_names
     "drinks": ["Cola", "Water", "Juice"],
     "extras_names": ["Alice", "Bob"],
 }
+RESP_5_DICT = {  # Response with display_name
+    "user_id": 555,
+    "username": "User5",
+    "extra_people": 0,
+    "behavior_confirmed": True,
+    "arrival_confirmed": True,
+    "event_name": "Event A",
+    "timestamp": NOW.isoformat(),
+    "drinks": [],
+    "display_name": "FancyNick",
+}
 
 RESP_1_OBJ = Response(
     user_id=123,
@@ -96,6 +107,17 @@ RESP_4_OBJ = Response(
     timestamp=NOW,
     drinks=["Cola", "Water", "Juice"],
     extras_names=["Alice", "Bob"],
+)
+RESP_5_OBJ = Response(
+    user_id=555,
+    username="User5",
+    extra_people=0,
+    behavior_confirmed=True,
+    arrival_confirmed=True,
+    event_name="Event A",
+    timestamp=NOW,
+    drinks=[],
+    display_name="FancyNick",
 )
 
 
@@ -1089,3 +1111,143 @@ def test_calculate_attendance_no_extras(mock_paths):
     assert len(attendee_names) == 2
     assert "UserA" in attendee_names
     assert "UserB" in attendee_names
+
+
+# --- Tests for display_name field ---
+
+
+def test_response_with_display_name(mock_paths):
+    """Test Response object with display_name field."""
+    assert RESP_5_OBJ.display_name == "FancyNick"
+    assert RESP_5_OBJ.username == "User5"
+
+
+def test_response_without_display_name_defaults_to_none(mock_paths):
+    """Test Response object defaults to None when display_name not provided."""
+    assert RESP_1_OBJ.display_name is None
+    assert RESP_2_OBJ.display_name is None
+
+
+def test_parse_response_with_display_name(mock_paths):
+    """Test parsing Response from dict with display_name field."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=json.dumps({"Event A": [RESP_5_DICT]}))),
+        patch("offkai_bot.data.response.save_responses"),
+    ):
+        responses = response_data._load_responses()
+
+        assert len(responses["Event A"]["attendees"]) == 1
+        loaded_resp = responses["Event A"]["attendees"][0]
+        assert loaded_resp.display_name == "FancyNick"
+        assert loaded_resp.username == "User5"
+
+
+def test_parse_response_without_display_name_field(mock_paths):
+    """Test parsing Response from dict without display_name field defaults to None."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=json.dumps({"Event A": [RESP_1_DICT]}))),
+        patch("offkai_bot.data.response.save_responses"),
+    ):
+        responses = response_data._load_responses()
+
+        loaded_resp = responses["Event A"]["attendees"][0]
+        assert loaded_resp.display_name is None
+
+
+# --- Tests for calculate_attendance with nicknames ---
+
+
+def test_calculate_attendance_nicknames_true(mock_paths):
+    """Test calculate_attendance with nicknames=True shows display names."""
+    resp_with_nick = Response(
+        user_id=111,
+        username="foo",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        display_name="goo",
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([resp_with_nick])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event N", nicknames=True)
+
+    assert total_count == 1
+    assert attendee_names[0] == "foo (goo)"
+
+
+def test_calculate_attendance_nicknames_false(mock_paths):
+    """Test calculate_attendance with nicknames=False does not show display names."""
+    resp_with_nick = Response(
+        user_id=111,
+        username="foo",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        display_name="goo",
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([resp_with_nick])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event N", nicknames=False)
+
+    assert total_count == 1
+    assert attendee_names[0] == "foo"
+
+
+def test_calculate_attendance_nicknames_same_as_username(mock_paths):
+    """Test calculate_attendance with nicknames=True but display_name equals username."""
+    resp = Response(
+        user_id=111,
+        username="foo",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        display_name="foo",
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([resp])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event N", nicknames=True)
+
+    assert total_count == 1
+    assert attendee_names[0] == "foo"
+
+
+def test_calculate_attendance_nicknames_none_display_name(mock_paths):
+    """Test calculate_attendance with nicknames=True but display_name is None."""
+    resp = Response(
+        user_id=111,
+        username="foo",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        display_name=None,
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([resp])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event N", nicknames=True)
+
+    assert total_count == 1
+    assert attendee_names[0] == "foo"
