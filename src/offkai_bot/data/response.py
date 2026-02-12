@@ -493,6 +493,27 @@ def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
     return first_entry
 
 
+def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEntry:
+    """
+    Removes and returns a specific user from the waitlist by user_id.
+
+    Raises:
+        ResponseNotFoundError: If the user is not found on the waitlist.
+    """
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    for i, entry in enumerate(event_data["waitlist"]):
+        if entry.user_id == user_id:
+            promoted_entry = event_data["waitlist"].pop(i)
+            all_data[event_name] = event_data
+            save_responses()
+            _log.info(f"Promoted specific user {user_id} from waitlist for event {event_name}.")
+            return promoted_entry
+
+    raise ResponseNotFoundError(event_name, user_id)
+
+
 def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[int, list[str]]:
     """
     Calculates the total attendance count and generates a list of attendee names

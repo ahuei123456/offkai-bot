@@ -250,3 +250,114 @@ async def test_offkai_autocomplete_all_non_archived(mock_base_autocomplete, mock
     await EventsCog.offkai_autocomplete_all_non_archived(mock_cog, mock_interaction, current_str)
     # Currently calls with open_status=None, same as _active
     mock_base_autocomplete.assert_awaited_once_with(mock_interaction, current_str, open_status=None)
+
+
+# --- Tests for waitlist_user_autocomplete ---
+
+
+@pytest.fixture
+def sample_waitlist_entries():
+    """Fixture providing sample WaitlistEntry objects."""
+    from offkai_bot.data.response import WaitlistEntry
+
+    now = datetime.now()
+    return [
+        WaitlistEntry(
+            user_id=1001,
+            username="alice",
+            extra_people=0,
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name="Summer Party",
+            timestamp=now,
+            display_name="Alice W",
+        ),
+        WaitlistEntry(
+            user_id=1002,
+            username="bob",
+            extra_people=1,
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name="Summer Party",
+            timestamp=now,
+            display_name="Bob M",
+        ),
+        WaitlistEntry(
+            user_id=1003,
+            username="charlie",
+            extra_people=0,
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name="Summer Party",
+            timestamp=now,
+            display_name=None,
+        ),
+    ]
+
+
+@patch("offkai_bot.cogs.events.get_waitlist")
+async def test_waitlist_autocomplete_empty_event_name(mock_get_waitlist, mock_interaction, mock_cog):
+    """Test that empty event_name returns empty list."""
+    mock_interaction.namespace = MagicMock()
+    mock_interaction.namespace.event_name = ""
+
+    choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "")
+    assert choices == []
+    mock_get_waitlist.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.get_waitlist")
+async def test_waitlist_autocomplete_missing_event_name(mock_get_waitlist, mock_interaction, mock_cog):
+    """Test that missing event_name attribute returns empty list."""
+    mock_interaction.namespace = MagicMock(spec=[])  # No attributes
+
+    choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "")
+    assert choices == []
+    mock_get_waitlist.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.get_waitlist")
+async def test_waitlist_autocomplete_returns_matching_choices(
+    mock_get_waitlist, mock_interaction, mock_cog, sample_waitlist_entries
+):
+    """Test that waitlisted users are returned as choices."""
+    mock_interaction.namespace = MagicMock()
+    mock_interaction.namespace.event_name = "Summer Party"
+    mock_get_waitlist.return_value = sample_waitlist_entries
+
+    choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "")
+    assert len(choices) == 3
+    assert choices[0].name == "Alice W (@alice)"
+    assert choices[0].value == "1001"
+    assert choices[1].name == "Bob M (@bob)"
+    assert choices[1].value == "1002"
+    # charlie has no display_name, falls back to username
+    assert choices[2].name == "charlie (@charlie)"
+    assert choices[2].value == "1003"
+
+
+@patch("offkai_bot.cogs.events.get_waitlist")
+async def test_waitlist_autocomplete_partial_filter(
+    mock_get_waitlist, mock_interaction, mock_cog, sample_waitlist_entries
+):
+    """Test that partial filter matches correctly."""
+    mock_interaction.namespace = MagicMock()
+    mock_interaction.namespace.event_name = "Summer Party"
+    mock_get_waitlist.return_value = sample_waitlist_entries
+
+    choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "ali")
+    assert len(choices) == 1
+    assert choices[0].value == "1001"
+
+
+@patch("offkai_bot.cogs.events.get_waitlist")
+async def test_waitlist_autocomplete_event_not_found(mock_get_waitlist, mock_interaction, mock_cog):
+    """Test that exception from get_waitlist returns empty list."""
+    from offkai_bot.errors import EventNotFoundError
+
+    mock_interaction.namespace = MagicMock()
+    mock_interaction.namespace.event_name = "NonExistent"
+    mock_get_waitlist.side_effect = EventNotFoundError("NonExistent")
+
+    choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "")
+    assert choices == []

@@ -14,7 +14,16 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
-from offkai_bot.data.response import calculate_attendance, calculate_drinks, calculate_waitlist, remove_response
+from offkai_bot.data.response import (
+    Response,
+    add_response,
+    calculate_attendance,
+    calculate_drinks,
+    calculate_waitlist,
+    get_waitlist,
+    promote_specific_from_waitlist,
+    remove_response,
+)
 from offkai_bot.errors import (
     BroadcastPermissionError,
     BroadcastSendError,
@@ -369,6 +378,63 @@ class EventsCog(commands.Cog):
             _log.warning(f"Event '{event_name}' is missing thread_id, cannot remove user from thread.")
 
     @app_commands.command(
+        name="promote",
+        description="Manually promote a user from the waitlist, bypassing capacity limits.",
+    )
+    @app_commands.describe(
+        event_name="The name of the event.",
+        username="The waitlisted user to promote (select from autocomplete).",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def promote(self, interaction: discord.Interaction, event_name: str, username: str):
+        event = get_event(event_name)
+
+        try:
+            user_id = int(username)
+        except ValueError:
+            await interaction.response.send_message(
+                "Invalid user selection. Please use the autocomplete dropdown.", ephemeral=True
+            )
+            return
+
+        promoted_entry = promote_specific_from_waitlist(event_name, user_id)
+
+        promoted_response = Response(
+            user_id=promoted_entry.user_id,
+            username=promoted_entry.username,
+            extra_people=promoted_entry.extra_people,
+            behavior_confirmed=promoted_entry.behavior_confirmed,
+            arrival_confirmed=promoted_entry.arrival_confirmed,
+            event_name=promoted_entry.event_name,
+            timestamp=promoted_entry.timestamp,
+            drinks=promoted_entry.drinks,
+            extras_names=promoted_entry.extras_names,
+            display_name=promoted_entry.display_name,
+        )
+        add_response(event_name, promoted_response)
+
+        await interaction.response.send_message(
+            f"Promoted user <@{user_id}> from the waitlist for '{event_name}'.",
+            ephemeral=True,
+        )
+
+        try:
+            promoted_user = await self.bot.fetch_user(user_id)
+            await promoted_user.send(
+                f"Great news! You've been manually promoted from the waitlist "
+                f"for **{event_name}**!\n"
+                f"You are now a confirmed attendee.\n\n"
+                f"**Important:** Withdrawing after the deadline is strongly discouraged. "
+                f"If you withdraw late, you are fully responsible for any consequences, including "
+                f"payment requests from the event organizer and potential server moderation action."
+            )
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            _log.warning(f"Could not DM promoted user {user_id} for event '{event_name}': {e}")
+
+        await update_event_message(self.bot, event)
+
+    @app_commands.command(
         name="attendance",
         description="Gets the list of attendees and count for an event.",
     )
@@ -482,11 +548,33 @@ class EventsCog(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         return await self.event_autocomplete_base(interaction, current, open_status=None)
 
+    async def waitlist_user_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        event_name = getattr(interaction.namespace, "event_name", "")
+        if not event_name:
+            return []
+
+        try:
+            waitlist = get_waitlist(event_name)
+        except Exception:
+            return []
+
+        choices = []
+        for entry in waitlist:
+            display = entry.display_name or entry.username
+            label = f"{display} (@{entry.username})"
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label[:100], value=str(entry.user_id)))
+        return choices[:25]
+
     # Apply autocompletes
     modify_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     close_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     broadcast.autocomplete("event_name")(offkai_autocomplete_active)
     delete_response.autocomplete("event_name")(offkai_autocomplete_active)
+    promote.autocomplete("event_name")(offkai_autocomplete_active)
+    promote.autocomplete("username")(waitlist_user_autocomplete)
     attendance.autocomplete("event_name")(offkai_autocomplete_active)
     waitlist.autocomplete("event_name")(offkai_autocomplete_active)
     drinks.autocomplete("event_name")(offkai_autocomplete_active)
