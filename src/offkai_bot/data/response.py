@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TypedDict
 
-from offkai_bot.errors import DuplicateResponseError, NoResponsesFoundError, ResponseNotFoundError
+from offkai_bot.errors import (
+    DuplicateResponseError,
+    NoResponsesFoundError,
+    NoWaitlistEntriesFoundError,
+    ResponseNotFoundError,
+)
 
 # Use relative imports for sibling modules within the package
 from ..config import get_config
@@ -533,6 +538,46 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[i
 
     _log.info(f"Calculated attendance for '{event_name}': {total_count} attendees.")
     return total_count, attendee_names
+
+
+def calculate_waitlist(event_name: str, *, nicknames: bool = False) -> tuple[int, list[str]]:
+    """
+    Calculates the total waitlist count and generates a list of waitlisted names
+    (including extras) for a given event.
+
+    Args:
+        event_name: The name of the event.
+        nicknames: If True, show display names alongside usernames when they differ.
+
+    Returns:
+        A tuple containing:
+            - total_count (int): The total number of waitlisted people including extras.
+            - waitlisted_names (list[str]): A list of formatted waitlisted names.
+
+    Raises:
+        NoWaitlistEntriesFoundError: If no waitlist entries are found for the event.
+    """
+    entries = get_waitlist(event_name)
+    if not entries:
+        raise NoWaitlistEntriesFoundError(event_name)
+
+    waitlisted_names = []
+    total_count = 0
+    for entry in entries:
+        name = entry.username
+        if nicknames and entry.display_name and entry.display_name != entry.username:
+            name = f"{entry.username} ({entry.display_name})"
+        waitlisted_names.append(name)
+        total_count += 1
+
+        for i in range(entry.extra_people):
+            name = entry.extras_names[i] if i < len(entry.extras_names) else " "
+            name += f" ({entry.username} +{i + 1})"
+            waitlisted_names.append(name)
+            total_count += 1
+
+    _log.info(f"Calculated waitlist for '{event_name}': {total_count} waitlisted.")
+    return total_count, waitlisted_names
 
 
 def calculate_drinks(event_name: str) -> tuple[int, dict[str, int]]:

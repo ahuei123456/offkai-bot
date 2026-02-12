@@ -14,7 +14,7 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
-from offkai_bot.data.response import calculate_attendance, calculate_drinks, remove_response
+from offkai_bot.data.response import calculate_attendance, calculate_drinks, calculate_waitlist, remove_response
 from offkai_bot.errors import (
     BroadcastPermissionError,
     BroadcastSendError,
@@ -398,6 +398,35 @@ class EventsCog(commands.Cog):
         await interaction.response.send_message(output, ephemeral=True)
 
     @app_commands.command(
+        name="waitlist",
+        description="Gets the list of waitlisted people and count for an event.",
+    )
+    @app_commands.describe(
+        event_name="The name of the event.",
+        sort="Whether to sort the waitlist. (default: False)",
+        nicknames="Whether to show display names alongside usernames. (default: False)",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def waitlist(
+        self, interaction: discord.Interaction, event_name: str, sort: bool = False, nicknames: bool = False
+    ):
+        get_event(event_name)
+        total_count, waitlisted_list = calculate_waitlist(event_name, nicknames=nicknames)
+        if sort:
+            waitlisted_list.sort(key=str.lower)
+
+        output = f"**Waitlist for {event_name}**\n\n"
+        output += f"Total Waitlisted: **{total_count}**\n\n"
+        lines = [f"{i + 1}. {name}" for i, name in enumerate(waitlisted_list)]
+        output += "\n".join(lines)
+
+        if len(output) > 1900:
+            output = output[:1900] + "\n... (list truncated)"
+
+        await interaction.response.send_message(output, ephemeral=True)
+
+    @app_commands.command(
         name="drinks",
         description="Gets the list of drinks and count for an event, if any.",
     )
@@ -459,6 +488,7 @@ class EventsCog(commands.Cog):
     broadcast.autocomplete("event_name")(offkai_autocomplete_active)
     delete_response.autocomplete("event_name")(offkai_autocomplete_active)
     attendance.autocomplete("event_name")(offkai_autocomplete_active)
+    waitlist.autocomplete("event_name")(offkai_autocomplete_active)
     drinks.autocomplete("event_name")(offkai_autocomplete_active)
 
     reopen_offkai.autocomplete("event_name")(offkai_autocomplete_closed_only)

@@ -8,8 +8,8 @@ import pytest
 # Import the module we are testing
 from offkai_bot.data import response as response_data
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
-from offkai_bot.data.response import EventData, Response
-from offkai_bot.errors import DuplicateResponseError, ResponseNotFoundError  # Import the dataclass too
+from offkai_bot.data.response import EventData, Response, WaitlistEntry
+from offkai_bot.errors import DuplicateResponseError, NoWaitlistEntriesFoundError, ResponseNotFoundError
 
 # --- Test Data ---
 NOW = datetime.now(UTC)
@@ -903,8 +903,6 @@ def test_save_response_with_extras_names(mock_paths):
 
 def test_waitlist_entry_with_extras_names(mock_paths):
     """Test WaitlistEntry object with extras_names field."""
-    from offkai_bot.data.response import WaitlistEntry
-
     waitlist_entry = WaitlistEntry(
         user_id=888,
         username="WaitlistUser",
@@ -1251,3 +1249,123 @@ def test_calculate_attendance_nicknames_none_display_name(mock_paths):
 
     assert total_count == 1
     assert attendee_names[0] == "foo"
+
+
+# --- Tests for calculate_waitlist ---
+
+
+def test_calculate_waitlist_with_extras_names(mock_paths):
+    """Test calculate_waitlist shows extras names properly formatted."""
+    entry = WaitlistEntry(
+        user_id=111,
+        username="UserA",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event W",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=["Alice", "Bob"],
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event W": make_event_data(waitlist=[entry])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, waitlisted_names = response_data.calculate_waitlist("Event W")
+
+    assert total_count == 3
+    assert len(waitlisted_names) == 3
+    assert waitlisted_names[0] == "UserA"
+    assert waitlisted_names[1] == "Alice (UserA +1)"
+    assert waitlisted_names[2] == "Bob (UserA +2)"
+
+
+def test_calculate_waitlist_no_extras(mock_paths):
+    """Test calculate_waitlist with entries having no extras."""
+    entry1 = WaitlistEntry(
+        user_id=111,
+        username="UserA",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event W",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+    )
+    entry2 = WaitlistEntry(
+        user_id=222,
+        username="UserB",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event W",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event W": make_event_data(waitlist=[entry1, entry2])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, waitlisted_names = response_data.calculate_waitlist("Event W")
+
+    assert total_count == 2
+    assert len(waitlisted_names) == 2
+    assert "UserA" in waitlisted_names
+    assert "UserB" in waitlisted_names
+
+
+def test_calculate_waitlist_nicknames_true(mock_paths):
+    """Test calculate_waitlist with nicknames=True shows display names."""
+    entry = WaitlistEntry(
+        user_id=111,
+        username="foo",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event W",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        display_name="goo",
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event W": make_event_data(waitlist=[entry])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, waitlisted_names = response_data.calculate_waitlist("Event W", nicknames=True)
+
+    assert total_count == 1
+    assert waitlisted_names[0] == "foo (goo)"
+
+
+def test_calculate_waitlist_nicknames_false(mock_paths):
+    """Test calculate_waitlist with nicknames=False does not show display names."""
+    entry = WaitlistEntry(
+        user_id=111,
+        username="foo",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event W",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        display_name="goo",
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event W": make_event_data(waitlist=[entry])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, waitlisted_names = response_data.calculate_waitlist("Event W", nicknames=False)
+
+    assert total_count == 1
+    assert waitlisted_names[0] == "foo"
+
+
+def test_calculate_waitlist_empty(mock_paths):
+    """Test calculate_waitlist raises NoWaitlistEntriesFoundError when empty."""
+    response_data.RESPONSE_DATA_CACHE = {"Event W": make_event_data(waitlist=[])}
+
+    with (
+        patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE),
+        pytest.raises(NoWaitlistEntriesFoundError),
+    ):
+        response_data.calculate_waitlist("Event W")
