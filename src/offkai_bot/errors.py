@@ -135,6 +135,14 @@ class NoResponsesFoundError(BotCommandError):
         super().__init__(f"No responses found for '{event_name}'.")
 
 
+class NoWaitlistEntriesFoundError(BotCommandError):
+    """Raised by waitlist command when no waitlist entries exist for an event."""
+
+    def __init__(self, event_name: str):
+        self.event_name = event_name
+        super().__init__(f"No waitlist entries found for '{event_name}'.")
+
+
 # --- Input / Command Usage Errors ---
 
 
