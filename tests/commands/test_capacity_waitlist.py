@@ -754,7 +754,7 @@ async def test_waitlist_dm_contains_extra_charge_warning(event_with_capacity, mo
     # Check the DM message contains the extra-charge warning
     assert mock_interaction.user.send.called
     message = mock_interaction.user.send.call_args[0][0]
-    assert "you may be extra-charged by the organizers" in message
+    assert "you may be charged extra by the organizers" in message
 
 
 @pytest.mark.asyncio
@@ -792,7 +792,7 @@ async def test_waitlist_capacity_exceeded_dm_contains_extra_charge_warning(
     # Check the DM message contains the extra-charge warning
     assert mock_interaction.user.send.called
     message = mock_interaction.user.send.call_args[0][0]
-    assert "you may be extra-charged by the organizers" in message
+    assert "you may be charged extra by the organizers" in message
 
 
 @pytest.mark.asyncio

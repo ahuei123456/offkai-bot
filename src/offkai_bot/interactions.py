@@ -370,7 +370,7 @@ class GatheringModal(ui.Modal):
             f"If you withdraw late, you are fully responsible for any consequences, including "
             f"payment requests from the event organizer and potential server moderation action.\n\n"
             f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
-            f"you may be extra-charged by the organizers."
+            f"you may be charged extra by the organizers."
         )
 
         # 2. Attempt to DM the user first
@@ -413,7 +413,7 @@ class GatheringModal(ui.Modal):
             f"You can choose to leave the offkai and re-apply with fewer people, "
             f"or stay on the waitlist and be automatically added if a spot opens up.\n\n"
             f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
-            f"you may be extra-charged by the organizers."
+            f"you may be charged extra by the organizers."
         )
 
         # 2. Attempt to DM the user first
