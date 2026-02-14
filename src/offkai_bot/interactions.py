@@ -368,7 +368,9 @@ class GatheringModal(ui.Modal):
             f"You will be automatically added to the event if a spot opens up.\n\n"
             f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
             f"If you withdraw late, you are fully responsible for any consequences, including "
-            f"payment requests from the event organizer and potential server moderation action."
+            f"payment requests from the event organizer and potential server moderation action.\n\n"
+            f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
+            f"you may be charged extra by the organizers."
         )
 
         # 2. Attempt to DM the user first
@@ -409,7 +411,9 @@ class GatheringModal(ui.Modal):
             f"✔ Arrival Confirmed"
             f"{drinks_msg}\n\n"
             f"You can choose to leave the offkai and re-apply with fewer people, "
-            f"or stay on the waitlist and be automatically added if a spot opens up."
+            f"or stay on the waitlist and be automatically added if a spot opens up.\n\n"
+            f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
+            f"you may be charged extra by the organizers."
         )
 
         # 2. Attempt to DM the user first

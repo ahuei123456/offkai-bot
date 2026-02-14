@@ -723,6 +723,79 @@ async def test_capacity_reached_message_sent_when_filling_event(event_with_capac
 
 
 @pytest.mark.asyncio
+async def test_waitlist_dm_contains_extra_charge_warning(event_with_capacity, mock_interaction, mock_cog):
+    """Test that waitlist DM contains the extra-charge warning."""
+    # Fill the event to capacity
+    add_response(
+        event_with_capacity.event_name,
+        Response(
+            user_id=999,
+            username="ExistingUser",
+            extra_people=2,  # 3 total
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    modal = GatheringModal(event=event_with_capacity)
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "0"
+    modal.behave_checkbox_input = MagicMock()
+    modal.behave_checkbox_input.value = "Yes"
+    modal.arrival_checkbox_input = MagicMock()
+    modal.arrival_checkbox_input.value = "Yes"
+    modal.drink_choice_input = None
+
+    await modal.on_submit(mock_interaction)
+
+    # Check the DM message contains the extra-charge warning
+    assert mock_interaction.user.send.called
+    message = mock_interaction.user.send.call_args[0][0]
+    assert "you may be charged extra by the organizers" in message
+
+
+@pytest.mark.asyncio
+async def test_waitlist_capacity_exceeded_dm_contains_extra_charge_warning(
+    event_with_capacity, mock_interaction, mock_cog
+):
+    """Test that capacity-exceeded waitlist DM contains the extra-charge warning."""
+    # Fill to 1 spot remaining (2/3)
+    add_response(
+        event_with_capacity.event_name,
+        Response(
+            user_id=999,
+            username="ExistingUser",
+            extra_people=1,  # 2 people total
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # Try to register with +1 (2 people total, would exceed)
+    modal = GatheringModal(event=event_with_capacity)
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "1"
+    modal.behave_checkbox_input = MagicMock()
+    modal.behave_checkbox_input.value = "Yes"
+    modal.arrival_checkbox_input = MagicMock()
+    modal.arrival_checkbox_input.value = "Yes"
+    modal.drink_choice_input = None
+
+    await modal.on_submit(mock_interaction)
+
+    # Check the DM message contains the extra-charge warning
+    assert mock_interaction.user.send.called
+    message = mock_interaction.user.send.call_args[0][0]
+    assert "you may be charged extra by the organizers" in message
+
+
+@pytest.mark.asyncio
 async def test_closed_event_adds_to_waitlist(event_with_capacity, mock_interaction, mock_cog):
     """Test that joining a closed event adds user to waitlist."""
     # Close the event
