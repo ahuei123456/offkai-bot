@@ -272,6 +272,56 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
     mock_log.info.assert_any_call(f"Registered 1 week reminder for '{event.event_name}'.")
 
 
+@patch("offkai_bot.alerts.alerts.register_alert")
+@patch("offkai_bot.event_actions._log")
+def test_register_deadline_reminders_with_ping_role(
+    mock_log, mock_register_alert, mock_client, mock_thread, future_event
+):
+    """Test that reminder messages include role ping when ping_role_id is set."""
+    # Arrange
+    event = future_event
+    event.ping_role_id = 99887766
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert - check that SendMessageTask messages include the role ping
+    assert mock_register_alert.call_count == 4
+    role_ping_prefix = "<@&99887766> "
+
+    # Extract the SendMessageTask calls (skip the first CloseOffkaiTask call)
+    send_msg_calls = [call for call in mock_register_alert.call_args_list if isinstance(call[0][1], SendMessageTask)]
+    assert len(send_msg_calls) == 3
+
+    for call in send_msg_calls:
+        task = call[0][1]
+        assert task.message.startswith(role_ping_prefix), (
+            f"Expected message to start with role ping, got: {task.message}"
+        )
+
+
+@patch("offkai_bot.alerts.alerts.register_alert")
+@patch("offkai_bot.event_actions._log")
+def test_register_deadline_reminders_without_ping_role(
+    mock_log, mock_register_alert, mock_client, mock_thread, future_event
+):
+    """Test that reminder messages do NOT include role ping when ping_role_id is None."""
+    # Arrange
+    event = future_event
+    assert event.ping_role_id is None  # Default is None
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert - check that SendMessageTask messages do NOT include any role ping
+    send_msg_calls = [call for call in mock_register_alert.call_args_list if isinstance(call[0][1], SendMessageTask)]
+    assert len(send_msg_calls) == 3
+
+    for call in send_msg_calls:
+        task = call[0][1]
+        assert not task.message.startswith("<@&"), f"Expected no role ping, got: {task.message}"
+
+
 @patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
 @patch("offkai_bot.event_actions._log")
 def test_register_deadline_reminders_no_channel_id(

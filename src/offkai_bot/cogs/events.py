@@ -73,6 +73,7 @@ class EventsCog(commands.Cog):
         drinks="Optional: Comma-separated list of allowed drinks.",
         announce_msg="Optional: A message to post in the main channel.",
         max_capacity="Optional: Maximum number of attendees (including +1s). Leave empty for unlimited.",
+        ping_role="Optional: A role to ping in deadline reminders (filtered to roles containing 'meetups').",
     )
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
@@ -88,6 +89,7 @@ class EventsCog(commands.Cog):
         drinks: str | None = None,
         announce_msg: str | None = None,
         max_capacity: int | None = None,
+        ping_role: str | None = None,
     ):
         # 1. Business Logic Validation
         with contextlib.suppress(EventNotFoundError):
@@ -98,6 +100,13 @@ class EventsCog(commands.Cog):
         event_datetime = parse_event_datetime(date_time)
         event_deadline = parse_event_datetime(deadline) if deadline else None
         drinks_list = parse_drinks(drinks)
+
+        ping_role_id: int | None = None
+        if ping_role is not None:
+            try:
+                ping_role_id = int(ping_role)
+            except ValueError:
+                _log.warning(f"Invalid ping_role value '{ping_role}', ignoring.")
 
         # 3. Context Validation
         validate_interaction_context(interaction)
@@ -132,6 +141,7 @@ class EventsCog(commands.Cog):
             announce_msg=announce_msg,
             max_capacity=max_capacity,
             creator_id=interaction.user.id,
+            ping_role_id=ping_role_id,
         )
 
         register_deadline_reminders(self.bot, new_event, thread)
@@ -548,6 +558,20 @@ class EventsCog(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         return await self.event_autocomplete_base(interaction, current, open_status=None)
 
+    async def meetup_role_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+
+        choices = []
+        for role in interaction.guild.roles:
+            if "meetups" not in role.name.lower():
+                continue
+            if current.lower() in role.name.lower():
+                choices.append(app_commands.Choice(name=role.name, value=str(role.id)))
+        return choices[:25]
+
     async def waitlist_user_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
@@ -569,6 +593,7 @@ class EventsCog(commands.Cog):
         return choices[:25]
 
     # Apply autocompletes
+    create_offkai.autocomplete("ping_role")(meetup_role_autocomplete)
     modify_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     close_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     broadcast.autocomplete("event_name")(offkai_autocomplete_active)

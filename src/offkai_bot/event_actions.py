@@ -300,12 +300,14 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
             _log.info(f"Registered auto-close task for '{event.event_name}'.")
 
             if event.channel_id:
+                role_ping = f"<@&{event.ping_role_id}> " if event.ping_role_id else ""
+
                 register_alert(
                     event.event_deadline - timedelta(days=1),
                     SendMessageTask(
                         client=client,
                         channel_id=event.channel_id,
-                        message=f"24 hours until registration deadline for {event.event_name}! "
+                        message=f"{role_ping}24 hours until registration deadline for {event.event_name}! "
                         f"See {thread.mention} for details.",
                     ),
                 )
@@ -316,7 +318,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                     SendMessageTask(
                         client=client,
                         channel_id=event.channel_id,
-                        message=f"3 days until registration deadline for {event.event_name}! "
+                        message=f"{role_ping}3 days until registration deadline for {event.event_name}! "
                         f"See {thread.mention} for details.",
                     ),
                 )
@@ -327,7 +329,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                     SendMessageTask(
                         client=client,
                         channel_id=event.channel_id,
-                        message=f"1 week until registration deadline for {event.event_name}! "
+                        message=f"{role_ping}1 week until registration deadline for {event.event_name}! "
                         f"See {thread.mention} for details.",
                     ),
                 )

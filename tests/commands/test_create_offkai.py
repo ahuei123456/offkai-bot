@@ -272,6 +272,119 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     mock_interaction.response.send_message.assert_awaited_once()
 
 
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions.OpenEvent")
+@patch("offkai_bot.cogs.events.register_deadline_reminders")
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_create_offkai_with_ping_role(
+    mock_log,
+    mock_get_event,
+    mock_parse_dt,
+    mock_parse_drinks,
+    mock_validate_ctx,
+    mock_add_event,
+    mock_register_reminders,
+    mock_open_event_view,
+    mock_create_event_message,
+    mock_save_event_data,
+    mock_interaction,
+    mock_thread,
+    mock_created_event,
+    mock_cog,
+):
+    """Test create_offkai passes ping_role_id to add_event when ping_role is provided."""
+    # Arrange
+    mock_get_event.side_effect = EventNotFoundError(mock_created_event.event_name)
+    mock_parse_dt.return_value = mock_created_event.event_datetime
+    mock_parse_drinks.return_value = mock_created_event.drinks
+    mock_interaction.channel.create_thread.return_value = mock_thread
+    mock_add_event.return_value = mock_created_event
+
+    mock_message = AsyncMock(spec=discord.Message)
+    mock_message.id = 98765
+    mock_thread.send.return_value = mock_message
+    mock_create_event_message.return_value = "Event message content"
+
+    # Act
+    await EventsCog.create_offkai.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=mock_created_event.event_name,
+        venue=mock_created_event.venue,
+        address=mock_created_event.address,
+        google_maps_link=mock_created_event.google_maps_link,
+        date_time="3000-01-01 12:00",
+        ping_role="99887766",
+    )
+
+    # Assert
+    mock_add_event.assert_called_once()
+    _, kwargs = mock_add_event.call_args
+    assert kwargs["ping_role_id"] == 99887766
+
+
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.create_event_message")
+@patch("offkai_bot.event_actions.OpenEvent")
+@patch("offkai_bot.cogs.events.register_deadline_reminders")
+@patch("offkai_bot.cogs.events.add_event")
+@patch("offkai_bot.cogs.events.validate_interaction_context")
+@patch("offkai_bot.cogs.events.parse_drinks")
+@patch("offkai_bot.cogs.events.parse_event_datetime")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_create_offkai_without_ping_role(
+    mock_log,
+    mock_get_event,
+    mock_parse_dt,
+    mock_parse_drinks,
+    mock_validate_ctx,
+    mock_add_event,
+    mock_register_reminders,
+    mock_open_event_view,
+    mock_create_event_message,
+    mock_save_event_data,
+    mock_interaction,
+    mock_thread,
+    mock_created_event,
+    mock_cog,
+):
+    """Test create_offkai passes ping_role_id=None when ping_role is not provided."""
+    # Arrange
+    mock_get_event.side_effect = EventNotFoundError(mock_created_event.event_name)
+    mock_parse_dt.return_value = mock_created_event.event_datetime
+    mock_parse_drinks.return_value = mock_created_event.drinks
+    mock_interaction.channel.create_thread.return_value = mock_thread
+    mock_add_event.return_value = mock_created_event
+
+    mock_message = AsyncMock(spec=discord.Message)
+    mock_message.id = 98765
+    mock_thread.send.return_value = mock_message
+    mock_create_event_message.return_value = "Event message content"
+
+    # Act
+    await EventsCog.create_offkai.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=mock_created_event.event_name,
+        venue=mock_created_event.venue,
+        address=mock_created_event.address,
+        google_maps_link=mock_created_event.google_maps_link,
+        date_time="3000-01-01 12:00",
+    )
+
+    # Assert
+    mock_add_event.assert_called_once()
+    _, kwargs = mock_add_event.call_args
+    assert kwargs["ping_role_id"] is None
+
+
 @patch("offkai_bot.cogs.events.send_event_message")
 @patch("offkai_bot.cogs.events.register_deadline_reminders")
 @patch("offkai_bot.cogs.events.add_event")
