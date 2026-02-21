@@ -156,20 +156,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     global settings
     args = parse_args()
-    try:
-        # Explicitly load the configuration ONCE at startup
-        config.load_config(args.config_path)
-    except config.ConfigError as e:
-        print(f"Fatal Error: Failed to load configuration - {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Now access the config via the accessor function
-    settings = config.get_config()
 
     # Setup logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
     discord_logger = logging.getLogger("discord")
     discord_logger.setLevel(logging.WARNING)  # Reduce discord lib noise
+
+    try:
+        # Explicitly load the configuration ONCE at startup
+        config.load_config(args.config_path)
+    except config.ConfigError as e:
+        _log.critical(f"Fatal Error: Failed to load configuration - {e}")
+        sys.exit(1)
+
+    # Now access the config via the accessor function
+    settings = config.get_config()
 
     # Validate config before running
     if not settings["DISCORD_TOKEN"]:

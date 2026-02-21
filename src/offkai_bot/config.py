@@ -1,6 +1,9 @@
 import json
+import logging
 import os
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 _config_cache: dict[str, Any] | None = None  # Store the loaded config here
 
@@ -16,7 +19,7 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
     global _config_cache
     if _config_cache is not None:
         # Optional: Decide if reloading is allowed or just return cache
-        # print("Returning cached config")
+        # _log.debug("Returning cached config")
         return _config_cache
 
     if not os.path.exists(path):
@@ -37,7 +40,7 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
         # -----------------------------------------------------
 
         _config_cache = data
-        print(f"Configuration loaded successfully from {path}")  # Optional logging
+        _log.info(f"Configuration loaded successfully from {path}")  # Optional logging
         return _config_cache
     except json.JSONDecodeError as e:
         raise ConfigError(f"Error decoding JSON from {path}: {e}")
@@ -52,7 +55,7 @@ def get_config() -> dict[str, Any]:
         # Attempt to load with default path if not loaded yet
         # Alternatively, raise an error if explicit load hasn't happened
         # raise ConfigError("Configuration has not been loaded. Call load_config() first.")
-        print("Warning: Config accessed before explicit load. Loading with default path.")
+        _log.warning("Config accessed before explicit load. Loading with default path.")
         load_config()  # Load with default path "config.json"
 
     if _config_cache is None:
