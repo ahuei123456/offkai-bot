@@ -150,9 +150,14 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             await promoted_user.send(
                 f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
                 f"You've been automatically moved from the waitlist to confirmed attendees.\n\n"
+                f"🎉 朗報です！**{event.event_name}**に空きが出ました！\n"
+                f"ウェイトリストから自動的に参加確定に移動されました。\n\n"
                 f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
                 f"If you withdraw late, you are fully responsible for any consequences, including "
-                f"payment requests from the event organizer and potential server moderation action."
+                f"payment requests from the event organizer and potential server moderation action.\n\n"
+                f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
+                f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+                f"すべての結果に対して、全責任を負います。"
             )
             _log.info(f"Promoted user {promoted_entry.user_id} from waitlist for event '{event.event_name}'.")
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
@@ -314,15 +319,24 @@ class GatheringModal(ui.Modal):
         """Handles actions after a response is successfully added."""
         # 1. Create the confirmation message string
         drinks_msg = f"\n🍺 Drinks: {', '.join(response.drinks)}" if response.drinks else ""
+        drinks_msg_jp = f"\n🍺 飲み物: {', '.join(response.drinks)}" if response.drinks else ""
         confirmation_message = (
             f"✅ Attendance confirmed for **{self.event.event_name}**!\n"
             f"👥 Bringing: {response.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
             f"{drinks_msg}\n\n"
+            f"✅ 参加確定: **{self.event.event_name}**\n"
+            f"👥 同伴者: {response.extra_people}名\n"
+            f"✔ 行動確認済み\n"
+            f"✔ 到着確認済み"
+            f"{drinks_msg_jp}\n\n"
             f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
             f"If you withdraw late, you are fully responsible for any consequences, including "
-            f"payment requests from the event organizer and potential server moderation action."
+            f"payment requests from the event organizer and potential server moderation action.\n\n"
+            f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
+            f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+            f"すべての結果に対して、全責任を負います。"
         )
 
         # 2. Attempt to DM the user first
@@ -359,18 +373,30 @@ class GatheringModal(ui.Modal):
         """Handles actions after a user is added to the waitlist."""
         # 1. Create the waitlist confirmation message
         drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
+        drinks_msg_jp = f"\n🍺 飲み物: {', '.join(entry.drinks)}" if entry.drinks else ""
         waitlist_message = (
             f"📋 You've been added to the waitlist for **{self.event.event_name}**!\n"
             f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
             f"{drinks_msg}\n\n"
-            f"You will be automatically added to the event if a spot opens up.\n\n"
+            f"📋 **{self.event.event_name}**のウェイトリストに追加されました！\n"
+            f"👥 同伴者: {entry.extra_people}名\n"
+            f"✔ 行動確認済み\n"
+            f"✔ 到着確認済み"
+            f"{drinks_msg_jp}\n\n"
+            f"You will be automatically added to the event if a spot opens up.\n"
+            f"空きが出た場合、自動的にイベントに追加されます。\n\n"
             f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
             f"If you withdraw late, you are fully responsible for any consequences, including "
             f"payment requests from the event organizer and potential server moderation action.\n\n"
+            f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
+            f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+            f"すべての結果に対して、全責任を負います。\n\n"
             f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
-            f"you may be charged extra by the organizers."
+            f"you may be charged extra by the organizers.\n"
+            f"💰 **注意:** 誰もキャンセルせず、それでもオフ会への参加が認められた場合、"
+            f"主催者から追加料金が請求される場合があります。"
         )
 
         # 2. Attempt to DM the user first
@@ -401,6 +427,7 @@ class GatheringModal(ui.Modal):
         """Handles actions when a user's group exceeds capacity and is added to waitlist."""
         # 1. Create the capacity exceeded + waitlist message
         drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
+        drinks_msg_jp = f"\n🍺 飲み物: {', '.join(entry.drinks)}" if entry.drinks else ""
         waitlist_message = (
             f"❌ Sorry, your group of {total_people_in_group} people would exceed the capacity "
             f"for **{self.event.event_name}**.\n"
@@ -410,10 +437,22 @@ class GatheringModal(ui.Modal):
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
             f"{drinks_msg}\n\n"
+            f"❌ 申し訳ありませんが、{total_people_in_group}名のグループは"
+            f"**{self.event.event_name}**の定員を超えてしまいます。\n"
+            f"定員{self.event.max_capacity}名中、残り{remaining_spots}名分です。\n\n"
+            f"📋 現在ウェイトリストに追加されています。\n"
+            f"👥 同伴者: {entry.extra_people}名\n"
+            f"✔ 行動確認済み\n"
+            f"✔ 到着確認済み"
+            f"{drinks_msg_jp}\n\n"
             f"You can choose to leave the offkai and re-apply with fewer people, "
-            f"or stay on the waitlist and be automatically added if a spot opens up.\n\n"
+            f"or stay on the waitlist and be automatically added if a spot opens up.\n"
+            f"人数を減らして再申請するか、ウェイトリストに残って空きが出た場合に"
+            f"自動的に追加されるのをお待ちいただけます。\n\n"
             f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
-            f"you may be charged extra by the organizers."
+            f"you may be charged extra by the organizers.\n"
+            f"💰 **注意:** 誰もキャンセルせず、それでもオフ会への参加が認められた場合、"
+            f"主催者から追加料金が請求される場合があります。"
         )
 
         # 2. Attempt to DM the user first
@@ -446,7 +485,9 @@ class GatheringModal(ui.Modal):
             if interaction.channel and isinstance(interaction.channel, discord.Thread):
                 await interaction.channel.send(
                     f"⚠️ **Maximum capacity has been reached for {self.event.event_name}!**\n"
-                    f"New registrations will be added to the waitlist."
+                    f"New registrations will be added to the waitlist.\n\n"
+                    f"⚠️ **{self.event.event_name}の定員に達しました！**\n"
+                    f"新規登録はウェイトリストに追加されます。"
                 )
                 _log.info(f"Sent capacity reached message to thread for event '{self.event.event_name}'.")
             else:
@@ -648,7 +689,10 @@ class OpenEvent(EventView):
         # --- Success Path (user was removed from either responses or waitlist) ---
         try:
             # 1. Create the withdrawal message string
-            withdrawal_message = f"👋 Your attendance for **{self.event.event_name}** has been withdrawn."
+            withdrawal_message = (
+                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n"
+                f"👋 **{self.event.event_name}**への参加が取り消されました。"
+            )
 
             # 2. Attempt to DM the user first
             try:
@@ -754,7 +798,11 @@ class ClosedEvent(EventView):
                 f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
                 f"⚠️ **Important:** Withdrawing after responses are closed is your full responsibility. "
                 f"You may be contacted by the event organizer for payment if needed. "
-                f"Failure to comply may result in server moderation action."
+                f"Failure to comply may result in server moderation action.\n\n"
+                f"👋 **{self.event.event_name}**への参加が取り消されました。\n\n"
+                f"⚠️ **重要:** 締め切り後の辞退はご自身の全責任となります。"
+                f"主催者から支払いについて連絡が来る場合があります。"
+                f"従わない場合、サーバーのモデレーション措置が取られる可能性があります。"
             )
 
             # 2. Attempt to DM the user first
@@ -871,7 +919,11 @@ class PostDeadlineEvent(EventView):
                 f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
                 f"⚠️ **Important:** Withdrawing after the deadline is your full responsibility. "
                 f"You may be contacted by the event organizer for payment if needed. "
-                f"Failure to comply may result in server moderation action."
+                f"Failure to comply may result in server moderation action.\n\n"
+                f"👋 **{self.event.event_name}**への参加が取り消されました。\n\n"
+                f"⚠️ **重要:** 締め切り後の辞退はご自身の全責任となります。"
+                f"主催者から支払いについて連絡が来る場合があります。"
+                f"従わない場合、サーバーのモデレーション措置が取られる可能性があります。"
             )
 
             # 2. Attempt to DM the user first

@@ -306,7 +306,9 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         client=client,
                         channel_id=event.channel_id,
                         message=f"24 hours until registration deadline for {event.event_name}! "
-                        f"See {thread.mention} for details.",
+                        f"See {thread.mention} for details.\n"
+                        f"{event.event_name}の登録締切まであと24時間です！"
+                        f"詳細は{thread.mention}をご覧ください。",
                     ),
                 )
                 _log.info(f"Registered 24 hour reminder for '{event.event_name}'.")
@@ -317,7 +319,9 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         client=client,
                         channel_id=event.channel_id,
                         message=f"3 days until registration deadline for {event.event_name}! "
-                        f"See {thread.mention} for details.",
+                        f"See {thread.mention} for details.\n"
+                        f"{event.event_name}の登録締切まであと3日です！"
+                        f"詳細は{thread.mention}をご覧ください。",
                     ),
                 )
                 _log.info(f"Registered 3 day reminder for '{event.event_name}'.")
@@ -328,7 +332,9 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         client=client,
                         channel_id=event.channel_id,
                         message=f"1 week until registration deadline for {event.event_name}! "
-                        f"See {thread.mention} for details.",
+                        f"See {thread.mention} for details.\n"
+                        f"{event.event_name}の登録締切まであと1週間です！"
+                        f"詳細は{thread.mention}をご覧ください。",
                     ),
                 )
 
