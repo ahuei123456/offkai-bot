@@ -306,7 +306,7 @@ class GatheringModal(ui.Modal):
             names = []
         else:
             names = extras.split(",")
-            print(f"{len(names)=}, {num_extra=}")
+            _log.debug(f"{len(names)=}, {num_extra=}")
             if len(names) != num_extra:
                 raise ValidationError(
                     f"Please provide exactly {num_extra} names "
