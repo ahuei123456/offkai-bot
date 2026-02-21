@@ -276,6 +276,69 @@ def test_load_event_data_invalid_datetime(mock_paths):
         assert "'not-a-datetime'" in mock_log.warning.call_args[0][0]
 
 
+def test_load_event_data_with_ping_role_id(mock_paths):
+    """Test loading event data that includes a ping_role_id field."""
+    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
+    event_dict = {
+        "event_name": "Ping Role Event",
+        "venue": "V1",
+        "address": "A1",
+        "google_maps_link": "g1",
+        "event_datetime": dt1.isoformat(),
+        "event_deadline": dt1.isoformat(),
+        "channel_id": 1,
+        "thread_id": 11,
+        "message_id": 111,
+        "open": True,
+        "archived": False,
+        "drinks": [],
+        "ping_role_id": 99887766,
+    }
+    valid_json = json.dumps([event_dict], indent=4)
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=valid_json)),
+        patch("offkai_bot.data.event._log"),
+    ):
+        events = event_data._load_event_data()
+
+        assert len(events) == 1
+        assert events[0].ping_role_id == 99887766
+
+
+def test_load_event_data_without_ping_role_id(mock_paths):
+    """Test loading event data without ping_role_id defaults to None."""
+    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
+    event_dict = {
+        "event_name": "No Ping Event",
+        "venue": "V1",
+        "address": "A1",
+        "google_maps_link": "g1",
+        "event_datetime": dt1.isoformat(),
+        "event_deadline": dt1.isoformat(),
+        "channel_id": 1,
+        "thread_id": 11,
+        "message_id": 111,
+        "open": True,
+        "archived": False,
+        "drinks": [],
+    }
+    valid_json = json.dumps([event_dict], indent=4)
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=valid_json)),
+        patch("offkai_bot.data.event._log"),
+    ):
+        events = event_data._load_event_data()
+
+        assert len(events) == 1
+        assert events[0].ping_role_id is None
+
+
 def test_load_event_data_old_format_missing_deadline(mock_paths):
     """Test loading data from old format missing deadline and channel_id."""
     old_format_dict = {
@@ -527,6 +590,56 @@ def test_add_event_no_deadline():
 
         assert len(initial_cache_state) == 1
         assert initial_cache_state[0] == new_event_obj
+
+
+def test_add_event_with_ping_role_id():
+    """Test adding a new event with a ping_role_id."""
+    initial_cache_state = []
+    event_data.EVENT_DATA_CACHE = initial_cache_state
+
+    with (
+        patch("offkai_bot.data.event.load_event_data", return_value=initial_cache_state),
+        patch("offkai_bot.data.event.save_event_data"),
+        patch("offkai_bot.data.event._log"),
+    ):
+        new_event_obj = event_data.add_event(
+            event_name="Ping Role Event",
+            venue="Venue",
+            address="Addr",
+            google_maps_link="gmap",
+            event_datetime=FUTURE_EVENT_DT,
+            thread_id=111,
+            channel_id=222,
+            drinks_list=[],
+            ping_role_id=99887766,
+        )
+        assert new_event_obj.ping_role_id == 99887766
+
+        assert len(initial_cache_state) == 1
+        assert initial_cache_state[0].ping_role_id == 99887766
+
+
+def test_add_event_without_ping_role_id():
+    """Test adding a new event without ping_role_id defaults to None."""
+    initial_cache_state = []
+    event_data.EVENT_DATA_CACHE = initial_cache_state
+
+    with (
+        patch("offkai_bot.data.event.load_event_data", return_value=initial_cache_state),
+        patch("offkai_bot.data.event.save_event_data"),
+        patch("offkai_bot.data.event._log"),
+    ):
+        new_event_obj = event_data.add_event(
+            event_name="No Ping Event",
+            venue="Venue",
+            address="Addr",
+            google_maps_link="gmap",
+            event_datetime=FUTURE_EVENT_DT,
+            thread_id=111,
+            channel_id=222,
+            drinks_list=[],
+        )
+        assert new_event_obj.ping_role_id is None
 
 
 # == update_event_details Tests ==
