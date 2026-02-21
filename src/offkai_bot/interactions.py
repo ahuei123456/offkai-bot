@@ -5,14 +5,9 @@ from datetime import UTC, datetime
 import discord
 from discord import ui
 
-from offkai_bot.errors import (
-    DuplicateResponseError,
-    ResponseNotFoundError,
-)
-
-from .data.event import Event
-from .data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
-from .data.response import (
+from offkai_bot.data.event import Event
+from offkai_bot.data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
+from offkai_bot.data.response import (
     Response,
     WaitlistEntry,
     add_response,
@@ -23,7 +18,11 @@ from .data.response import (
     remove_from_waitlist,
     remove_response,
 )
-from .messages import MILESTONE_MESSAGES
+from offkai_bot.errors import (
+    DuplicateResponseError,
+    ResponseNotFoundError,
+)
+from offkai_bot.messages import MILESTONE_MESSAGES
 
 _log = logging.getLogger(__name__)
 

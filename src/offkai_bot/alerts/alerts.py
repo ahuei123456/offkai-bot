@@ -4,12 +4,10 @@ from datetime import datetime
 
 from discord.ext import tasks  # type: ignore[attr-defined]
 
-from offkai_bot.errors import AlertTimeInPastError
-
-from ..util import JST  # Import JST from util
-
 # Import necessary components from your project
-from .task import Task
+from offkai_bot.alerts.task import Task
+from offkai_bot.errors import AlertTimeInPastError
+from offkai_bot.util import JST  # Import JST from util
 
 _log = logging.getLogger(__name__)
 

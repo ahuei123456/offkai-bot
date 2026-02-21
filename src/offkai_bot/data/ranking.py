@@ -4,8 +4,8 @@ import logging
 import os
 from dataclasses import dataclass
 
-from ..config import get_config
-from .encoders import DataclassJSONEncoder
+from offkai_bot.config import get_config
+from offkai_bot.data.encoders import DataclassJSONEncoder
 
 _log = logging.getLogger(__name__)
 

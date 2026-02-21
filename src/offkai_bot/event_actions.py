@@ -5,15 +5,14 @@ from datetime import timedelta
 import discord
 
 from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
-
-from .data.event import (
+from offkai_bot.data.event import (
     Event,
     create_event_message,
     load_event_data,
     save_event_data,
     set_event_open_status,
 )
-from .errors import (
+from offkai_bot.errors import (
     AlertTimeInPastError,
     BotCommandError,
     MissingChannelIDError,
@@ -21,7 +20,7 @@ from .errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
-from .interactions import ClosedEvent, OpenEvent, PostDeadlineEvent
+from offkai_bot.interactions import ClosedEvent, OpenEvent, PostDeadlineEvent
 
 _log = logging.getLogger(__name__)
 
