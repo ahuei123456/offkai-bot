@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 import discord
 
-from ..errors import BotCommandError  # Import base error for catching known issues
+from offkai_bot.errors import BotCommandError  # Import base error for catching known issues
 
 # Assuming perform_close_event is correctly placed and importable
 # Adjust the import path if necessary based on your project structure
@@ -80,7 +80,7 @@ class CloseOffkaiTask(Task):
             # Call the core closing logic function
             # self.client is inherited from the Task dataclass
 
-            from ..event_actions import perform_close_event
+            from offkai_bot.event_actions import perform_close_event
 
             await perform_close_event(self.client, self.event_name, self.close_msg)
             _log.info(f"Successfully executed automatic closure for event: '{self.event_name}'")

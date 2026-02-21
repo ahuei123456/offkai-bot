@@ -7,20 +7,19 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# --- Updated Imports ---
+from offkai_bot import config
 from offkai_bot.alerts.alerts import alert_loop
 
-# --- Updated Imports ---
-from . import config
-
 # Import only necessary data loaders for initial cache population
-from .data.event import load_event_data
-from .data.ranking import load_rankings
-from .data.response import load_responses
-from .errors import (
+from offkai_bot.data.event import load_event_data
+from offkai_bot.data.ranking import load_rankings
+from offkai_bot.data.response import load_responses
+from offkai_bot.errors import (
     BotCommandError,
     PinPermissionError,  # Import the error for handling
 )
-from .event_actions import (
+from offkai_bot.event_actions import (
     load_and_update_events,
 )
 

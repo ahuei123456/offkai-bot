@@ -7,16 +7,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TypedDict
 
+# Use relative imports for sibling modules within the package
+from offkai_bot.config import get_config
+from offkai_bot.data.encoders import DataclassJSONEncoder
 from offkai_bot.errors import (
     DuplicateResponseError,
     NoResponsesFoundError,
     NoWaitlistEntriesFoundError,
     ResponseNotFoundError,
 )
-
-# Use relative imports for sibling modules within the package
-from ..config import get_config
-from .encoders import DataclassJSONEncoder
 
 _log = logging.getLogger(__name__)
 
