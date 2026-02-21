@@ -1123,13 +1123,13 @@ def test_event_format_details():
     expected_ts = int(dt_utc.timestamp())
 
     expected = (
-        "📅 **Event Name**: Formatting Test\n"
-        "🍽️ **Venue**: Test Venue\n"
-        "📍 **Address**: 123 Test St\n"
-        "🌎 **Google Maps Link**: gmap_link\n"
-        "🕑 **Date and Time**: 2024-03-15 18:30 JST\n"  # Assumes JST formatting
-        f"📅 **Deadline**: <t:{expected_ts}:F> (<t:{expected_ts}:R>)\n"
-        "🍺 **Drinks**: Soda, Water"
+        "📅 **Event Name (イベント名)**: Formatting Test\n"
+        "🍽️ **Venue (会場)**: Test Venue\n"
+        "📍 **Address (住所)**: 123 Test St\n"
+        "🌎 **Google Maps Link (地図)**: gmap_link\n"
+        "🕑 **Date and Time (日時)**: 2024-03-15 18:30 JST\n"  # Assumes JST formatting
+        f"📅 **Deadline (締切)**: <t:{expected_ts}:F> (<t:{expected_ts}:R>)\n"
+        "🍺 **Drinks (飲み物)**: Soda, Water"
     )
     assert event.format_details() == expected
 
@@ -1146,13 +1146,13 @@ def test_event_format_details_no_datetime_no_drinks():
         drinks=[],
     )
     expected = (
-        "📅 **Event Name**: Minimal Test\n"
-        "🍽️ **Venue**: Min Venue\n"
-        "📍 **Address**: Min Addr\n"
-        "🌎 **Google Maps Link**: min_gmap\n"
-        "🕑 **Date and Time**: Not Set\n"
-        "📅 **Deadline**: Not Set\n"
-        "🍺 **Drinks**: No selection needed!"
+        "📅 **Event Name (イベント名)**: Minimal Test\n"
+        "🍽️ **Venue (会場)**: Min Venue\n"
+        "📍 **Address (住所)**: Min Addr\n"
+        "🌎 **Google Maps Link (地図)**: min_gmap\n"
+        "🕑 **Date and Time (日時)**: Not Set\n"
+        "📅 **Deadline (締切)**: Not Set\n"
+        "🍺 **Drinks (飲み物)**: No selection needed!"
     )
     assert event.format_details() == expected
 
@@ -1212,15 +1212,19 @@ def test_create_event_message():
 
     # Expected details (assuming display as JST)
     expected_details = (
-        "📅 **Event Name**: Message Test Event\n"
-        "🍽️ **Venue**: Test Cafe\n"
-        "📍 **Address**: 456 Test Ave\n"
-        "🌎 **Google Maps Link**: gmap_link_msg\n"
-        "🕑 **Date and Time**: 2024-07-20 20:00 JST\n"  # Displayed as JST
-        "📅 **Deadline**: Not Set\n"
-        "🍺 **Drinks**: Coffee, Tea"
+        "📅 **Event Name (イベント名)**: Message Test Event\n"
+        "🍽️ **Venue (会場)**: Test Cafe\n"
+        "📍 **Address (住所)**: 456 Test Ave\n"
+        "🌎 **Google Maps Link (地図)**: gmap_link_msg\n"
+        "🕑 **Date and Time (日時)**: 2024-07-20 20:00 JST\n"  # Displayed as JST
+        "📅 **Deadline (締切)**: Not Set\n"
+        "🍺 **Drinks (飲み物)**: Coffee, Tea"
     )
-    expected_message = f"{expected_details}\n\n{OFFKAI_MESSAGE}\nClick the button below to confirm your attendance!"
+    expected_message = (
+        f"{expected_details}\n\n{OFFKAI_MESSAGE}\n"
+        "Click the button below to confirm your attendance!\n"
+        "下のボタンをクリックして参加を確認してください！"
+    )
     assert actual_message == expected_message
 
 
@@ -1246,13 +1250,17 @@ def test_create_event_message_with_deadline():
 
     expected_deadline_str = f"<t:{expected_ts}:F> (<t:{expected_ts}:R>)"
     expected_details = (
-        f"📅 **Event Name**: Deadline Message Test\n"
-        f"🍽️ **Venue**: V\n"
-        f"📍 **Address**: A\n"
-        f"🌎 **Google Maps Link**: G\n"
-        f"🕑 **Date and Time**: 2024-08-01 12:00 JST\n"  # Displayed as JST
-        f"📅 **Deadline**: {expected_deadline_str}\n"  # Check the formatted string
-        f"🍺 **Drinks**: Test Drink"
+        f"📅 **Event Name (イベント名)**: Deadline Message Test\n"
+        f"🍽️ **Venue (会場)**: V\n"
+        f"📍 **Address (住所)**: A\n"
+        f"🌎 **Google Maps Link (地図)**: G\n"
+        f"🕑 **Date and Time (日時)**: 2024-08-01 12:00 JST\n"  # Displayed as JST
+        f"📅 **Deadline (締切)**: {expected_deadline_str}\n"  # Check the formatted string
+        f"🍺 **Drinks (飲み物)**: Test Drink"
     )
-    expected_message = f"{expected_details}\n\n{OFFKAI_MESSAGE}\nClick the button below to confirm your attendance!"
+    expected_message = (
+        f"{expected_details}\n\n{OFFKAI_MESSAGE}\n"
+        "Click the button below to confirm your attendance!\n"
+        "下のボタンをクリックして参加を確認してください！"
+    )
     assert actual_message == expected_message

@@ -27,16 +27,26 @@ _log = logging.getLogger(__name__)
 # Constants can stay here if general, or move if specific
 OFFKAI_MESSAGE = (
     "Please take note of the following:\n"
+    "以下の注意事項をご確認ください：\n\n"
     "1. We will not accomodate any allergies or dietary restrictions.\n"
+    "アレルギーや食事制限には対応しません。\n"
     "2. Please register yourself and all your +1s by the deadline if you are planning on attending. "
     "Anyone who shows up uninvited or with uninvited guests can and will be turned away.\n"
+    "参加予定の方は、締め切りまでにご自身と同伴者全員の登録をお願いします。"
+    "招待されていない方や、招待されていない同伴者を連れてきた場合、入場をお断りすることがあります。\n"
     "3. Please show up on time. Restaurants tend to be packed after live events "
     "and we have been asked to give up table space in the past.\n"
+    "時間通りにお越しください。ライブイベント後はレストランが混み合うことが多く、"
+    "過去に席を譲るよう求められたことがあります。\n"
     "4. To simplify accounting, we will split the bill evenly among all participants, "
     "regardless of how much you eat or drink. Expect to pay around 4000 yen, "
     "maybe more if some people decide to drink a lot.\n"
+    "会計を簡単にするため、飲食量に関係なく均等に割り勘します。"
+    "約4000円程度を見込んでください。たくさん飲む方がいる場合はもう少し高くなることがあります。\n"
     "5. Depending on turnout or venue restrictions, we might need to change the location of the offkai.\n"
+    "参加者数や会場の制約により、オフ会の場所を変更する場合があります。\n"
     "6. Please pay attention to this thread for day-of announcements before the offkai starts.\n"
+    "オフ会開始前の当日のお知らせについては、このスレッドに注意してください。\n"
 )
 
 
@@ -102,13 +112,13 @@ class Event:
             deadline_str = "Not Set"
 
         return (
-            f"📅 **Event Name**: {self.event_name}\n"
-            f"🍽️ **Venue**: {self.venue}\n"
-            f"📍 **Address**: {self.address}\n"
-            f"🌎 **Google Maps Link**: {self.google_maps_link}\n"
-            f"🕑 **Date and Time**: {dt_str}\n"
-            f"📅 **Deadline**: {deadline_str}\n"
-            f"🍺 **Drinks**: {drinks_str}"
+            f"📅 **Event Name (イベント名)**: {self.event_name}\n"
+            f"🍽️ **Venue (会場)**: {self.venue}\n"
+            f"📍 **Address (住所)**: {self.address}\n"
+            f"🌎 **Google Maps Link (地図)**: {self.google_maps_link}\n"
+            f"🕑 **Date and Time (日時)**: {dt_str}\n"
+            f"📅 **Deadline (締切)**: {deadline_str}\n"
+            f"🍺 **Drinks (飲み物)**: {drinks_str}"
         )
 
     def __str__(self):
@@ -123,7 +133,8 @@ def create_event_message(event: Event) -> str:
     return (
         f"{event_details}\n\n"  # Event details first
         f"{OFFKAI_MESSAGE}\n"  # Standard rules
-        "Click the button below to confirm your attendance!"  # Call to action
+        "Click the button below to confirm your attendance!\n"  # Call to action
+        "下のボタンをクリックして参加を確認してください！"
     )
 
 

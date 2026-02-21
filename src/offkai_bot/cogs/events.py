@@ -435,9 +435,14 @@ class EventsCog(commands.Cog):
                 f"Great news! You've been manually promoted from the waitlist "
                 f"for **{event_name}**!\n"
                 f"You are now a confirmed attendee.\n\n"
+                f"朗報です！**{event_name}**のウェイトリストから手動で昇格されました！\n"
+                f"参加が確定しました。\n\n"
                 f"**Important:** Withdrawing after the deadline is strongly discouraged. "
                 f"If you withdraw late, you are fully responsible for any consequences, including "
-                f"payment requests from the event organizer and potential server moderation action."
+                f"payment requests from the event organizer and potential server moderation action.\n\n"
+                f"**重要:** 締め切り後の辞退は強くお勧めしません。"
+                f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+                f"すべての結果に対して、全責任を負います。"
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
             _log.warning(f"Could not DM promoted user {user_id} for event '{event_name}': {e}")
