@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from offkai_bot.alerts.reminders import register_deadline_reminders
 from offkai_bot.data.event import (
     add_event,
     archive_event,
@@ -23,6 +24,7 @@ from offkai_bot.data.response import (
     get_waitlist,
     promote_specific_from_waitlist,
     remove_response,
+    save_responses,
 )
 from offkai_bot.errors import (
     BroadcastPermissionError,
@@ -39,10 +41,10 @@ from offkai_bot.errors import (
 from offkai_bot.event_actions import (
     fetch_thread_for_event,
     perform_close_event,
-    register_deadline_reminders,
     send_event_message,
     update_event_message,
 )
+from offkai_bot.interactions import promote_waitlist_batch
 from offkai_bot.util import (
     log_command_usage,
     parse_drinks,
@@ -228,12 +230,8 @@ class EventsCog(commands.Cog):
             capacity_increased = True
 
         if capacity_increased:
-            from offkai_bot.interactions import promote_waitlist_batch
-
             promoted_user_ids = await promote_waitlist_batch(modified_event, self.bot)
             if promoted_user_ids:
-                from offkai_bot.data.response import save_responses
-
                 save_responses()
                 _log.info(
                     f"Promoted {len(promoted_user_ids)} user(s) from waitlist "

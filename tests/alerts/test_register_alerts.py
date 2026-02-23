@@ -8,10 +8,10 @@ import pytest
 
 # Import the module and functions to test
 from offkai_bot.alerts import alerts
+from offkai_bot.alerts.reminders import register_deadline_reminders
 from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask, Task  # Import base Task for type hinting
 from offkai_bot.data.event import Event
 from offkai_bot.errors import AlertTimeInPastError
-from offkai_bot.event_actions import register_deadline_reminders
 from offkai_bot.util import JST  # Import the JST timezone object
 
 # --- Fixtures ---
@@ -212,8 +212,8 @@ def test_register_alert_ignores_seconds(mock_log):
     assert mock_log.info.call_count == 2
 
 
-@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.alerts.reminders.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.alerts.reminders._log")
 def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock_client, mock_thread, future_event):
     """Test registering all reminders and close task for an event with future deadline and channel ID."""
     # Arrange
@@ -272,8 +272,8 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
     mock_log.info.assert_any_call(f"Registered 1 week reminder for '{event.event_name}'.")
 
 
-@patch("offkai_bot.alerts.alerts.register_alert")
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.alerts.reminders.register_alert")
+@patch("offkai_bot.alerts.reminders._log")
 def test_register_deadline_reminders_with_ping_role(
     mock_log, mock_register_alert, mock_client, mock_thread, future_event
 ):
@@ -300,8 +300,8 @@ def test_register_deadline_reminders_with_ping_role(
         )
 
 
-@patch("offkai_bot.alerts.alerts.register_alert")
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.alerts.reminders.register_alert")
+@patch("offkai_bot.alerts.reminders._log")
 def test_register_deadline_reminders_without_ping_role(
     mock_log, mock_register_alert, mock_client, mock_thread, future_event
 ):
@@ -322,8 +322,8 @@ def test_register_deadline_reminders_without_ping_role(
         assert not task.message.startswith("<@&"), f"Expected no role ping, got: {task.message}"
 
 
-@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.alerts.reminders.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.alerts.reminders._log")
 def test_register_deadline_reminders_no_channel_id(
     mock_log, mock_register_alert, mock_client, mock_thread, future_event
 ):
@@ -353,8 +353,8 @@ def test_register_deadline_reminders_no_channel_id(
     assert mock_log.info.call_count == 2  # Registering + Close Task
 
 
-@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.alerts.reminders.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.alerts.reminders._log")
 def test_register_deadline_reminders_no_deadline(mock_log, mock_register_alert, mock_client, mock_thread, future_event):
     """Test that no alerts are registered if the event has no deadline."""
     # Arrange
@@ -371,8 +371,8 @@ def test_register_deadline_reminders_no_deadline(mock_log, mock_register_alert, 
     assert mock_log.info.call_count == 1
 
 
-@patch("offkai_bot.alerts.alerts.register_alert")  # <-- CORRECTED PATCH PATH
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.alerts.reminders.register_alert")  # <-- CORRECTED PATCH PATH
+@patch("offkai_bot.alerts.reminders._log")
 def test_register_deadline_reminders_past_reminders_suppressed(
     mock_log, mock_register_alert, mock_client, mock_thread, future_event
 ):

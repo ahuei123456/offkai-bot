@@ -32,6 +32,14 @@
 - **Components**: Handles Discord UI elements like Buttons (`ConfirmAttendance`, `JoinWaitlist`) and Modals.
 - **Validation**: `validate_interaction_context` ensures commands run in the correct context (Guild vs DM).
 
+### Alerts & Tasks
+- **Location**: `src/offkai_bot/alerts/`
+- **Components**: Handles scheduled background jobs like event closing and reminder DMs.
+- **Pattern**: 
+    - `task.py`: Defines executable work (e.g., `CloseOffkaiTask`).
+    - `alerts.py`: Schedules and executes the tasks.
+    - `reminders.py`: Bridges events with alerts. Kept separate from `event_actions.py` to prevent circular imports.
+
 ## 3. Testing Strategy
 **Context Source:** `tests/conftest.py`
 

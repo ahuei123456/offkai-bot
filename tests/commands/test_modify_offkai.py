@@ -701,8 +701,8 @@ async def test_modify_offkai_decrease_capacity_with_waitlist_fails(
 # --- Capacity Increase with Waitlist Promotion Tests ---
 
 
-@patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.data.response.save_responses")
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_responses")
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.save_event_data")
@@ -772,7 +772,7 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
 
 
-@patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.save_event_data")
@@ -832,7 +832,7 @@ async def test_modify_offkai_capacity_increase_empty_waitlist(
     assert not any("Promoted" in str(call) and "from waitlist" in str(call) for call in mock_log.info.call_args_list)
 
 
-@patch("offkai_bot.interactions.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.save_event_data")
