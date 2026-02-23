@@ -101,6 +101,11 @@ This bot replaces manual methods of collecting attendance such as:
   - Warnings shown at registration, waitlist join, and promotion
   - Post-deadline withdrawal messages emphasize user responsibility
 
+- **Asynchronous Tasks & Alerts**
+  - Robust background task scheduling system for automated event management
+  - Clean separation of task definitions, execution loops, and event-specific reminder registration
+  - Modular design prevents circular dependencies between core event actions and background jobs
+
 ## Prerequisites
 
 Before running Offkai Bot, you need:

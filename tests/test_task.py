@@ -183,7 +183,7 @@ async def test_send_message_task_send_unexpected_error(mock_log, mock_client, mo
 
 
 # Patch the perform_close_event function *where it's looked up* by task.py
-@patch("offkai_bot.event_actions.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
 @patch("offkai_bot.alerts.task._log")
 async def test_close_offkai_task_success(mock_log, mock_perform_close, mock_client):
     """Test CloseOffkaiTask successfully calls perform_close_event."""
@@ -208,7 +208,7 @@ async def test_close_offkai_task_success(mock_log, mock_perform_close, mock_clie
     mock_log.exception.assert_not_called()
 
 
-@patch("offkai_bot.event_actions.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
 @patch("offkai_bot.alerts.task._log")
 async def test_close_offkai_task_handles_bot_command_error(mock_log, mock_perform_close, mock_client):
     """Test CloseOffkaiTask handles BotCommandError from perform_close_event."""
@@ -236,7 +236,7 @@ async def test_close_offkai_task_handles_bot_command_error(mock_log, mock_perfor
     mock_log.exception.assert_not_called()
 
 
-@patch("offkai_bot.event_actions.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
 @patch("offkai_bot.alerts.task._log")
 async def test_close_offkai_task_handles_http_exception(mock_log, mock_perform_close, mock_client):
     """Test CloseOffkaiTask handles discord.HTTPException from perform_close_event."""
@@ -259,7 +259,7 @@ async def test_close_offkai_task_handles_http_exception(mock_log, mock_perform_c
     mock_log.exception.assert_not_called()
 
 
-@patch("offkai_bot.event_actions.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
 @patch("offkai_bot.alerts.task._log")
 async def test_close_offkai_task_handles_unexpected_exception(mock_log, mock_perform_close, mock_client):
     """Test CloseOffkaiTask handles generic Exception from perform_close_event."""

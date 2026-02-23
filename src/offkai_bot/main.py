@@ -10,6 +10,7 @@ from discord.ext import commands
 # --- Updated Imports ---
 from offkai_bot import config
 from offkai_bot.alerts.alerts import alert_loop
+from offkai_bot.alerts.reminders import register_deadline_reminders
 
 # Import only necessary data loaders for initial cache population
 from offkai_bot.data.event import load_event_data
@@ -20,13 +21,34 @@ from offkai_bot.errors import (
     PinPermissionError,  # Import the error for handling
 )
 from offkai_bot.event_actions import (
-    load_and_update_events,
+    fetch_thread_for_event,
+    update_event_message,
 )
 
 # --- End Updated Imports ---
 
 _log = logging.getLogger(__name__)
 settings: dict[str, Any] = {}
+
+
+async def load_and_update_events(client: discord.Client):
+    """Loads events on startup and ensures their messages/views are up-to-date."""
+    _log.info("Loading and updating event messages...")
+    events = load_event_data()
+    if not events:
+        _log.info("No events found to load.")
+        return
+
+    for event in events:
+        if not event.archived:
+            # Pass only the client and event
+            await update_event_message(client, event)
+
+            # Register deadline close alerts
+            thread = await fetch_thread_for_event(client, event)
+            register_deadline_reminders(client, event, thread)
+
+    _log.info("Finished loading and updating event messages.")
 
 
 class OffkaiClient(commands.Bot):

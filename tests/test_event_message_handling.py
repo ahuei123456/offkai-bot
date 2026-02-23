@@ -12,6 +12,7 @@ from offkai_bot.errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
+from offkai_bot.main import load_and_update_events
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
@@ -465,11 +466,11 @@ async def test_update_message_edit_fails(
 # --- Tests for load_and_update_events ---
 
 
-@patch("offkai_bot.event_actions.register_deadline_reminders")  # Outermost patch, last mock arg
-@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)  # Fourth patch
-@patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.load_event_data")
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.main.register_deadline_reminders")  # Outermost patch, last mock arg
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)  # Fourth patch
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.load_event_data")
+@patch("offkai_bot.main._log")
 async def test_load_and_update_events_success(
     mock_ea_log,  # Corresponds to event_actions._log
     mock_load_data,
@@ -489,7 +490,7 @@ async def test_load_and_update_events_success(
 
     mock_fetch_thread.return_value = mock_thread
 
-    await event_actions.load_and_update_events(mock_client)
+    await load_and_update_events(mock_client)
 
     mock_load_data.assert_called_once()
     # Check update was called for open and closed, but not archived
@@ -507,14 +508,14 @@ async def test_load_and_update_events_success(
     mock_ea_log.info.assert_called()  # Check startup/finish logs
 
 
-@patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.load_event_data")
-@patch("offkai_bot.event_actions._log")
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.load_event_data")
+@patch("offkai_bot.main._log")
 async def test_load_and_update_events_no_events(mock_log, mock_load_data, mock_update, mock_client):
     """Test load_and_update_events when no events are loaded."""
     mock_load_data.return_value = []
 
-    await event_actions.load_and_update_events(mock_client)
+    await load_and_update_events(mock_client)
 
     mock_load_data.assert_called_once()
     mock_update.assert_not_awaited()  # Update should not be called
