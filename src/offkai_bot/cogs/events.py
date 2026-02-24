@@ -135,6 +135,7 @@ class EventsCog(commands.Cog):
         if create_role:
             try:
                 assert isinstance(interaction.channel, discord.TextChannel)
+                assert interaction.guild is not None
                 role = await create_event_role(interaction.guild, interaction.channel.name)
                 role_id = role.id
             except (discord.Forbidden, discord.HTTPException) as e:
