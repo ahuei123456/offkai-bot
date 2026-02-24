@@ -352,6 +352,16 @@ class EventsCog(commands.Cog):
         except Exception as e:
             _log.exception(f"Unexpected error archiving thread for event '{event_name}': {e}")
 
+        # Delete participant role if it exists
+        if archived_event.role_id and interaction.guild:
+            role = interaction.guild.get_role(archived_event.role_id)
+            if role:
+                try:
+                    await role.delete(reason=f"Offkai '{event_name}' archived")
+                    _log.info(f"Deleted participant role {archived_event.role_id} for archived event '{event_name}'.")
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    _log.warning(f"Failed to delete participant role for '{event_name}': {e}")
+
         await interaction.response.send_message(f"✅ Event '{event_name}' has been archived.")
 
     @app_commands.command(
