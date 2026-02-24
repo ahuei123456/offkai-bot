@@ -45,6 +45,7 @@ from offkai_bot.event_actions import (
     update_event_message,
 )
 from offkai_bot.interactions import promote_waitlist_batch
+from offkai_bot.role_management import assign_event_role, create_event_role, remove_event_role
 from offkai_bot.util import (
     log_command_usage,
     parse_drinks,
@@ -76,6 +77,7 @@ class EventsCog(commands.Cog):
         announce_msg="Optional: A message to post in the main channel.",
         max_capacity="Optional: Maximum number of attendees (including +1s). Leave empty for unlimited.",
         ping_role="Optional: A role to ping in deadline reminders (filtered to roles containing 'meetups').",
+        create_role="Optional: Create a mentionable role for event participants (default: False).",
     )
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
@@ -92,6 +94,7 @@ class EventsCog(commands.Cog):
         announce_msg: str | None = None,
         max_capacity: int | None = None,
         ping_role: str | None = None,
+        create_role: bool = False,
     ):
         # 1. Business Logic Validation
         with contextlib.suppress(EventNotFoundError):
@@ -127,6 +130,19 @@ class EventsCog(commands.Cog):
             raise InvalidChannelTypeError()
         # --- End Discord Interaction Block ---
 
+        # --- Role Creation ---
+        role_id: int | None = None
+        if create_role:
+            try:
+                assert isinstance(interaction.channel, discord.TextChannel)
+                role = await create_event_role(interaction.guild, interaction.channel.name)
+                role_id = role.id
+            except (discord.Forbidden, discord.HTTPException) as e:
+                _log.warning(f"Failed to create role for '{event_name}': {e}")
+            except AssertionError:
+                _log.warning(f"Could not create role for '{event_name}': channel is not a TextChannel.")
+        # --- End Role Creation ---
+
         # Call the new function in the data layer
         # Note: We use self.bot instead of client if needed, but functions often take client.
         # register_deadline_reminders takes 'client'.
@@ -144,6 +160,7 @@ class EventsCog(commands.Cog):
             max_capacity=max_capacity,
             creator_id=interaction.user.id,
             ping_role_id=ping_role_id,
+            role_id=role_id,
         )
 
         register_deadline_reminders(self.bot, new_event, thread)
@@ -367,6 +384,9 @@ class EventsCog(commands.Cog):
         event = get_event(event_name)
         remove_response(event_name, member.id)
 
+        if event.role_id and interaction.guild:
+            await remove_event_role(interaction.guild, member.id, event.role_id)
+
         await interaction.response.send_message(
             f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
             ephemeral=True,
@@ -421,6 +441,9 @@ class EventsCog(commands.Cog):
             display_name=promoted_entry.display_name,
         )
         add_response(event_name, promoted_response)
+
+        if event.role_id and interaction.guild:
+            await assign_event_role(interaction.guild, user_id, event.role_id)
 
         await interaction.response.send_message(
             f"Promoted user <@{user_id}> from the waitlist for '{event_name}'.",

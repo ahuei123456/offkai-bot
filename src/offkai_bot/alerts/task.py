@@ -90,3 +90,26 @@ class CloseOffkaiTask(Task):
         except Exception as e:
             _log.exception(f"Unexpected error during automatic closure of '{self.event_name}': {e}")
         # --- End Error Handling ---
+
+
+# --- Concrete Task: Delete Role ---
+@dataclass
+class DeleteRoleTask(Task):
+    """A concrete task to delete an event participant role after the event ends."""
+
+    event_name: str
+    role_id: int
+
+    async def action(self):
+        """Deletes the event participant role from the guild."""
+        _log.info(f"Executing DeleteRoleTask for event '{self.event_name}' (role {self.role_id})")
+        for guild in self.client.guilds:
+            role = guild.get_role(self.role_id)
+            if role:
+                try:
+                    await role.delete(reason=f"Offkai '{self.event_name}' ended")
+                    _log.info(f"Deleted role {self.role_id} for event '{self.event_name}'.")
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    _log.error(f"Failed to delete role {self.role_id}: {e}")
+                return
+        _log.warning(f"Role {self.role_id} not found for deletion (event '{self.event_name}').")

@@ -71,6 +71,7 @@ class Event:
     creator_id: int | None = None  # Discord user ID of the event creator
     closed_attendance_count: int | None = None  # Attendance count when event was closed
     ping_role_id: int | None = None  # Discord role ID to ping in deadline reminders
+    role_id: int | None = None  # Discord role ID for event participants
 
     @property
     def has_drinks(self):
@@ -243,6 +244,7 @@ def _load_event_data() -> list[Event]:
                         creator_id=event_dict.get("creator_id"),
                         closed_attendance_count=event_dict.get("closed_attendance_count"),
                         ping_role_id=event_dict.get("ping_role_id"),
+                        role_id=event_dict.get("role_id"),
                     )
                 else:
                     # Old format, so we ignore channel_id and event_deadline
@@ -264,6 +266,7 @@ def _load_event_data() -> list[Event]:
                         creator_id=event_dict.get("creator_id"),
                         closed_attendance_count=event_dict.get("closed_attendance_count"),
                         ping_role_id=event_dict.get("ping_role_id"),
+                        role_id=event_dict.get("role_id"),
                     )
                     _log.info(
                         f"Found old events.json format for {event.event_name}. Successfully converted to new format."
@@ -350,6 +353,7 @@ def add_event(
     max_capacity: int | None = None,  # Max capacity is optional (None = unlimited)
     creator_id: int | None = None,  # Discord user ID of the event creator
     ping_role_id: int | None = None,  # Discord role ID to ping in deadline reminders
+    role_id: int | None = None,  # Discord role ID for event participants
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
 
@@ -375,6 +379,7 @@ def add_event(
         max_capacity=max_capacity,
         creator_id=creator_id,
         ping_role_id=ping_role_id,
+        role_id=role_id,
     )
 
     # Step 3: State Modification
