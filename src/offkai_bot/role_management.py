@@ -1,4 +1,5 @@
 import logging
+import secrets
 
 import discord
 
@@ -8,17 +9,17 @@ STRIP_SUFFIXES = ("-meetups", "-meetup")
 
 
 def generate_role_name(channel_name: str) -> str:
-    """Derive role name from parent channel name.
+    """Derive role name from parent channel name with a random suffix for uniqueness.
 
-    'liella-7l-meetups' -> 'liella-7l-offkai-participant'
-    'summer-events'     -> 'summer-events-offkai-participant'
+    'liella-7l-meetups' -> 'liella-7l-offkai-participant-a3f2'
+    'summer-events'     -> 'summer-events-offkai-participant-b1c4'
     """
     name = channel_name
     for suffix in STRIP_SUFFIXES:
         if name.endswith(suffix):
             name = name[: -len(suffix)]
             break
-    return f"{name}-offkai-participant"
+    return f"{name}-offkai-participant-{secrets.token_hex(2)}"
 
 
 async def create_event_role(guild: discord.Guild, channel_name: str) -> discord.Role:

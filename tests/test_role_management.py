@@ -1,3 +1,4 @@
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -12,29 +13,44 @@ from offkai_bot.role_management import (
 
 pytestmark = pytest.mark.asyncio
 
+HEX_SUFFIX_RE = re.compile(r"-[0-9a-f]{4}$")
+
+
+def _assert_role_name(name: str, expected_prefix: str) -> None:
+    """Assert that a role name starts with expected_prefix and ends with a 4-char hex suffix."""
+    assert name.startswith(expected_prefix), f"Expected prefix '{expected_prefix}', got '{name}'"
+    assert HEX_SUFFIX_RE.search(name), f"Expected 4-char hex suffix, got '{name}'"
+
 
 # --- Tests for generate_role_name ---
 
 
 def test_generate_role_name_strips_meetups_suffix():
-    assert generate_role_name("liella-7l-meetups") == "liella-7l-offkai-participant"
+    _assert_role_name(generate_role_name("liella-7l-meetups"), "liella-7l-offkai-participant-")
 
 
 def test_generate_role_name_strips_meetup_suffix():
-    assert generate_role_name("liella-7l-meetup") == "liella-7l-offkai-participant"
+    _assert_role_name(generate_role_name("liella-7l-meetup"), "liella-7l-offkai-participant-")
 
 
 def test_generate_role_name_no_suffix_to_strip():
-    assert generate_role_name("summer-events") == "summer-events-offkai-participant"
+    _assert_role_name(generate_role_name("summer-events"), "summer-events-offkai-participant-")
 
 
 def test_generate_role_name_only_strips_first_matching_suffix():
-    assert generate_role_name("meetups-meetup") == "meetups-offkai-participant"
+    _assert_role_name(generate_role_name("meetups-meetup"), "meetups-offkai-participant-")
 
 
 def test_generate_role_name_no_hyphen_prefix():
     """Channel name 'meetups' doesn't end with '-meetups', so no stripping."""
-    assert generate_role_name("meetups") == "meetups-offkai-participant"
+    _assert_role_name(generate_role_name("meetups"), "meetups-offkai-participant-")
+
+
+def test_generate_role_name_unique_across_calls():
+    """Two calls with the same channel name produce different role names."""
+    name1 = generate_role_name("liella-7l-meetups")
+    name2 = generate_role_name("liella-7l-meetups")
+    assert name1 != name2
 
 
 # --- Tests for create_event_role ---
@@ -48,11 +64,11 @@ async def test_create_event_role_success():
     result = await create_event_role(guild, "liella-7l-meetups")
 
     assert result is mock_role
-    guild.create_role.assert_awaited_once_with(
-        name="liella-7l-offkai-participant",
-        mentionable=True,
-        reason="Offkai participant role for 'liella-7l-meetups'",
-    )
+    guild.create_role.assert_awaited_once()
+    call_kwargs = guild.create_role.call_args.kwargs
+    _assert_role_name(call_kwargs["name"], "liella-7l-offkai-participant-")
+    assert call_kwargs["mentionable"] is True
+    assert call_kwargs["reason"] == "Offkai participant role for 'liella-7l-meetups'"
 
 
 # --- Tests for assign_event_role ---
