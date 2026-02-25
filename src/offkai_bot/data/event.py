@@ -112,6 +112,8 @@ class Event:
         else:
             deadline_str = "Not Set"
 
+        role_line = f"\n🏷️ **Role (ロール)**: <@&{self.role_id}>" if self.role_id else ""
+
         return (
             f"📅 **Event Name (イベント名)**: {self.event_name}\n"
             f"🍽️ **Venue (会場)**: {self.venue}\n"
@@ -120,6 +122,7 @@ class Event:
             f"🕑 **Date and Time (日時)**: {dt_str}\n"
             f"📅 **Deadline (締切)**: {deadline_str}\n"
             f"🍺 **Drinks (飲み物)**: {drinks_str}"
+            f"{role_line}"
         )
 
     def __str__(self):
