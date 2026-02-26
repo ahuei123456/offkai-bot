@@ -7,7 +7,7 @@ import discord
 import pytest
 
 # Import classes to test
-from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
+from offkai_bot.alerts.task import CloseOffkaiTask, DeleteRoleTask, SendMessageTask
 
 # Import errors for simulation/checking
 from offkai_bot.errors import EventNotFoundError
@@ -280,3 +280,92 @@ async def test_close_offkai_task_handles_unexpected_exception(mock_log, mock_per
     )
     mock_log.log.assert_not_called()
     mock_log.error.assert_not_called()
+
+
+# --- Tests for DeleteRoleTask ---
+
+
+@patch("offkai_bot.alerts.task._log")
+async def test_delete_role_task_success(mock_log, mock_client):
+    """Test DeleteRoleTask successfully deletes a role."""
+    # Arrange
+    mock_role = MagicMock(spec=discord.Role)
+    mock_role.delete = AsyncMock()
+
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.get_role.return_value = mock_role
+    mock_client.guilds = [mock_guild]
+
+    task = DeleteRoleTask(client=mock_client, event_name="Test Event", role_id=99999)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_guild.get_role.assert_called_once_with(99999)
+    mock_role.delete.assert_awaited_once_with(reason="Offkai 'Test Event' ended")
+    mock_log.info.assert_any_call("Deleted role 99999 for event 'Test Event'.")
+
+
+@patch("offkai_bot.alerts.task._log")
+async def test_delete_role_task_role_not_found(mock_log, mock_client):
+    """Test DeleteRoleTask handles role not found in any guild."""
+    # Arrange
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.get_role.return_value = None
+    mock_client.guilds = [mock_guild]
+
+    task = DeleteRoleTask(client=mock_client, event_name="Test Event", role_id=99999)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_log.warning.assert_called_once_with("Role 99999 not found for deletion (event 'Test Event').")
+
+
+@patch("offkai_bot.alerts.task._log")
+async def test_delete_role_task_handles_forbidden(mock_log, mock_client):
+    """Test DeleteRoleTask handles Forbidden error during deletion."""
+    # Arrange
+    mock_role = MagicMock(spec=discord.Role)
+    error = discord.Forbidden(MagicMock(), "No perms")
+    mock_role.delete = AsyncMock(side_effect=error)
+
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.get_role.return_value = mock_role
+    mock_client.guilds = [mock_guild]
+
+    task = DeleteRoleTask(client=mock_client, event_name="Test Event", role_id=99999)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_log.error.assert_called_once_with(f"Failed to delete role 99999: {error}")
+
+
+@patch("offkai_bot.alerts.task._log")
+async def test_delete_role_task_searches_multiple_guilds(mock_log, mock_client):
+    """Test DeleteRoleTask searches through multiple guilds."""
+    # Arrange
+    mock_role = MagicMock(spec=discord.Role)
+    mock_role.delete = AsyncMock()
+
+    mock_guild1 = MagicMock(spec=discord.Guild)
+    mock_guild1.get_role.return_value = None
+
+    mock_guild2 = MagicMock(spec=discord.Guild)
+    mock_guild2.get_role.return_value = mock_role
+
+    mock_client.guilds = [mock_guild1, mock_guild2]
+
+    task = DeleteRoleTask(client=mock_client, event_name="Test Event", role_id=99999)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_guild1.get_role.assert_called_once_with(99999)
+    mock_guild2.get_role.assert_called_once_with(99999)
+    mock_role.delete.assert_awaited_once()

@@ -435,3 +435,97 @@ async def test_archive_offkai_thread_edit_fails(
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_archive}' has been archived."
     )
+
+
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_archive_offkai_deletes_role(
+    mock_log,
+    mock_archive_event_func,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_thread,
+    mock_archived_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that archive_offkai deletes the participant role if it exists."""
+    # Arrange
+    event_name_to_archive = "Summer Bash"
+    mock_archived_event_obj.role_id = 99999
+
+    mock_archive_event_func.return_value = mock_archived_event_obj
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.archived = False
+
+    mock_role = MagicMock(spec=discord.Role)
+    mock_role.delete = AsyncMock()
+    mock_interaction.guild.get_role.return_value = mock_role
+
+    # Act
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_to_archive,
+    )
+
+    # Assert
+    mock_interaction.guild.get_role.assert_called_once_with(99999)
+    mock_role.delete.assert_awaited_once_with(reason=f"Offkai '{event_name_to_archive}' archived")
+    mock_log.info.assert_any_call(f"Deleted participant role 99999 for archived event '{event_name_to_archive}'.")
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_archive}' has been archived."
+    )
+
+
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_archive_offkai_role_deletion_failure_non_fatal(
+    mock_log,
+    mock_archive_event_func,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_thread,
+    mock_archived_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that archive_offkai still succeeds if role deletion fails."""
+    # Arrange
+    event_name_to_archive = "Summer Bash"
+    mock_archived_event_obj.role_id = 99999
+
+    mock_archive_event_func.return_value = mock_archived_event_obj
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.archived = False
+
+    mock_role = MagicMock(spec=discord.Role)
+    mock_role.delete = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "Missing Permissions"))
+    mock_interaction.guild.get_role.return_value = mock_role
+
+    # Act
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_to_archive,
+    )
+
+    # Assert — role deletion was attempted but failed
+    mock_role.delete.assert_awaited_once()
+    mock_log.warning.assert_called()
+    warning_msg = mock_log.warning.call_args_list[-1][0][0]
+    assert f"Failed to delete participant role for '{event_name_to_archive}'" in warning_msg
+    # Archive still succeeds
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"✅ Event '{event_name_to_archive}' has been archived."
+    )

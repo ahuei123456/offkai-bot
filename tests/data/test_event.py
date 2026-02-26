@@ -1157,6 +1157,37 @@ def test_event_format_details_no_datetime_no_drinks():
     assert event.format_details() == expected
 
 
+def test_event_format_details_with_role():
+    """Test format_details includes role mention when role_id is set."""
+    naive_jst = datetime(2024, 3, 15, 18, 30, 0)
+    dt_utc = naive_jst.replace(tzinfo=JST).astimezone(UTC)
+
+    event = Event(
+        event_name="Role Test",
+        venue="Test Venue",
+        address="123 Test St",
+        google_maps_link="gmap_link",
+        event_datetime=dt_utc,
+        event_deadline=dt_utc,
+        drinks=["Soda"],
+        role_id=123456789,
+    )
+
+    expected_ts = int(dt_utc.timestamp())
+
+    expected = (
+        "📅 **Event Name (イベント名)**: Role Test\n"
+        "🍽️ **Venue (会場)**: Test Venue\n"
+        "📍 **Address (住所)**: 123 Test St\n"
+        "🌎 **Google Maps Link (地図)**: gmap_link\n"
+        "🕑 **Date and Time (日時)**: 2024-03-15 18:30 JST\n"
+        f"📅 **Deadline (締切)**: <t:{expected_ts}:F> (<t:{expected_ts}:R>)\n"
+        "🍺 **Drinks (飲み物)**: Soda\n"
+        "🏷️ **Role (ロール)**: <@&123456789>"
+    )
+    assert event.format_details() == expected
+
+
 def test_event_has_drinks():
     """Test the has_drinks property."""
     event_with = Event("N", "V", "A", "G", drinks=["A"], event_datetime=FUTURE_EVENT_DT)

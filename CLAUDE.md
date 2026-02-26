@@ -42,7 +42,11 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 - **`data/event.py`** — `Event` dataclass, `OFFKAI_MESSAGE` constant, `EVENT_DATA_CACHE`, JSON persistence.
 - **`data/response.py`** — `Response` and `WaitlistEntry` dataclasses (nearly identical fields), `RESPONSE_DATA_CACHE`, unified JSON storage with `{"event_name": {"attendees": [...], "waitlist": [...]}}`.
 - **`errors.py`** — Custom exception hierarchy rooted at `BotCommandError`.
+- **`main.py`** — Initializes `OffkaiClient`, loads data, handles global errors (`on_command_error`).
 - **`alerts/`** — Scheduled task system for deadline reminders and auto-close.
+  - `task.py`: Defines executable work (e.g., `CloseOffkaiTask`).
+  - `alerts.py`: Schedules and executes tasks.
+  - `reminders.py`: Bridges events with alerts. Kept separate from `event_actions.py` to prevent circular imports.
 
 ### Conventions
 
@@ -52,7 +56,7 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 
 ### Data Layer Patterns
 
-- **In-memory caches**: Global module-level (`EVENT_DATA_CACHE`, `RESPONSE_DATA_CACHE`). Load on first access, mutate in place, call `save_*()` explicitly.
+- **In-memory caches**: Read-through caching via global module-level variables (`EVENT_DATA_CACHE`, `RESPONSE_DATA_CACHE`). Load on first access, mutate in place, call `save_*()` explicitly. Atomic writes favored for savers.
 - **Timezone handling**: User input assumed JST, stored as UTC, displayed as JST. Use `datetime.now(UTC)` for comparisons.
 - **JSON serialization**: `DataclassJSONEncoder` converts dataclasses via `asdict()`, datetimes to ISO strings.
 - **Capacity**: `sum(1 + r.extra_people for r in responses)` — each response can bring 0-5 guests.
@@ -60,7 +64,7 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 ### Test Patterns
 
 - Tests use `unittest.mock` extensively for Discord objects.
-- Key fixtures in `conftest.py`: `mock_paths` (temp file paths), `prepopulated_event_cache` (pre-filled cache), `clear_caches` (auto-resets global caches), `mock_thread`.
+- Key fixtures in `conftest.py`: `mock_paths` (temp file paths), `prepopulated_event_cache` (pre-filled cache), `clear_caches` (auto-resets global caches), `mock_thread`, `mock_config` (uses `tmp_path_factory` for isolated JSON files per test module), `sample_event_list` (standard `Event` objects).
 - `asyncio_mode = "auto"` — async tests work without explicit decorators.
 
 ## Common Workflows
@@ -86,6 +90,14 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 
 - `config.json` at project root with keys: `DISCORD_TOKEN`, `EVENTS_FILE`, `RESPONSES_FILE`, `RANKING_FILE`, `GUILDS`.
 - Accessed via `get_config()` singleton.
+
+## Quality Gates
+
+All tasks must pass these gates before completion:
+
+1. **Linting**: `uvx ruff check --fix .` — no remaining lint errors.
+2. **Type Checking**: `uvx mypy src/ --extra-checks --warn-unused-ignores --pretty` — must be clean. No `type: ignore` unless absolutely necessary and justified.
+3. **Testing**: `uv run pytest` — all tests must pass. New features must have associated tests.
 
 ## Style
 

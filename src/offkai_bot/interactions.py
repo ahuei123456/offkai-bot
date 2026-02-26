@@ -23,6 +23,7 @@ from offkai_bot.errors import (
     ResponseNotFoundError,
 )
 from offkai_bot.messages import MILESTONE_MESSAGES
+from offkai_bot.role_management import assign_event_role, remove_event_role
 
 _log = logging.getLogger(__name__)
 
@@ -80,6 +81,13 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
     """
     promoted_user_ids: list[int] = []
     promoted_count = 0
+
+    # Resolve guild for role assignment
+    guild: discord.Guild | None = None
+    if event.role_id and event.thread_id:
+        channel = client.get_channel(event.thread_id)
+        if isinstance(channel, discord.Thread):
+            guild = channel.guild
 
     # Determine the target capacity for promotion
     # If event was closed with a specific count, don't exceed that count
@@ -142,6 +150,10 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
         add_response(event.event_name, promoted_response)
         promoted_count += 1
         promoted_user_ids.append(promoted_entry.user_id)
+
+        # Assign event participant role
+        if guild and event.role_id:
+            await assign_event_role(guild, promoted_entry.user_id, event.role_id)
 
         # Notify the promoted user
         try:
@@ -367,6 +379,10 @@ class GatheringModal(ui.Modal):
                 )
         except discord.HTTPException as e:
             _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+
+        # 5. Assign event participant role
+        if self.event.role_id and interaction.guild:
+            await assign_event_role(interaction.guild, interaction.user.id, self.event.role_id)
 
     async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
         """Handles actions after a user is added to the waitlist."""
@@ -716,7 +732,11 @@ class OpenEvent(EventView):
             except discord.HTTPException as e:
                 _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
 
-            # 5. Promote users from the waitlist only if removed from responses
+            # 5. Remove event participant role if removed from responses
+            if removed_from_responses and self.event.role_id and interaction.guild:
+                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+
+            # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
             if removed_from_responses:
                 await promote_waitlist_batch(self.event, interaction.client)
@@ -847,7 +867,11 @@ class ClosedEvent(EventView):
                         f"from event '{self.event.event_name}': {e}"
                     )
 
-            # 5. Promote users from the waitlist only if removed from responses
+            # 5. Remove event participant role if removed from responses
+            if removed_from_responses and self.event.role_id and interaction.guild:
+                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+
+            # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
             if removed_from_responses:
                 await promote_waitlist_batch(self.event, interaction.client)
@@ -968,7 +992,11 @@ class PostDeadlineEvent(EventView):
                         f"from event '{self.event.event_name}': {e}"
                     )
 
-            # 5. Promote users from the waitlist only if removed from responses
+            # 5. Remove event participant role if removed from responses
+            if removed_from_responses and self.event.role_id and interaction.guild:
+                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+
+            # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
             if removed_from_responses:
                 await promote_waitlist_batch(self.event, interaction.client)

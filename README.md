@@ -43,12 +43,16 @@ This bot replaces manual methods of collecting attendance such as:
   - Cannot reduce capacity below current attendee count or with active waitlist
   - Open/close event registrations
   - Archive old events
+  - Optional participant role: auto-assigned mentionable Discord role for attendees, auto-removed on withdrawal, auto-deleted on archive
+  - Optional ping role for deadline reminders (7-day, 3-day, 24-hour)
+  - Bilingual (English + Japanese) event messages, rules, DM notifications, and reminders
 
 - **👥 Attendance Tracking**
   - Interactive Discord buttons for attendance confirmation
   - Support for bringing extra people (+0 to +5 guests)
   - Behavior and arrival time confirmations
   - Optional drink preferences tracking
+  - Display name (nickname) capture and optional display in attendance/waitlist lists
   - View current attendance count and attendee list
 
 - **📋 Waitlist System**
@@ -85,6 +89,9 @@ This bot replaces manual methods of collecting attendance such as:
   - Delete individual user responses
   - View drinks summary for catering
   - Archive completed events
+
+- **🏆 Ranking / Milestones**
+  - Attendance milestone tracking (rank 1, 5, 10) with celebratory DM messages
 
 ### Data Architecture
 
@@ -152,6 +159,7 @@ Before running Offkai Bot, you need:
        "DISCORD_TOKEN": "YOUR_BOT_TOKEN_HERE",
        "EVENTS_FILE": "data/events.json",
        "RESPONSES_FILE": "data/responses.json",
+       "RANKING_FILE": "data/ranking.json",
        "GUILDS": [
            123456789012345678
        ]
@@ -165,6 +173,7 @@ Before running Offkai Bot, you need:
    | `DISCORD_TOKEN` | string | ✅ | Your Discord bot token. **Keep this secret!** |
    | `EVENTS_FILE` | string | ✅ | Path to events data file (e.g., `data/events.json`) |
    | `RESPONSES_FILE` | string | ✅ | Path to responses data file (includes both attendees and waitlist) |
+   | `RANKING_FILE` | string | ✅ | Path to ranking data file (e.g., `data/ranking.json`) |
    | `GUILDS` | array | ✅ | List of Discord server IDs where bot will be active |
 
    **Note:** The `WAITLIST_FILE` field is deprecated. Waitlist data is now stored in the responses file alongside attendee data. If you have an old `waitlist.json` file, it will be automatically migrated on first run.
@@ -227,7 +236,7 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 ### Event Management
 
 - `/create_offkai` - Create a new event
-  - Parameters: name, venue, address, maps_link, datetime, deadline (optional), drinks (optional), max_capacity (optional)
+  - Parameters: name, venue, address, maps_link, datetime, deadline (optional), drinks (optional), max_capacity (optional), ping_role (optional), create_role (optional, default: False)
 
 - `/modify_offkai` - Modify an existing event
   - Parameters: event_name, update_msg, venue (optional), address (optional), google_maps_link (optional), date_time (optional), deadline (optional), drinks (optional), max_capacity (optional)
@@ -245,13 +254,19 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 ### Attendance Management
 
 - `/attendance` - View list of attendees
-  - Parameters: event_name
+  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False)
 
 - `/drinks` - View drinks summary
   - Parameters: event_name
 
 - `/delete_response` - Remove a user's registration
   - Parameters: event_name, member
+
+- `/promote` - Manually promote a user from the waitlist, bypassing capacity limits
+  - Parameters: event_name, username (autocomplete)
+
+- `/waitlist` - View waitlisted users
+  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False)
 
 ### Communication
 

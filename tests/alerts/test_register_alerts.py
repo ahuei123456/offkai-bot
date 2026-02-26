@@ -9,7 +9,12 @@ import pytest
 # Import the module and functions to test
 from offkai_bot.alerts import alerts
 from offkai_bot.alerts.reminders import register_deadline_reminders
-from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask, Task  # Import base Task for type hinting
+from offkai_bot.alerts.task import (  # Import base Task for type hinting
+    CloseOffkaiTask,
+    DeleteRoleTask,
+    SendMessageTask,
+    Task,
+)
 from offkai_bot.data.event import Event
 from offkai_bot.errors import AlertTimeInPastError
 from offkai_bot.util import JST  # Import the JST timezone object
@@ -421,3 +426,69 @@ def test_register_deadline_reminders_past_reminders_suppressed(
         ),
     )
     mock_log.info.assert_any_call(ANY)
+
+
+# --- Tests for role deletion registration ---
+
+
+@patch("offkai_bot.alerts.reminders.register_alert")
+@patch("offkai_bot.alerts.reminders._log")
+def test_register_deadline_reminders_with_role_id(
+    mock_log, mock_register_alert, mock_client, mock_thread, future_event
+):
+    """Test that a DeleteRoleTask is registered when event has a role_id."""
+    # Arrange
+    event = future_event
+    event.role_id = 55555
+    expected_delete_time = event.event_datetime + timedelta(days=1)
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert - should have 4 deadline tasks + 1 role deletion task
+    assert mock_register_alert.call_count == 5
+    mock_register_alert.assert_any_call(
+        expected_delete_time,
+        DeleteRoleTask(client=mock_client, event_name=event.event_name, role_id=55555),
+    )
+    mock_log.info.assert_any_call(f"Registered role deletion task for '{event.event_name}'.")
+
+
+@patch("offkai_bot.alerts.reminders.register_alert")
+@patch("offkai_bot.alerts.reminders._log")
+def test_register_deadline_reminders_no_role_id(mock_log, mock_register_alert, mock_client, mock_thread, future_event):
+    """Test that no DeleteRoleTask is registered when event has no role_id."""
+    # Arrange
+    event = future_event
+    assert event.role_id is None
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert - should have only 4 deadline tasks, no role deletion
+    assert mock_register_alert.call_count == 4
+    delete_role_calls = [call for call in mock_register_alert.call_args_list if isinstance(call[0][1], DeleteRoleTask)]
+    assert len(delete_role_calls) == 0
+
+
+@patch("offkai_bot.alerts.reminders.register_alert")
+@patch("offkai_bot.alerts.reminders._log")
+def test_register_role_deletion_independent_of_deadline(
+    mock_log, mock_register_alert, mock_client, mock_thread, future_event
+):
+    """Test that role deletion is registered even when there is no deadline."""
+    # Arrange
+    event = future_event
+    event.event_deadline = None  # No deadline
+    event.role_id = 55555
+    expected_delete_time = event.event_datetime + timedelta(days=1)
+
+    # Act
+    register_deadline_reminders(mock_client, event, mock_thread)
+
+    # Assert - should only have the role deletion task (no deadline tasks)
+    assert mock_register_alert.call_count == 1
+    mock_register_alert.assert_called_once_with(
+        expected_delete_time,
+        DeleteRoleTask(client=mock_client, event_name=event.event_name, role_id=55555),
+    )

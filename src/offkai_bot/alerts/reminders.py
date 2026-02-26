@@ -5,7 +5,7 @@ from datetime import timedelta
 import discord
 
 from offkai_bot.alerts.alerts import register_alert
-from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
+from offkai_bot.alerts.task import CloseOffkaiTask, DeleteRoleTask, SendMessageTask
 from offkai_bot.data.event import Event
 from offkai_bot.errors import AlertTimeInPastError
 
@@ -62,3 +62,12 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                 )
 
                 _log.info(f"Registered 1 week reminder for '{event.event_name}'.")
+
+    # Role deletion: 1 day after event (independent of deadline)
+    if event.role_id:
+        with contextlib.suppress(AlertTimeInPastError):
+            register_alert(
+                event.event_datetime + timedelta(days=1),
+                DeleteRoleTask(client=client, event_name=event.event_name, role_id=event.role_id),
+            )
+            _log.info(f"Registered role deletion task for '{event.event_name}'.")
