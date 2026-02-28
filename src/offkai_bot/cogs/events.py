@@ -637,9 +637,9 @@ class EventsCog(commands.Cog):
     delete_response.autocomplete("event_name")(offkai_autocomplete_active)
     promote.autocomplete("event_name")(offkai_autocomplete_active)
     promote.autocomplete("username")(waitlist_user_autocomplete)
-    attendance.autocomplete("event_name")(offkai_autocomplete_active)
-    waitlist.autocomplete("event_name")(offkai_autocomplete_active)
-    drinks.autocomplete("event_name")(offkai_autocomplete_active)
+    attendance.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
+    waitlist.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
+    drinks.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
 
     reopen_offkai.autocomplete("event_name")(offkai_autocomplete_closed_only)
     archive_offkai.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
