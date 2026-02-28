@@ -583,7 +583,7 @@ class EventsCog(commands.Cog):
     async def offkai_autocomplete_active(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        return await self.event_autocomplete_base(interaction, current, open_status=None)
+        return await self.event_autocomplete_base(interaction, current, open_status=True)
 
     async def offkai_autocomplete_closed_only(
         self, interaction: discord.Interaction, current: str

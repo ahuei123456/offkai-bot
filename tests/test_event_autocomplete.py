@@ -224,7 +224,7 @@ async def test_autocomplete_base_limit_choices(mock_load_data, mock_interaction,
     "offkai_bot.cogs.events.EventsCog.event_autocomplete_base", new_callable=AsyncMock
 )  # Mock the method on the class
 async def test_offkai_autocomplete_active(mock_base_autocomplete, mock_interaction, mock_cog):
-    """Test that offkai_autocomplete_active calls base with open_status=None."""
+    """Test that offkai_autocomplete_active calls base with open_status=True."""
     current_str = "test"
     await EventsCog.offkai_autocomplete_active(mock_cog, mock_interaction, current_str)
     # The mock is on the class, so it intercepts calls.
@@ -232,7 +232,7 @@ async def test_offkai_autocomplete_active(mock_base_autocomplete, mock_interacti
     # Arg 'self' (mock_cog) is passed as first arg to the mock if called via Class with explicit instance?
     # Actually, if we mock EventsCog.event_autocomplete_base,
     # calling EventsCog.func(mock_cog) -> calls mock_base(mock_cog, ...)
-    mock_base_autocomplete.assert_awaited_once_with(mock_interaction, current_str, open_status=None)
+    mock_base_autocomplete.assert_awaited_once_with(mock_interaction, current_str, open_status=True)
 
 
 @patch("offkai_bot.cogs.events.EventsCog.event_autocomplete_base", new_callable=AsyncMock)
