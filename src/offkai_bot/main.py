@@ -171,7 +171,7 @@ async def on_ready():
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Offkai Bot")
-    parser.add_argument("--config-path", type=str, default="config.py")
+    parser.add_argument("--config-path", type=str, default="config.json")
     return parser.parse_args()
 
 
