@@ -37,25 +37,25 @@ async def assign_event_role(guild: discord.Guild, user_id: int, role_id: int) ->
     """Assign the event participant role to a user."""
     role = guild.get_role(role_id)
     if not role:
-        _log.warning(f"Role {role_id} not found in guild {guild.id}, skipping assignment.")
+        _log.warning("Role %s not found in guild %s, skipping assignment.", role_id, guild.id)
         return
     try:
         member = guild.get_member(user_id) or await guild.fetch_member(user_id)
         if role not in member.roles:
             await member.add_roles(role, reason="Offkai attendance confirmed")
     except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-        _log.warning(f"Failed to assign role {role_id} to user {user_id}: {e}")
+        _log.warning("Failed to assign role %s to user %s: %s", role_id, user_id, e)
 
 
 async def remove_event_role(guild: discord.Guild, user_id: int, role_id: int) -> None:
     """Remove the event participant role from a user."""
     role = guild.get_role(role_id)
     if not role:
-        _log.warning(f"Role {role_id} not found in guild {guild.id}, skipping removal.")
+        _log.warning("Role %s not found in guild %s, skipping removal.", role_id, guild.id)
         return
     try:
         member = guild.get_member(user_id) or await guild.fetch_member(user_id)
         if role in member.roles:
             await member.remove_roles(role, reason="Offkai attendance withdrawn")
     except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-        _log.warning(f"Failed to remove role {role_id} from user {user_id}: {e}")
+        _log.warning("Failed to remove role %s from user %s: %s", role_id, user_id, e)

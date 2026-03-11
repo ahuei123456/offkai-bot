@@ -111,7 +111,7 @@ class EventsCog(commands.Cog):
             try:
                 ping_role_id = int(ping_role)
             except ValueError:
-                _log.warning(f"Invalid ping_role value '{ping_role}', ignoring.")
+                _log.warning("Invalid ping_role value '%s', ignoring.", ping_role)
 
         # 3. Context Validation
         validate_interaction_context(interaction)
@@ -123,7 +123,7 @@ class EventsCog(commands.Cog):
             assert isinstance(interaction.channel, discord.TextChannel)
             thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
         except discord.HTTPException as e:
-            _log.error(f"Failed to create thread for '{event_name}': {e}")
+            _log.error("Failed to create thread for '%s': %s", event_name, e)
             raise ThreadCreationError(event_name, e)
         except AssertionError:
             _log.error("Interaction channel was unexpectedly not a TextChannel after validation.")
@@ -139,9 +139,9 @@ class EventsCog(commands.Cog):
                 role = await create_event_role(interaction.guild, interaction.channel.name)
                 role_id = role.id
             except (discord.Forbidden, discord.HTTPException) as e:
-                _log.warning(f"Failed to create role for '{event_name}': {e}")
+                _log.warning("Failed to create role for '%s': %s", event_name, e)
             except AssertionError:
-                _log.warning(f"Could not create role for '{event_name}': channel is not a TextChannel.")
+                _log.warning("Could not create role for '%s': channel is not a TextChannel.", event_name)
         # --- End Role Creation ---
 
         # Call the new function in the data layer
@@ -184,7 +184,7 @@ class EventsCog(commands.Cog):
                 _log.warning("Failed to pin message: Missing 'Pins' permission.")
                 raise PinPermissionError(message.channel, e) from e
         except discord.HTTPException as e:
-            _log.error(f"Failed to pin message due to HTTP error: {e}")
+            _log.error("Failed to pin message due to HTTP error: %s", e)
 
     @app_commands.command(
         name="modify_offkai",
@@ -237,8 +237,9 @@ class EventsCog(commands.Cog):
             current_channel_id = interaction.channel.id
             modified_event.channel_id = current_channel_id
             _log.info(
-                f"Assigned current channel ID ({current_channel_id}) "
-                f"to event '{modified_event.event_name}' as it was missing."
+                "Assigned current channel ID (%s) to event '%s' as it was missing.",
+                current_channel_id,
+                modified_event.event_name,
             )
 
         save_event_data()
@@ -252,8 +253,9 @@ class EventsCog(commands.Cog):
             if promoted_user_ids:
                 save_responses()
                 _log.info(
-                    f"Promoted {len(promoted_user_ids)} user(s) from waitlist "
-                    f"after capacity increase for event '{event_name}'."
+                    "Promoted %s user(s) from waitlist after capacity increase for event '%s'.",
+                    len(promoted_user_ids),
+                    event_name,
                 )
 
         await update_event_message(self.bot, modified_event)
@@ -263,13 +265,13 @@ class EventsCog(commands.Cog):
             try:
                 await thread.send(f"**Event Updated:**\n{update_msg}")
             except discord.HTTPException as e:
-                _log.warning(f"Could not send update message to thread {thread.id} for event '{event_name}': {e}")
+                _log.warning("Could not send update message to thread %s for event '%s': %s", thread.id, event_name, e)
 
         except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
             log_level = getattr(e, "log_level", logging.WARNING)
-            _log.log(log_level, f"Could not send update message for event '{event_name}': {e}")
+            _log.log(log_level, "Could not send update message for event '%s': %s", event_name, e)
         except Exception as e:
-            _log.exception(f"Unexpected error sending update message for event '{event_name}': {e}")
+            _log.exception("Unexpected error sending update message for event '%s': %s", event_name, e)
 
         await interaction.response.send_message(
             f"✅ Event '{event_name}' modified successfully. Announcement posted in thread (if possible)."
@@ -290,7 +292,7 @@ class EventsCog(commands.Cog):
             await perform_close_event(self.bot, event_name, close_msg)
             await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
         except Exception as e:
-            _log.error(f"Error during /close_offkai command for '{event_name}': {e}", exc_info=e)
+            _log.error("Error during /close_offkai command for '%s': %s", event_name, e, exc_info=e)
             raise e
 
     @app_commands.command(
@@ -315,13 +317,16 @@ class EventsCog(commands.Cog):
                     await thread.send(f"**Responses Reopened:**\n{reopen_msg}")
                 except discord.HTTPException as e:
                     _log.warning(
-                        f"Could not send reopening message to thread {thread.id} for event '{event_name}': {e}"
+                        "Could not send reopening message to thread %s for event '%s': %s",
+                        thread.id,
+                        event_name,
+                        e,
                     )
             except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
                 log_level = getattr(e, "log_level", logging.WARNING)
-                _log.log(log_level, f"Could not send reopening message for event '{event_name}': {e}")
+                _log.log(log_level, "Could not send reopening message for event '%s': %s", event_name, e)
             except Exception as e:
-                _log.exception(f"Unexpected error sending reopening message for event '{event_name}': {e}")
+                _log.exception("Unexpected error sending reopening message for event '%s': %s", event_name, e)
 
         await interaction.response.send_message(f"✅ Responses for '{event_name}' have been reopened.")
 
@@ -344,14 +349,14 @@ class EventsCog(commands.Cog):
             if not thread.archived:
                 try:
                     await thread.edit(archived=True, locked=True)
-                    _log.info(f"Archived thread {thread.id} for event '{event_name}'.")
+                    _log.info("Archived thread %s for event '%s'.", thread.id, event_name)
                 except discord.HTTPException as e:
-                    _log.warning(f"Could not archive thread {thread.id}: {e}")
+                    _log.warning("Could not archive thread %s: %s", thread.id, e)
         except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
             log_level = getattr(e, "log_level", logging.WARNING)
-            _log.log(log_level, f"Could not archive thread for event '{event_name}': {e}")
+            _log.log(log_level, "Could not archive thread for event '%s': %s", event_name, e)
         except Exception as e:
-            _log.exception(f"Unexpected error archiving thread for event '{event_name}': {e}")
+            _log.exception("Unexpected error archiving thread for event '%s': %s", event_name, e)
 
         # Delete participant role if it exists
         if archived_event.role_id and interaction.guild:
@@ -359,9 +364,11 @@ class EventsCog(commands.Cog):
             if role:
                 try:
                     await role.delete(reason=f"Offkai '{event_name}' archived")
-                    _log.info(f"Deleted participant role {archived_event.role_id} for archived event '{event_name}'.")
+                    _log.info(
+                        "Deleted participant role %s for archived event '%s'.", archived_event.role_id, event_name
+                    )
                 except (discord.Forbidden, discord.HTTPException) as e:
-                    _log.warning(f"Failed to delete participant role for '{event_name}': {e}")
+                    _log.warning("Failed to delete participant role for '%s': %s", event_name, e)
 
         await interaction.response.send_message(f"✅ Event '{event_name}' has been archived.")
 
@@ -408,13 +415,13 @@ class EventsCog(commands.Cog):
             if isinstance(thread, discord.Thread):
                 try:
                     await thread.remove_user(member)
-                    _log.info(f"Removed user {member.id} from thread {thread.id} for event '{event_name}'.")
+                    _log.info("Removed user %s from thread %s for event '%s'.", member.id, thread.id, event_name)
                 except discord.HTTPException as e:
-                    _log.error(f"Failed to remove user {member.id} from thread {thread.id}: {e}")
+                    _log.error("Failed to remove user %s from thread %s: %s", member.id, thread.id, e)
             else:
-                _log.warning(f"Could not find thread {event.thread_id} to remove user for event '{event_name}'.")
+                _log.warning("Could not find thread %s to remove user for event '%s'.", event.thread_id, event_name)
         else:
-            _log.warning(f"Event '{event_name}' is missing thread_id, cannot remove user from thread.")
+            _log.warning("Event '%s' is missing thread_id, cannot remove user from thread.", event_name)
 
     @app_commands.command(
         name="promote",
@@ -477,7 +484,7 @@ class EventsCog(commands.Cog):
                 f"すべての結果に対して、全責任を負います。"
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-            _log.warning(f"Could not DM promoted user {user_id} for event '{event_name}': {e}")
+            _log.warning("Could not DM promoted user %s for event '%s': %s", user_id, event_name, e)
 
         await update_event_message(self.bot, event)
 

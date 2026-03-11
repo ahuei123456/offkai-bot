@@ -81,10 +81,11 @@ async def test_on_command_error_missing_role(mock_interaction):
 
         # Assert: Check logging
         mock_log.warning.assert_called_once()
-        log_call_args = mock_log.warning.call_args[0][0]  # Get the first positional arg of the call
-        assert "Missing Offkai Organizer role" in log_call_args  # Check specific role name
-        assert "User: TestUser#1234 (1234567890)" in log_call_args
-        assert "command 'mock_command'" in log_call_args
+        log_call_args = mock_log.warning.call_args[0]
+        log_message = log_call_args[0] % log_call_args[1:]
+        assert "Missing Offkai Organizer role" in log_message  # Check specific role name
+        assert "User: TestUser#1234 (1234567890)" in log_message
+        assert "command 'mock_command'" in log_message
 
 
 async def test_on_command_error_check_failure(mock_interaction):
@@ -104,9 +105,10 @@ async def test_on_command_error_check_failure(mock_interaction):
 
         # Assert: Check logging
         mock_log.warning.assert_called_once()
-        log_call_args = mock_log.warning.call_args[0][0]
-        assert "CheckFailure for command 'mock_command'" in log_call_args
-        assert "User: TestUser#1234 (1234567890)" in log_call_args
+        log_call_args = mock_log.warning.call_args[0]
+        log_message = log_call_args[0] % log_call_args[1:]
+        assert "CheckFailure for command 'mock_command'" in log_message
+        assert "User: TestUser#1234 (1234567890)" in log_message
 
 
 # --- Parametrized Test for Custom BotCommandErrors ---
@@ -202,8 +204,8 @@ async def test_on_command_error_custom_bot_error(
         # Assert the log level passed to _log.log()
         assert call_args[0] == expected_log_level
 
-        # Assert the content of the log message
-        log_message = call_args[1]
+        # Assert the content of the log message (format string + args)
+        log_message = call_args[1] % call_args[2:]
         assert expected_log_level_name_in_msg in log_message  # Check type name indication
         assert f": {expected_message}" in log_message  # Check the error's message
         assert "User: TestUser#1234 (1234567890)" in log_message
@@ -233,8 +235,9 @@ async def test_on_command_error_discord_forbidden(mock_interaction):
 
         # Assert: Check logging (still uses direct .warning())
         mock_log.warning.assert_called_once()
-        log_call_args = mock_log.warning.call_args[0][0]
-        assert "Encountered discord.Forbidden" in log_call_args
+        log_call_args = mock_log.warning.call_args[0]
+        log_message = log_call_args[0] % log_call_args[1:]
+        assert "Encountered discord.Forbidden" in log_message
         mock_log.log.assert_not_called()  # Ensure .log() wasn't used for this case
 
 
@@ -254,9 +257,10 @@ async def test_on_command_error_unhandled_exception(mock_interaction):
 
         # Assert: Check logging (still uses direct .error())
         mock_log.error.assert_called_once()
-        log_call_args = mock_log.error.call_args[0][0]
+        log_call_args = mock_log.error.call_args[0]
         log_call_kwargs = mock_log.error.call_args[1]
-        assert "Unhandled command error" in log_call_args
+        log_message = log_call_args[0] % log_call_args[1:]
+        assert "Unhandled command error" in log_message
         assert log_call_kwargs.get("exc_info") is original_error
         mock_log.log.assert_not_called()  # Ensure .log() wasn't used for this case
 
@@ -281,7 +285,7 @@ async def test_on_command_error_interaction_already_done(mock_interaction):
         mock_log.log.assert_called_once()
         call_args, _ = mock_log.log.call_args
         assert call_args[0] == logging.INFO  # Check the level
-        log_message = call_args[1]
+        log_message = call_args[1] % call_args[2:]
         assert f"Handled (EventNotFoundError): {expected_message}" in log_message  # Check content
 
 
@@ -301,14 +305,15 @@ async def test_on_command_error_fails_sending_response(mock_interaction):
         mock_log.log.assert_called_once()
         call_args, _ = mock_log.log.call_args
         assert call_args[0] == logging.INFO  # Check level for handled error
-        log_message = call_args[1]
+        log_message = call_args[1] % call_args[2:]
         assert f"Handled (EventNotFoundError): {str(original_error)}" in log_message
 
         # Assert: Check that the failure during sending was logged (still uses direct .error())
         mock_log.error.assert_called_once()
-        log_call_args = mock_log.error.call_args[0][0]
-        assert "Failed to send error response message" in log_call_args
-        assert str(send_error) in log_call_args
+        log_call_args = mock_log.error.call_args[0]
+        log_error_msg = log_call_args[0] % log_call_args[1:]
+        assert "Failed to send error response message" in log_error_msg
+        assert str(send_error) in log_error_msg
 
         # Assert: Ensure followup wasn't attempted if response failed
         mock_interaction.followup.send.assert_not_called()
@@ -330,6 +335,7 @@ async def test_on_command_error_no_command_context(mock_interaction):
 
         # Assert: Check logging uses "Unknown"
         mock_log.warning.assert_called_once()
-        log_call_args = mock_log.warning.call_args[0][0]
-        assert "CheckFailure for command 'Unknown'" in log_call_args  # Verify fallback name
-        assert "User: TestUser#1234 (1234567890)" in log_call_args
+        log_call_args = mock_log.warning.call_args[0]
+        log_message = log_call_args[0] % log_call_args[1:]
+        assert "CheckFailure for command 'Unknown'" in log_message  # Verify fallback name
+        assert "User: TestUser#1234 (1234567890)" in log_message

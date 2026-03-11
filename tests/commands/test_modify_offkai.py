@@ -295,7 +295,9 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
 
     # Verify the log message for assignment
     mock_log.info.assert_any_call(
-        f"Assigned current channel ID ({interaction_channel_id}) to event '{event_name_to_modify}' as it was missing."
+        "Assigned current channel ID (%s) to event '%s' as it was missing.",
+        interaction_channel_id,
+        event_name_to_modify,
     )
 
     mock_save_data.assert_called_once()  # Verify save was called
@@ -464,8 +466,8 @@ async def test_modify_offkai_fetch_thread_errors(
     mock_log.log.assert_called_once()
     log_call = mock_log.log.call_args[0]
     assert log_call[0] == expected_log_level  # Check log level
-    assert f"Could not send update message for event '{event_name_to_modify}'" in log_call[1]
-    assert log_msg_part in log_call[1]  # Check specific error reason
+    assert log_call[1] == "Could not send update message for event '%s': %s"
+    assert log_call[2] == event_name_to_modify
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -521,7 +523,8 @@ async def test_modify_offkai_send_update_fails(
 
     # Warning should be logged for send failure
     mock_log.warning.assert_called_once()
-    assert f"Could not send update message to thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
+    assert mock_log.warning.call_args[0][0] == "Could not send update message to thread %s for event '%s': %s"
+    assert mock_log.warning.call_args[0][1] == mock_thread.id
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -765,7 +768,9 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
     mock_save_responses.assert_called_once()
 
     # Verify logging
-    mock_log.info.assert_any_call("Promoted 2 user(s) from waitlist after capacity increase for event 'Summer Bash'.")
+    mock_log.info.assert_any_call(
+        "Promoted %s user(s) from waitlist after capacity increase for event '%s'.", 2, "Summer Bash"
+    )
 
     mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
     mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)

@@ -100,7 +100,7 @@ def test_register_alert_naive_datetime(mock_log, mock_task):
     assert expected_key in alerts._scheduled_tasks
     assert alerts._scheduled_tasks[expected_key] == [mock_task]
     mock_log.debug.assert_called_once_with(
-        f"Registering alert: Naive time {naive_dt} assumed JST -> {expected_jst_dt.isoformat()}"
+        "Registering alert: Naive time %s assumed JST -> %s", naive_dt, expected_jst_dt.isoformat()
     )
     mock_log.info.assert_called_once()
 
@@ -120,7 +120,9 @@ def test_register_alert_aware_datetime_utc(mock_log, mock_task):
     assert expected_key in alerts._scheduled_tasks
     assert alerts._scheduled_tasks[expected_key] == [mock_task]
     mock_log.debug.assert_called_once_with(
-        f"Registering alert: Aware time {aware_utc_dt.isoformat()} converted to JST -> {expected_jst_dt.isoformat()}"
+        "Registering alert: Aware time %s converted to JST -> %s",
+        aware_utc_dt.isoformat(),
+        expected_jst_dt.isoformat(),
     )
     mock_log.info.assert_called_once()
 
@@ -140,7 +142,9 @@ def test_register_alert_aware_datetime_jst(mock_log, mock_task):
     assert alerts._scheduled_tasks[expected_key] == [mock_task]
     # Check that the conversion log shows JST -> JST
     mock_log.debug.assert_called_once_with(
-        f"Registering alert: Aware time {aware_jst_dt.isoformat()} converted to JST -> {aware_jst_dt.isoformat()}"
+        "Registering alert: Aware time %s converted to JST -> %s",
+        aware_jst_dt.isoformat(),
+        aware_jst_dt.isoformat(),
     )
     mock_log.info.assert_called_once()
 
@@ -235,13 +239,13 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
 
     # Assert
     assert mock_register_alert.call_count == 4
-    mock_log.info.assert_any_call(f"Registering deadline reminders for event '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registering deadline reminders for event '%s'.", event.event_name)
 
     # Check Close Task registration
     mock_register_alert.assert_any_call(
         expected_close_time, CloseOffkaiTask(client=mock_client, event_name=event.event_name)
     )
-    mock_log.info.assert_any_call(f"Registered auto-close task for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered auto-close task for '%s'.", event.event_name)
 
     # Check 1 Day Reminder registration
     mock_register_alert.assert_any_call(
@@ -252,7 +256,7 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
             message=ANY,
         ),
     )
-    mock_log.info.assert_any_call(f"Registered 24 hour reminder for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered 24 hour reminder for '%s'.", event.event_name)
 
     # Check 3 Day Reminder registration
     mock_register_alert.assert_any_call(
@@ -263,7 +267,7 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
             message=ANY,
         ),
     )
-    mock_log.info.assert_any_call(f"Registered 3 day reminder for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered 3 day reminder for '%s'.", event.event_name)
 
     # Check 7 Day Reminder registration
     mock_register_alert.assert_any_call(
@@ -274,7 +278,7 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
             message=ANY,
         ),
     )
-    mock_log.info.assert_any_call(f"Registered 1 week reminder for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered 1 week reminder for '%s'.", event.event_name)
 
 
 @patch("offkai_bot.alerts.reminders.register_alert")
@@ -346,13 +350,13 @@ def test_register_deadline_reminders_no_channel_id(
     # Assert
     # Only the close task should be registered
     assert mock_register_alert.call_count == 1
-    mock_log.info.assert_any_call(f"Registering deadline reminders for event '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registering deadline reminders for event '%s'.", event.event_name)
 
     # Check Close Task registration
     mock_register_alert.assert_called_once_with(
         expected_close_time, CloseOffkaiTask(client=mock_client, event_name=event.event_name)
     )
-    mock_log.info.assert_any_call(f"Registered auto-close task for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered auto-close task for '%s'.", event.event_name)
 
     # Ensure reminder logs were NOT called
     assert mock_log.info.call_count == 2  # Registering + Close Task
@@ -371,7 +375,7 @@ def test_register_deadline_reminders_no_deadline(mock_log, mock_register_alert, 
 
     # Assert
     mock_register_alert.assert_not_called()
-    mock_log.info.assert_called_once_with(f"Registering deadline reminders for event '{event.event_name}'.")
+    mock_log.info.assert_called_once_with("Registering deadline reminders for event '%s'.", event.event_name)
     # Ensure no other info logs were generated
     assert mock_log.info.call_count == 1
 
@@ -408,13 +412,13 @@ def test_register_deadline_reminders_past_reminders_suppressed(
     # Assert
     # Close task and 1d reminder should be registered
     assert mock_register_alert.call_count == 3
-    mock_log.info.assert_any_call(f"Registering deadline reminders for event '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registering deadline reminders for event '%s'.", event.event_name)
 
     # Check Close Task registration
     mock_register_alert.assert_any_call(
         expected_close_time, CloseOffkaiTask(client=mock_client, event_name=event.event_name)
     )
-    mock_log.info.assert_any_call(f"Registered auto-close task for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered auto-close task for '%s'.", event.event_name)
 
     # Check 1 Day Reminder registration
     mock_register_alert.assert_any_call(
@@ -425,7 +429,7 @@ def test_register_deadline_reminders_past_reminders_suppressed(
             message=ANY,
         ),
     )
-    mock_log.info.assert_any_call(ANY)
+    mock_log.info.assert_any_call("Registered 24 hour reminder for '%s'.", event.event_name)
 
 
 # --- Tests for role deletion registration ---
@@ -451,7 +455,7 @@ def test_register_deadline_reminders_with_role_id(
         expected_delete_time,
         DeleteRoleTask(client=mock_client, event_name=event.event_name, role_id=55555),
     )
-    mock_log.info.assert_any_call(f"Registered role deletion task for '{event.event_name}'.")
+    mock_log.info.assert_any_call("Registered role deletion task for '%s'.", event.event_name)
 
 
 @patch("offkai_bot.alerts.reminders.register_alert")

@@ -70,7 +70,7 @@ async def test_send_message_task_success_text_channel(mock_log, mock_client, moc
     # Assert
     mock_client.get_channel.assert_called_once_with(channel_id)
     mock_text_channel.send.assert_awaited_once_with(message_content)
-    mock_log.debug.assert_called_once_with(f"Executing SendMessageTask for channel {channel_id}")
+    mock_log.debug.assert_called_once_with("Executing SendMessageTask for channel %s", channel_id)
     mock_log.warning.assert_not_called()
     mock_log.error.assert_not_called()
 
@@ -90,7 +90,7 @@ async def test_send_message_task_success_thread(mock_log, mock_client, mock_thre
     # Assert
     mock_client.get_channel.assert_called_once_with(channel_id)
     mock_thread.send.assert_awaited_once_with(message_content)
-    mock_log.debug.assert_called_once_with(f"Executing SendMessageTask for channel {channel_id}")
+    mock_log.debug.assert_called_once_with("Executing SendMessageTask for channel %s", channel_id)
     mock_log.warning.assert_not_called()
     mock_log.error.assert_not_called()
 
@@ -109,7 +109,7 @@ async def test_send_message_task_channel_not_found(mock_log, mock_client):
 
     # Assert
     mock_client.get_channel.assert_called_once_with(channel_id)
-    mock_log.warning.assert_called_once_with(f"SendMessageTask: Channel {channel_id} not found.")
+    mock_log.warning.assert_called_once_with("SendMessageTask: Channel %s not found.", channel_id)
     mock_log.error.assert_not_called()
     # Ensure send was not attempted on None
     # (No easy way to assert mock_text_channel.send wasn't called without having the mock)
@@ -130,7 +130,9 @@ async def test_send_message_task_wrong_channel_type(mock_log, mock_client, mock_
     # Assert
     mock_client.get_channel.assert_called_once_with(channel_id)
     mock_log.warning.assert_called_once_with(
-        f"SendMessageTask: Channel {channel_id} is not a text channel or thread (Type: {type(mock_other_channel)})."
+        "SendMessageTask: Channel %s is not a text channel or thread (Type: %s).",
+        channel_id,
+        type(mock_other_channel),
     )
     mock_log.error.assert_not_called()
 
@@ -153,7 +155,7 @@ async def test_send_message_task_send_http_error(mock_log, mock_client, mock_tex
     mock_client.get_channel.assert_called_once_with(channel_id)
     mock_text_channel.send.assert_awaited_once_with(message_content)
     mock_log.error.assert_called_once_with(
-        f"SendMessageTask failed to send message to channel {channel_id}: {send_error}"
+        "SendMessageTask failed to send message to channel %s: %s", channel_id, send_error
     )
 
 
@@ -175,7 +177,7 @@ async def test_send_message_task_send_unexpected_error(mock_log, mock_client, mo
     mock_client.get_channel.assert_called_once_with(channel_id)
     mock_text_channel.send.assert_awaited_once_with(message_content)
     mock_log.exception.assert_called_once_with(
-        f"Unexpected error in SendMessageTask for channel {channel_id}: {send_error}"
+        "Unexpected error in SendMessageTask for channel %s: %s", channel_id, send_error
     )
 
 
@@ -201,8 +203,8 @@ async def test_close_offkai_task_success(mock_log, mock_perform_close, mock_clie
         event_name,
         task.close_msg,  # Check default message is passed
     )
-    mock_log.info.assert_any_call(f"Executing CloseOffkaiTask for event: '{event_name}'")
-    mock_log.info.assert_any_call(f"Successfully executed automatic closure for event: '{event_name}'")
+    mock_log.info.assert_any_call("Executing CloseOffkaiTask for event: '%s'", event_name)
+    mock_log.info.assert_any_call("Successfully executed automatic closure for event: '%s'", event_name)
     mock_log.log.assert_not_called()
     mock_log.error.assert_not_called()
     mock_log.exception.assert_not_called()
@@ -226,11 +228,13 @@ async def test_close_offkai_task_handles_bot_command_error(mock_log, mock_perfor
 
     # Assert
     mock_perform_close.assert_awaited_once_with(mock_client, event_name, task.close_msg)
-    mock_log.info.assert_called_once_with(f"Executing CloseOffkaiTask for event: '{event_name}'")  # Only start log
+    mock_log.info.assert_called_once_with("Executing CloseOffkaiTask for event: '%s'", event_name)  # Only start log
     # Check that the specific error log was called with the correct level
     mock_log.log.assert_called_once_with(
         logging.WARNING,  # Check the level assigned to the error instance
-        f"Error during automatic closure of '{event_name}': {error_to_raise}",
+        "Error during automatic closure of '%s': %s",
+        event_name,
+        error_to_raise,
     )
     mock_log.error.assert_not_called()
     mock_log.exception.assert_not_called()
@@ -251,9 +255,9 @@ async def test_close_offkai_task_handles_http_exception(mock_log, mock_perform_c
 
     # Assert
     mock_perform_close.assert_awaited_once_with(mock_client, event_name, task.close_msg)
-    mock_log.info.assert_called_once_with(f"Executing CloseOffkaiTask for event: '{event_name}'")
+    mock_log.info.assert_called_once_with("Executing CloseOffkaiTask for event: '%s'", event_name)
     mock_log.error.assert_called_once_with(
-        f"Discord API error during automatic closure of '{event_name}': {error_to_raise}"
+        "Discord API error during automatic closure of '%s': %s", event_name, error_to_raise
     )
     mock_log.log.assert_not_called()  # Check specific log level wasn't used
     mock_log.exception.assert_not_called()
@@ -274,9 +278,9 @@ async def test_close_offkai_task_handles_unexpected_exception(mock_log, mock_per
 
     # Assert
     mock_perform_close.assert_awaited_once_with(mock_client, event_name, task.close_msg)
-    mock_log.info.assert_called_once_with(f"Executing CloseOffkaiTask for event: '{event_name}'")
+    mock_log.info.assert_called_once_with("Executing CloseOffkaiTask for event: '%s'", event_name)
     mock_log.exception.assert_called_once_with(
-        f"Unexpected error during automatic closure of '{event_name}': {error_to_raise}"
+        "Unexpected error during automatic closure of '%s': %s", event_name, error_to_raise
     )
     mock_log.log.assert_not_called()
     mock_log.error.assert_not_called()
@@ -304,7 +308,7 @@ async def test_delete_role_task_success(mock_log, mock_client):
     # Assert
     mock_guild.get_role.assert_called_once_with(99999)
     mock_role.delete.assert_awaited_once_with(reason="Offkai 'Test Event' ended")
-    mock_log.info.assert_any_call("Deleted role 99999 for event 'Test Event'.")
+    mock_log.info.assert_any_call("Deleted role %s for event '%s'.", 99999, "Test Event")
 
 
 @patch("offkai_bot.alerts.task._log")
@@ -321,7 +325,7 @@ async def test_delete_role_task_role_not_found(mock_log, mock_client):
     await task.action()
 
     # Assert
-    mock_log.warning.assert_called_once_with("Role 99999 not found for deletion (event 'Test Event').")
+    mock_log.warning.assert_called_once_with("Role %s not found for deletion (event '%s').", 99999, "Test Event")
 
 
 @patch("offkai_bot.alerts.task._log")
@@ -342,7 +346,7 @@ async def test_delete_role_task_handles_forbidden(mock_log, mock_client):
     await task.action()
 
     # Assert
-    mock_log.error.assert_called_once_with(f"Failed to delete role 99999: {error}")
+    mock_log.error.assert_called_once_with("Failed to delete role %s: %s", 99999, error)
 
 
 @patch("offkai_bot.alerts.task._log")

@@ -40,7 +40,7 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
         # -----------------------------------------------------
 
         _config_cache = data
-        _log.info(f"Configuration loaded successfully from {path}")  # Optional logging
+        _log.info("Configuration loaded successfully from %s", path)  # Optional logging
         return _config_cache
     except json.JSONDecodeError as e:
         raise ConfigError(f"Error decoding JSON from {path}: {e}")

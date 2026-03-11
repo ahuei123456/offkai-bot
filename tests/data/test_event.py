@@ -192,14 +192,15 @@ def test_load_event_data_file_not_found(mock_paths):
 
         # Check log message
         mock_log.warning.assert_called_once()
-        assert mock_paths["events"] in mock_log.warning.call_args[0][0]
-        assert "not found or empty" in mock_log.warning.call_args[0][0]
+        mock_log.warning.assert_called_once_with(
+            "%s not found or empty. Creating default empty file.", mock_paths["events"]
+        )
 
         # Check that the default empty file was created
         mock_file_constructor.assert_called_with(mock_paths["events"], "w", encoding="utf-8")
         handle = mock_file_constructor()
         handle.write.assert_called_once_with("[]")  # Default is empty list for events
-        mock_log.info.assert_called_once_with(f"Created empty events file at {mock_paths['events']}")
+        mock_log.info.assert_called_once_with("Created empty events file at %s", mock_paths["events"])
 
 
 def test_load_event_data_empty_file(mock_paths):
@@ -215,13 +216,14 @@ def test_load_event_data_empty_file(mock_paths):
 
         assert events == []
         assert event_data.EVENT_DATA_CACHE == []
-        mock_log.warning.assert_called_once()
-        assert "not found or empty" in mock_log.warning.call_args[0][0]
+        mock_log.warning.assert_called_once_with(
+            "%s not found or empty. Creating default empty file.", mock_paths["events"]
+        )
         # Check that the default empty file was created (overwritten)
         mock_file_constructor.assert_called_with(mock_paths["events"], "w", encoding="utf-8")
         handle = mock_file_constructor()
         handle.write.assert_called_once_with("[]")
-        mock_log.info.assert_called_once_with(f"Created empty events file at {mock_paths['events']}")
+        mock_log.info.assert_called_once_with("Created empty events file at %s", mock_paths["events"])
 
 
 def test_load_event_data_json_decode_error(mock_paths):
@@ -273,7 +275,7 @@ def test_load_event_data_invalid_datetime(mock_paths):
         assert len(events) == 0
         mock_log.warning.assert_called_once()
         assert "Could not parse/convert ISO datetime" in mock_log.warning.call_args[0][0]
-        assert "'not-a-datetime'" in mock_log.warning.call_args[0][0]
+        assert mock_log.warning.call_args[0][1] == "not-a-datetime"
 
 
 def test_load_event_data_with_ping_role_id(mock_paths):
@@ -402,7 +404,7 @@ def test_load_event_data_invalid_deadline(mock_paths):
         assert events[0].event_name == "Invalid DL"
         mock_log.warning.assert_called_once()
         assert "Could not parse/convert ISO deadline" in mock_log.warning.call_args[0][0]
-        assert "'not-a-deadline'" in mock_log.warning.call_args[0][0]
+        assert mock_log.warning.call_args[0][1] == "not-a-deadline"
 
 
 def test_load_event_data_missing_required_field(mock_paths):
@@ -527,7 +529,7 @@ def test_save_event_data_os_error(mock_paths, sample_event_list):
 
         mock_log.error.assert_called_once()
         assert "Error writing event data" in mock_log.error.call_args[0][0]
-        assert mock_paths["events"] in mock_log.error.call_args[0][0]
+        assert mock_log.error.call_args[0][1] == mock_paths["events"]
         assert "Disk full" in str(mock_log.error.call_args)
 
 
@@ -671,7 +673,7 @@ def test_update_event_details_success_single_field():
         mock_parse_dt.assert_not_called()
         mock_parse_drinks.assert_not_called()
         mock_save.assert_not_called()
-        mock_log.info.assert_called_once_with(f"Event '{test_event.event_name}' details updated in cache.")
+        mock_log.info.assert_called_once_with("Event '%s' details updated in cache.", test_event.event_name)
 
 
 def test_update_event_details_success_multiple_fields():
@@ -935,7 +937,7 @@ def test_set_event_open_status_open_to_close():
         assert updated_event.open is False
         mock_save.assert_not_called()
         # Now logs twice: once for attendance count, once for status
-        mock_log.info.assert_any_call(f"Event '{test_event.event_name}' marked as closed in cache.")
+        mock_log.info.assert_any_call("Event '%s' marked as %s in cache.", test_event.event_name, "closed")
 
 
 def test_set_event_open_status_close_to_open():
@@ -954,7 +956,7 @@ def test_set_event_open_status_close_to_open():
         assert updated_event.open is True
         mock_save.assert_not_called()
         # Now logs twice: once for clearing attendance count, once for status
-        mock_log.info.assert_any_call(f"Event '{test_event.event_name}' marked as open in cache.")
+        mock_log.info.assert_any_call("Event '%s' marked as %s in cache.", test_event.event_name, "open")
 
 
 def test_set_event_open_status_already_open():
@@ -1048,7 +1050,7 @@ def test_archive_event_success_open_event():
         assert updated_event.open is False  # Should be forced closed
         mock_save.assert_not_called()
         mock_log.info.assert_called_once_with(
-            f"Event '{test_event.event_name}' marked as archived (and closed) in cache."
+            "Event '%s' marked as archived (and closed) in cache.", test_event.event_name
         )
 
 
@@ -1069,7 +1071,7 @@ def test_archive_event_success_closed_event():
         assert updated_event.open is False  # Stays closed
         mock_save.assert_not_called()
         mock_log.info.assert_called_once_with(
-            f"Event '{test_event.event_name}' marked as archived (and closed) in cache."
+            "Event '%s' marked as archived (and closed) in cache.", test_event.event_name
         )
 
 

@@ -127,7 +127,9 @@ async def test_delete_response_success(
     mock_thread.remove_user.assert_awaited_once_with(mock_member)
     # 6. Check logs
     mock_log.info.assert_called()
-    assert f"Removed user {mock_member.id} from thread {mock_thread.id}" in mock_log.info.call_args[0][0]
+    assert mock_log.info.call_args[0][0] == "Removed user %s from thread %s for event '%s'."
+    assert mock_log.info.call_args[0][1] == mock_member.id
+    assert mock_log.info.call_args[0][2] == mock_thread.id
     mock_log.warning.assert_not_called()
     mock_log.error.assert_not_called()  # Check no error logs
 
@@ -171,7 +173,8 @@ async def test_delete_response_success_no_channel_id(
     mock_cog.bot.get_channel.assert_not_called()
     mock_thread.remove_user.assert_not_awaited()
     mock_log.warning.assert_called_once()
-    assert f"Event '{event_name_target}' is missing thread_id" in mock_log.warning.call_args[0][0]
+    assert mock_log.warning.call_args[0][0] == "Event '%s' is missing thread_id, cannot remove user from thread."
+    assert mock_log.warning.call_args[0][1] == event_name_target
     mock_log.info.assert_not_called()
     mock_log.error.assert_not_called()
 
@@ -215,7 +218,8 @@ async def test_delete_response_success_thread_not_found(
     # Removing user should be skipped, warning logged
     mock_thread.remove_user.assert_not_awaited()
     mock_log.warning.assert_called_once()
-    assert f"Could not find thread {mock_event_obj.thread_id}" in mock_log.warning.call_args[0][0]
+    assert mock_log.warning.call_args[0][0] == "Could not find thread %s to remove user for event '%s'."
+    assert mock_log.warning.call_args[0][1] == mock_event_obj.thread_id
     mock_log.info.assert_not_called()
     mock_log.error.assert_not_called()
 
@@ -262,7 +266,8 @@ async def test_delete_response_success_remove_user_fails(
 
     # Error should be logged, no warning/info logs expected for this specific part
     mock_log.error.assert_called_once()
-    assert f"Failed to remove user {mock_member.id}" in mock_log.error.call_args[0][0]
+    assert mock_log.error.call_args[0][0] == "Failed to remove user %s from thread %s: %s"
+    assert mock_log.error.call_args[0][1] == mock_member.id
     mock_log.warning.assert_not_called()
     mock_log.info.assert_not_called()
 

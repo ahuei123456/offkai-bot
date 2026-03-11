@@ -187,14 +187,15 @@ def test_load_responses_file_not_found(mock_paths):
         assert response_data.RESPONSE_DATA_CACHE == {}  # Cache should be empty dict
 
         mock_log.warning.assert_called_once()
-        assert mock_paths["responses"] in mock_log.warning.call_args[0][0]
-        assert "not found or empty" in mock_log.warning.call_args[0][0]
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert mock_paths["responses"] in log_msg
+        assert "not found or empty" in log_msg
 
         # Check that the default empty file was created
         mock_file_constructor.assert_called_with(mock_paths["responses"], "w", encoding="utf-8")
         handle = mock_file_constructor()
         handle.write.assert_called_once_with("{}")  # Default is empty dict for responses
-        mock_log.info.assert_called_once_with(f"Created empty responses file at {mock_paths['responses']}")
+        mock_log.info.assert_called_once_with("Created empty responses file at %s", mock_paths["responses"])
 
 
 def test_load_responses_empty_file(mock_paths):
@@ -211,12 +212,13 @@ def test_load_responses_empty_file(mock_paths):
         assert responses == {}
         assert response_data.RESPONSE_DATA_CACHE == {}
         mock_log.warning.assert_called_once()
-        assert "not found or empty" in mock_log.warning.call_args[0][0]
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert "not found or empty" in log_msg
         # Check that the default empty file was created (overwritten)
         mock_file_constructor.assert_called_with(mock_paths["responses"], "w", encoding="utf-8")
         handle = mock_file_constructor()
         handle.write.assert_called_once_with("{}")
-        mock_log.info.assert_called_once_with(f"Created empty responses file at {mock_paths['responses']}")
+        mock_log.info.assert_called_once_with("Created empty responses file at %s", mock_paths["responses"])
 
 
 def test_load_responses_json_decode_error(mock_paths):
@@ -502,7 +504,8 @@ def test_add_response_new(mock_paths):
         # Check save was called
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
-        assert f"Added response from user {RESP_2_OBJ.user_id}" in mock_log.info.call_args[0][0]
+        log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert f"Added response from user {RESP_2_OBJ.user_id}" in log_msg
         mock_log.warning.assert_not_called()
 
 
@@ -526,7 +529,8 @@ def test_add_response_new_event(mock_paths):
         # Check save was called
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
-        assert f"Added response from user {RESP_3_OBJ.user_id}" in mock_log.info.call_args[0][0]
+        log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert f"Added response from user {RESP_3_OBJ.user_id}" in log_msg
 
 
 def test_add_response_duplicate(mock_paths):
@@ -562,7 +566,8 @@ def test_add_response_duplicate(mock_paths):
         mock_save.assert_not_called()
         # Check log warning
         mock_log.warning.assert_called_once()
-        assert f"User {RESP_1_OBJ.user_id} already responded" in mock_log.warning.call_args[0][0]
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert f"User {RESP_1_OBJ.user_id} already responded" in log_msg
         mock_log.info.assert_not_called()
 
 
@@ -588,7 +593,8 @@ def test_remove_response_found(mock_paths):
         # Check save was called
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
-        assert f"Removed response from user {RESP_1_OBJ.user_id}" in mock_log.info.call_args[0][0]
+        log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert f"Removed response from user {RESP_1_OBJ.user_id}" in log_msg
         mock_log.warning.assert_not_called()
 
 
@@ -612,7 +618,8 @@ def test_remove_response_not_found_user(mock_paths):
         # Check save was NOT called
         mock_save.assert_not_called()
         mock_log.warning.assert_called_once()
-        assert "No response found for user 999" in mock_log.warning.call_args[0][0]
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert "No response found for user 999" in log_msg
         mock_log.info.assert_not_called()
 
 
@@ -635,10 +642,8 @@ def test_remove_response_not_found_event(mock_paths):
         # Check save was NOT called
         mock_save.assert_not_called()
         mock_log.warning.assert_called_once()
-        assert (
-            f"No response found for user {RESP_1_OBJ.user_id} in event NonExistent Event"
-            in mock_log.warning.call_args[0][0]
-        )
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert f"No response found for user {RESP_1_OBJ.user_id} in event NonExistent Event" in log_msg
         mock_log.info.assert_not_called()
 
 

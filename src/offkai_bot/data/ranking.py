@@ -39,7 +39,7 @@ def _parse_ranking_from_dict(rank_dict: dict) -> UserRank | None:
         )
 
     except (TypeError, ValueError) as e:
-        _log.error(f"Error creating Response object for user from dict {rank_dict}: {e}")
+        _log.error("Error creating Response object for user from dict %s: %s", rank_dict, e)
 
     return None
 
@@ -58,16 +58,20 @@ def _load_rankings() -> dict[str, UserRank]:
 
         if not isinstance(raw_data, dict):
             _log.error(
-                f"Invalid format in {file_path}: "
-                f"Expected a JSON object (dict), got {type(raw_data)}. Loading empty responses."
+                "Invalid format in %s: Expected a JSON object (dict), got %s. Loading empty responses.",
+                file_path,
+                type(raw_data),
             )
             raw_data = {}
 
         for username, ranking_data in raw_data.items():
             if not isinstance(ranking_data, dict):
                 _log.warning(
-                    f"Invalid format for ranking '{ranking_data}' in {file_path}: "
-                    f"Expected a dict with 'attendees'/'waitlist', got {type(ranking_data)}. Skipping."
+                    "Invalid format for ranking '%s' in %s: "
+                    "Expected a dict with 'attendees'/'waitlist', got %s. Skipping.",
+                    ranking_data,
+                    file_path,
+                    type(ranking_data),
                 )
                 continue
 
@@ -76,23 +80,23 @@ def _load_rankings() -> dict[str, UserRank]:
                 ranking_dict[username] = ranking
 
     except FileNotFoundError:
-        _log.warning(f"{file_path} not found or empty. Creating default empty file.")
+        _log.warning("%s not found or empty. Creating default empty file.", file_path)
         try:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump({}, file, indent=4)
-            _log.info(f"Created empty responses file at {file_path}")
+            _log.info("Created empty responses file at %s", file_path)
         except OSError as e:
-            _log.error(f"Could not create default responses file at {file_path}: {e}")
+            _log.error("Could not create default responses file at %s: %s", file_path, e)
         RANKING_DATA_CACHE = {}
         return {}
     except json.JSONDecodeError:
         _log.error(
-            f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty responses."
+            "Error decoding JSON from %s. File might be corrupted or invalid. Loading empty responses.", file_path
         )
         RANKING_DATA_CACHE = {}
         return {}
     except Exception as e:
-        _log.exception(f"An unexpected error occurred loading response data from {file_path}: {e}")
+        _log.exception("An unexpected error occurred loading response data from %s: %s", file_path, e)
         RANKING_DATA_CACHE = {}
         return {}
 
@@ -125,9 +129,9 @@ def save_rankings():
                 ensure_ascii=False,
             )
     except OSError as e:
-        _log.error(f"Error writing response data to {settings['RANKING_FILE']}: {e}")
+        _log.error("Error writing response data to %s: %s", settings["RANKING_FILE"], e)
     except Exception as e:
-        _log.exception(f"An unexpected error occurred saving response data: {e}")
+        _log.exception("An unexpected error occurred saving response data: %s", e)
 
 
 def update_rank(username: str) -> None:
@@ -140,7 +144,7 @@ def update_rank(username: str) -> None:
     if username not in all_data:
         all_data[username] = user_data
     save_rankings()
-    _log.info(f"Updated {username} rank to {user_data.rank}.")
+    _log.info("Updated %s rank to %s.", username, user_data.rank)
 
 
 def decrease_rank(username: str) -> None:
@@ -150,7 +154,7 @@ def decrease_rank(username: str) -> None:
         user_data.rank -= 1
         all_data[username] = user_data
         save_rankings()
-        _log.info(f"Updated {username} rank to {user_data.rank}.")
+        _log.info("Updated %s rank to %s.", username, user_data.rank)
 
 
 def get_rank(username: str) -> int:
@@ -164,7 +168,7 @@ def get_rank(username: str) -> int:
         )
         all_data[username] = user_data
         save_rankings()
-        _log.info(f"Created user rank for {username}.")
+        _log.info("Created user rank for %s.", username)
         return 0
 
 

@@ -200,8 +200,9 @@ def test_load_rankings_file_not_found(mock_paths):
         assert ranking_data.RANKING_DATA_CACHE == {}
 
         mock_log.warning.assert_called_once()
-        assert mock_paths["ranking"] in mock_log.warning.call_args[0][0]
-        assert "not found or empty" in mock_log.warning.call_args[0][0]
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert mock_paths["ranking"] in log_msg
+        assert "not found or empty" in log_msg
 
         # Check that the default empty file was created
         mock_file_constructor.assert_called_with(mock_paths["ranking"], "w", encoding="utf-8")
@@ -223,7 +224,8 @@ def test_load_rankings_empty_file(mock_paths):
         assert rankings == {}
         assert ranking_data.RANKING_DATA_CACHE == {}
         mock_log.warning.assert_called_once()
-        assert "not found or empty" in mock_log.warning.call_args[0][0]
+        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
+        assert "not found or empty" in log_msg
 
 
 def test_load_rankings_json_decode_error(mock_paths):
@@ -369,7 +371,8 @@ def test_update_rank_existing_user(mock_paths):
         assert initial_cache["User1"].rank == 2
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
-        assert "Updated User1 rank to 2" in mock_log.info.call_args[0][0]
+        log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert "Updated User1 rank to 2" in log_msg
 
 
 def test_update_rank_new_user(mock_paths):
@@ -409,7 +412,8 @@ def test_decrease_rank_existing_user(mock_paths):
         assert initial_cache["User1"].rank == 2
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
-        assert "Updated User1 rank to 2" in mock_log.info.call_args[0][0]
+        log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert "Updated User1 rank to 2" in log_msg
 
 
 def test_decrease_rank_nonexistent_user(mock_paths):
@@ -475,7 +479,8 @@ def test_get_rank_new_user(mock_paths):
         assert initial_cache["NewUser"].rank == 0
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
-        assert "Created user rank for NewUser" in mock_log.info.call_args[0][0]
+        log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
+        assert "Created user rank for NewUser" in log_msg
 
 
 # == can_rank_message_sent Tests ==

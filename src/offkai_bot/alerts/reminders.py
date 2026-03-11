@@ -13,12 +13,12 @@ _log = logging.getLogger(__name__)
 
 
 def register_deadline_reminders(client: discord.Client, event: Event, thread: discord.Thread):
-    _log.info(f"Registering deadline reminders for event '{event.event_name}'.")
+    _log.info("Registering deadline reminders for event '%s'.", event.event_name)
 
     if event.event_deadline and not event.is_past_deadline:
         with contextlib.suppress(AlertTimeInPastError):
             register_alert(event.event_deadline, CloseOffkaiTask(client=client, event_name=event.event_name))
-            _log.info(f"Registered auto-close task for '{event.event_name}'.")
+            _log.info("Registered auto-close task for '%s'.", event.event_name)
 
             if event.channel_id:
                 role_ping = f"<@&{event.ping_role_id}> " if event.ping_role_id else ""
@@ -34,7 +34,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         f"詳細は{thread.mention}をご覧ください。",
                     ),
                 )
-                _log.info(f"Registered 24 hour reminder for '{event.event_name}'.")
+                _log.info("Registered 24 hour reminder for '%s'.", event.event_name)
 
                 register_alert(
                     event.event_deadline - timedelta(days=3),
@@ -47,7 +47,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         f"詳細は{thread.mention}をご覧ください。",
                     ),
                 )
-                _log.info(f"Registered 3 day reminder for '{event.event_name}'.")
+                _log.info("Registered 3 day reminder for '%s'.", event.event_name)
 
                 register_alert(
                     event.event_deadline - timedelta(days=7),
@@ -61,7 +61,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                     ),
                 )
 
-                _log.info(f"Registered 1 week reminder for '{event.event_name}'.")
+                _log.info("Registered 1 week reminder for '%s'.", event.event_name)
 
     # Role deletion: 1 day after event (independent of deadline)
     if event.role_id:
@@ -70,4 +70,4 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                 event.event_datetime + timedelta(days=1),
                 DeleteRoleTask(client=client, event_name=event.event_name, role_id=event.role_id),
             )
-            _log.info(f"Registered role deletion task for '{event.event_name}'.")
+            _log.info("Registered role deletion task for '%s'.", event.event_name)

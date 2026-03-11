@@ -198,7 +198,9 @@ async def test_fetch_message_not_found(mock_log, mock_thread, mock_event_open):
     assert mock_event_open.message_id is None  # Check ID was cleared
     mock_thread.fetch_message.assert_awaited_once_with(original_id)
     mock_log.warning.assert_called_once()
-    assert f"Message ID {original_id} not found" in mock_log.warning.call_args[0][0]
+    args = mock_log.warning.call_args[0]
+    assert "Message ID %s not found" in args[0]
+    assert args[1] == original_id
 
 
 @patch("offkai_bot.event_actions._log")
@@ -404,7 +406,7 @@ async def test_update_message_thread_fetch_fails(
     # Check error was logged
     mock_log.log.assert_called_once()
     assert mock_log.log.call_args[0][0] == logging.WARNING  # Check level
-    assert f"Failed to get thread for event '{mock_event_open.event_name}'" in mock_log.log.call_args[0][1]
+    assert "Failed to get thread for event '%s'" in mock_log.log.call_args[0][1]
 
 
 @patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
@@ -460,7 +462,7 @@ async def test_update_message_edit_fails(
     mock_message.edit.assert_awaited_once()  # Edit was attempted
     mock_send_new.assert_not_awaited()  # Send new should not be called
     mock_log.error.assert_called_once()  # Error during edit should be logged
-    assert f"Failed to update event message {mock_message.id}" in mock_log.error.call_args[0][0]
+    assert "Failed to update event message %s" in mock_log.error.call_args[0][0]
 
 
 # --- Tests for load_and_update_events ---

@@ -166,14 +166,16 @@ def _load_event_data() -> list[Event]:
 
         if not isinstance(raw_data, list):
             _log.error(
-                f"Invalid format in {file_path}: Expected a JSON list, got {type(raw_data)}. Loading empty list."
+                "Invalid format in %s: Expected a JSON list, got %s. Loading empty list.",
+                file_path,
+                type(raw_data),
             )
             raw_data = []
 
         for event_dict in raw_data:
             # --- Check for required 'event_name' BEFORE trying to create Event ---
             if "event_name" not in event_dict or not event_dict["event_name"]:
-                _log.error(f"Skipping event entry due to missing or empty 'event_name'. Data: {event_dict}")
+                _log.error("Skipping event entry due to missing or empty 'event_name'. Data: %s", event_dict)
                 continue  # Skip this dictionary and move to the next one
 
             # --- Parse and Convert event_datetime ---
@@ -186,17 +188,22 @@ def _load_event_data() -> list[Event]:
                         aware_jst = dt_obj.replace(tzinfo=JST)
                         event_datetime_utc = aware_jst.astimezone(UTC)
                         _log.debug(
-                            f"Converted naive datetime '{raw_dt_str}' (assumed JST) to UTC: {event_datetime_utc}"
+                            "Converted naive datetime '%s' (assumed JST) to UTC: %s",
+                            raw_dt_str,
+                            event_datetime_utc,
                         )
                     else:
                         # Already aware, just convert to UTC
                         event_datetime_utc = dt_obj.astimezone(UTC)
-                        _log.debug(f"Converted aware datetime '{raw_dt_str}' to UTC: {event_datetime_utc}")
+                        _log.debug("Converted aware datetime '%s' to UTC: %s", raw_dt_str, event_datetime_utc)
                 except (ValueError, TypeError) as e:
                     _log.warning(
-                        f"Could not parse/convert ISO datetime '{raw_dt_str}' for {event_dict.get('event_name')}: {e}"
+                        "Could not parse/convert ISO datetime '%s' for %s: %s",
+                        raw_dt_str,
+                        event_dict.get("event_name"),
+                        e,
                     )
-                    _log.error(f"Skipping event entry due to missing or empty 'event_datetime'. Data: {event_dict}")
+                    _log.error("Skipping event entry due to missing or empty 'event_datetime'. Data: %s", event_dict)
                     continue
             # --- End event_datetime Parsing ---
 
@@ -211,16 +218,20 @@ def _load_event_data() -> list[Event]:
                         aware_jst = dt_obj.replace(tzinfo=JST)
                         event_deadline_utc = aware_jst.astimezone(UTC)
                         _log.debug(
-                            f"Converted naive deadline '{raw_deadline_str}' (assumed JST) to UTC: {event_deadline_utc}"
+                            "Converted naive deadline '%s' (assumed JST) to UTC: %s",
+                            raw_deadline_str,
+                            event_deadline_utc,
                         )
                     else:
                         # Already aware, just convert to UTC
                         event_deadline_utc = dt_obj.astimezone(UTC)
-                        _log.debug(f"Converted aware deadline '{raw_deadline_str}' to UTC: {event_deadline_utc}")
+                        _log.debug("Converted aware deadline '%s' to UTC: %s", raw_deadline_str, event_deadline_utc)
                 except (ValueError, TypeError) as e:
                     _log.warning(
-                        f"Could not parse/convert ISO deadline '{raw_deadline_str}' "
-                        f"for {event_dict.get('event_name')}: {e}"
+                        "Could not parse/convert ISO deadline '%s' for %s: %s",
+                        raw_deadline_str,
+                        event_dict.get("event_name"),
+                        e,
                     )
                     event_deadline_utc = None  # Keep as None on error
             # --- End event_deadline Parsing ---
@@ -272,28 +283,29 @@ def _load_event_data() -> list[Event]:
                         role_id=event_dict.get("role_id"),
                     )
                     _log.info(
-                        f"Found old events.json format for {event.event_name}. Successfully converted to new format."
+                        "Found old events.json format for %s. Successfully converted to new format.",
+                        event.event_name,
                     )
                 events_list.append(event)
             except TypeError as e:
-                _log.error(f"Error creating Event object from dict {event_dict}: {e}")
+                _log.error("Error creating Event object from dict %s: %s", event_dict, e)
 
     except FileNotFoundError:
-        _log.warning(f"{file_path} not found or empty. Creating default empty file.")
+        _log.warning("%s not found or empty. Creating default empty file.", file_path)
         try:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump([], file, indent=4)
-            _log.info(f"Created empty events file at {file_path}")
+            _log.info("Created empty events file at %s", file_path)
         except OSError as e:
-            _log.error(f"Could not create default events file at {file_path}: {e}")
+            _log.error("Could not create default events file at %s: %s", file_path, e)
         EVENT_DATA_CACHE = []
         return []
     except json.JSONDecodeError:
-        _log.error(f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty list.")
+        _log.error("Error decoding JSON from %s. File might be corrupted or invalid. Loading empty list.", file_path)
         EVENT_DATA_CACHE = []
         return []
     except Exception as e:
-        _log.exception(f"An unexpected error occurred loading event data from {file_path}: {e}")
+        _log.exception("An unexpected error occurred loading event data from %s: %s", file_path, e)
         EVENT_DATA_CACHE = []
         return []
 
@@ -327,9 +339,9 @@ def save_event_data():
                 ensure_ascii=False,
             )
     except OSError as e:
-        _log.error(f"Error writing event data to {settings['EVENTS_FILE']}: {e}")
+        _log.error("Error writing event data to %s: %s", settings["EVENTS_FILE"], e)
     except Exception as e:
-        _log.exception(f"An unexpected error occurred saving event data: {e}")
+        _log.exception("An unexpected error occurred saving event data: %s", e)
 
 
 def get_event(event_name: str) -> Event:
@@ -388,7 +400,7 @@ def add_event(
     # Step 3: State Modification
     events_cache = load_event_data()  # Get or load the cache
     events_cache.append(new_event)
-    _log.info(f"Event '{event_name}' added to cache.")
+    _log.info("Event '%s' added to cache.", event_name)
 
     # DO NOT SAVE HERE - Saving is handled later
 
@@ -497,7 +509,7 @@ def update_event_details(
         event.max_capacity = max_capacity
 
     # 6. Log and Return
-    _log.info(f"Event '{event_name}' details updated in cache.")
+    _log.info("Event '%s' details updated in cache.", event_name)
     return event
 
 
@@ -537,15 +549,15 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
     if target_open_status:
         # Reopening the event - clear the closed attendance count
         event.closed_attendance_count = None
-        _log.info(f"Event '{event_name}' reopened, cleared closed_attendance_count.")
+        _log.info("Event '%s' reopened, cleared closed_attendance_count.", event_name)
     else:
         # Closing the event - capture current attendance count
         responses = get_responses(event_name)
         event.closed_attendance_count = sum(1 + r.extra_people for r in responses)
-        _log.info(f"Event '{event_name}' closed with {event.closed_attendance_count} attendees.")
+        _log.info("Event '%s' closed with %s attendees.", event_name, event.closed_attendance_count)
 
     status_text = "open" if target_open_status else "closed"
-    _log.info(f"Event '{event_name}' marked as {status_text} in cache.")
+    _log.info("Event '%s' marked as %s in cache.", event_name, status_text)
     return event
 
 
@@ -569,5 +581,5 @@ def archive_event(event_name: str) -> Event:
 
     event.archived = True
     event.open = False  # Archiving always closes the event
-    _log.info(f"Event '{event_name}' marked as archived (and closed) in cache.")
+    _log.info("Event '%s' marked as archived (and closed) in cache.", event_name)
     return event
