@@ -170,9 +170,14 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
                 f"すべての結果に対して、全責任を負います。"
             )
-            _log.info(f"Promoted user {promoted_entry.user_id} from waitlist for event '{event.event_name}'.")
+            _log.info("Promoted user %s from waitlist for event '%s'.", promoted_entry.user_id, event.event_name)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-            _log.warning(f"Could not notify promoted user {promoted_entry.user_id} for event '{event.event_name}': {e}")
+            _log.warning(
+                "Could not notify promoted user %s for event '%s': %s",
+                promoted_entry.user_id,
+                event.event_name,
+                e,
+            )
 
     return promoted_user_ids
 
@@ -318,7 +323,7 @@ class GatheringModal(ui.Modal):
             names = []
         else:
             names = extras.split(",")
-            _log.debug(f"{len(names)=}, {num_extra=}")
+            _log.debug("len(names)=%s, num_extra=%s", len(names), num_extra)
             if len(names) != num_extra:
                 raise ValidationError(
                     f"Please provide exactly {num_extra} names "
@@ -375,10 +380,12 @@ class GatheringModal(ui.Modal):
                 await interaction.channel.add_user(interaction.user)
             else:
                 _log.warning(
-                    f"Could not add user {interaction.user.id} to thread {interaction.channel_id} (not a thread?)."
+                    "Could not add user %s to thread %s (not a thread?).",
+                    interaction.user.id,
+                    interaction.channel_id,
                 )
         except discord.HTTPException as e:
-            _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+            _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
 
         # 5. Assign event participant role
         if self.event.role_id and interaction.guild:
@@ -431,10 +438,12 @@ class GatheringModal(ui.Modal):
                 await interaction.channel.add_user(interaction.user)
             else:
                 _log.warning(
-                    f"Could not add user {interaction.user.id} to thread {interaction.channel_id} (not a thread?)."
+                    "Could not add user %s to thread %s (not a thread?).",
+                    interaction.user.id,
+                    interaction.channel_id,
                 )
         except discord.HTTPException as e:
-            _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+            _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
 
     async def _handle_waitlist_capacity_exceeded(
         self, interaction: discord.Interaction, entry: WaitlistEntry, total_people_in_group: int, remaining_spots: int
@@ -489,10 +498,12 @@ class GatheringModal(ui.Modal):
                 await interaction.channel.add_user(interaction.user)
             else:
                 _log.warning(
-                    f"Could not add user {interaction.user.id} to thread {interaction.channel_id} (not a thread?)."
+                    "Could not add user %s to thread %s (not a thread?).",
+                    interaction.user.id,
+                    interaction.channel_id,
                 )
         except discord.HTTPException as e:
-            _log.error(f"Failed to add user {interaction.user.id} to thread {interaction.channel_id}: {e}")
+            _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
 
     async def _send_capacity_reached_message(self, interaction: discord.Interaction):
         """Sends a message to the thread when capacity is first reached."""
@@ -504,11 +515,11 @@ class GatheringModal(ui.Modal):
                     f"⚠️ **{self.event.event_name}の定員に達しました！**\n"
                     f"新規登録はウェイトリストに追加されます。"
                 )
-                _log.info(f"Sent capacity reached message to thread for event '{self.event.event_name}'.")
+                _log.info("Sent capacity reached message to thread for event '%s'.", self.event.event_name)
             else:
-                _log.warning(f"Could not send capacity message to thread {interaction.channel_id} (not a thread?).")
+                _log.warning("Could not send capacity message to thread %s (not a thread?).", interaction.channel_id)
         except discord.HTTPException as e:
-            _log.error(f"Failed to send capacity message to thread {interaction.channel_id}: {e}")
+            _log.error("Failed to send capacity message to thread %s: %s", interaction.channel_id, e)
 
     async def on_submit(self, interaction: discord.Interaction):
         # 1. Get Input Values
@@ -622,7 +633,7 @@ class GatheringModal(ui.Modal):
 
         except Exception as e:
             # Catch any other unexpected errors during Response creation or add_response
-            _log.error(f"Unexpected error during modal submission for {self.event.event_name}: {e}", exc_info=True)
+            _log.error("Unexpected error during modal submission for %s: %s", self.event.event_name, e, exc_info=True)
             await error_message(interaction, "An internal error occurred processing your response.")
             # No return needed here
 
@@ -695,7 +706,10 @@ class OpenEvent(EventView):
         except Exception as e:
             # Catch any other unexpected errors during removal
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                "Unexpected error during withdrawal for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
                 exc_info=True,
             )
             await error_message(interaction, "An internal error occurred while processing your withdrawal.")
@@ -726,11 +740,17 @@ class OpenEvent(EventView):
                     await interaction.channel.remove_user(interaction.user)
                 else:
                     _log.warning(
-                        f"Could not remove user {interaction.user.id} "
-                        f"from channel {interaction.channel_id} (not a thread?)."
+                        "Could not remove user %s from channel %s (not a thread?).",
+                        interaction.user.id,
+                        interaction.channel_id,
                     )
             except discord.HTTPException as e:
-                _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
+                _log.error(
+                    "Failed to remove user %s from thread %s: %s",
+                    interaction.user.id,
+                    interaction.channel_id,
+                    e,
+                )
 
             # 5. Remove event participant role if removed from responses
             if removed_from_responses and self.event.role_id and interaction.guild:
@@ -744,7 +764,10 @@ class OpenEvent(EventView):
         except Exception as e:
             # Catch any errors during notification/promotion
             _log.error(
-                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
+                "Error during post-withdrawal actions for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
                 exc_info=True,
             )
 
@@ -804,7 +827,10 @@ class ClosedEvent(EventView):
         except Exception as e:
             # Catch any other unexpected errors during removal
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                "Unexpected error during withdrawal for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
                 exc_info=True,
             )
             await error_message(interaction, "An internal error occurred while processing your withdrawal.")
@@ -841,11 +867,17 @@ class ClosedEvent(EventView):
                     await interaction.channel.remove_user(interaction.user)
                 else:
                     _log.warning(
-                        f"Could not remove user {interaction.user.id} "
-                        f"from channel {interaction.channel_id} (not a thread?)."
+                        "Could not remove user %s from channel %s (not a thread?).",
+                        interaction.user.id,
+                        interaction.channel_id,
                     )
             except discord.HTTPException as e:
-                _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
+                _log.error(
+                    "Failed to remove user %s from thread %s: %s",
+                    interaction.user.id,
+                    interaction.channel_id,
+                    e,
+                )
 
             # 4.5. Notify event creator about withdrawal (only after responses are closed)
             if self.event.creator_id:
@@ -858,13 +890,17 @@ class ClosedEvent(EventView):
                         f"This withdrawal occurred after responses were closed."
                     )
                     _log.info(
-                        f"Notified creator {self.event.creator_id} about withdrawal by {interaction.user.id} "
-                        f"from closed event '{self.event.event_name}'."
+                        "Notified creator %s about withdrawal by %s from closed event '%s'.",
+                        self.event.creator_id,
+                        interaction.user.id,
+                        self.event.event_name,
                     )
                 except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
                     _log.warning(
-                        f"Could not notify creator {self.event.creator_id} about withdrawal "
-                        f"from event '{self.event.event_name}': {e}"
+                        "Could not notify creator %s about withdrawal from event '%s': %s",
+                        self.event.creator_id,
+                        self.event.event_name,
+                        e,
                     )
 
             # 5. Remove event participant role if removed from responses
@@ -879,7 +915,10 @@ class ClosedEvent(EventView):
         except Exception as e:
             # Catch any errors during notification/promotion
             _log.error(
-                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
+                "Error during post-withdrawal actions for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
                 exc_info=True,
             )
 
@@ -929,7 +968,10 @@ class PostDeadlineEvent(EventView):
         except Exception as e:
             # Catch any other unexpected errors during removal
             _log.error(
-                f"Unexpected error during withdrawal for {self.event.event_name} by {interaction.user.id}: {e}",
+                "Unexpected error during withdrawal for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
                 exc_info=True,
             )
             await error_message(interaction, "An internal error occurred while processing your withdrawal.")
@@ -966,11 +1008,17 @@ class PostDeadlineEvent(EventView):
                     await interaction.channel.remove_user(interaction.user)
                 else:
                     _log.warning(
-                        f"Could not remove user {interaction.user.id} "
-                        f"from channel {interaction.channel_id} (not a thread?)."
+                        "Could not remove user %s from channel %s (not a thread?).",
+                        interaction.user.id,
+                        interaction.channel_id,
                     )
             except discord.HTTPException as e:
-                _log.error(f"Failed to remove user {interaction.user.id} from thread {interaction.channel_id}: {e}")
+                _log.error(
+                    "Failed to remove user %s from thread %s: %s",
+                    interaction.user.id,
+                    interaction.channel_id,
+                    e,
+                )
 
             # 4.5. Notify event creator about withdrawal (only after deadline)
             if self.event.creator_id:
@@ -983,13 +1031,17 @@ class PostDeadlineEvent(EventView):
                         f"This withdrawal occurred after the deadline."
                     )
                     _log.info(
-                        f"Notified creator {self.event.creator_id} about withdrawal by {interaction.user.id} "
-                        f"from post-deadline event '{self.event.event_name}'."
+                        "Notified creator %s about withdrawal by %s from post-deadline event '%s'.",
+                        self.event.creator_id,
+                        interaction.user.id,
+                        self.event.event_name,
                     )
                 except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
                     _log.warning(
-                        f"Could not notify creator {self.event.creator_id} about withdrawal "
-                        f"from event '{self.event.event_name}': {e}"
+                        "Could not notify creator %s about withdrawal from event '%s': %s",
+                        self.event.creator_id,
+                        self.event.event_name,
+                        e,
                     )
 
             # 5. Remove event participant role if removed from responses
@@ -1004,6 +1056,9 @@ class PostDeadlineEvent(EventView):
         except Exception as e:
             # Catch any errors during notification/promotion
             _log.error(
-                f"Error during post-withdrawal actions for {self.event.event_name} by {interaction.user.id}: {e}",
+                "Error during post-withdrawal actions for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
                 exc_info=True,
             )

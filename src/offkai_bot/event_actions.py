@@ -46,18 +46,18 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
         EventNotFoundError: If the event doesn't exist.
         # Other potential errors from underlying functions
     """
-    _log.info(f"Attempting to close event '{event_name}'...")
+    _log.info("Attempting to close event '%s'...", event_name)
 
     # 1. Update status in data store (raises EventNotFoundError if not found)
     closed_event = set_event_open_status(event_name, target_open_status=False)
 
     # 2. Save the change
     save_event_data()
-    _log.info(f"Event '{event_name}' status set to closed and data saved.")
+    _log.info("Event '%s' status set to closed and data saved.", event_name)
 
     # 3. Update the message view
     await update_event_message(client, closed_event)
-    _log.info(f"Updated persistent message for event '{event_name}'.")
+    _log.info("Updated persistent message for event '%s'.", event_name)
 
     # 4. Send closing message to thread (if provided and possible)
     if close_msg:
@@ -66,17 +66,17 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
             thread = await fetch_thread_for_event(client, closed_event)
             try:
                 await thread.send(f"**Responses Closed:**\n{close_msg}")
-                _log.info(f"Sent closing message to thread {thread.id} for event '{event_name}'.")
+                _log.info("Sent closing message to thread %s for event '%s'.", thread.id, event_name)
             except discord.HTTPException as e:
-                _log.warning(f"Could not send closing message to thread {thread.id} for event '{event_name}': {e}")
+                _log.warning("Could not send closing message to thread %s for event '%s': %s", thread.id, event_name, e)
 
         except (MissingChannelIDError, ThreadNotFoundError, ThreadAccessError) as e:
             log_level = getattr(e, "log_level", logging.WARNING)
-            _log.log(log_level, f"Could not send closing message for event '{event_name}': {e}")
+            _log.log(log_level, "Could not send closing message for event '%s': %s", event_name, e)
         except Exception as e:
-            _log.exception(f"Unexpected error sending closing message for event '{event_name}': {e}")
+            _log.exception("Unexpected error sending closing message for event '%s': %s", event_name, e)
     else:
-        _log.info(f"No closing message provided for event '{event_name}'.")
+        _log.info("No closing message provided for event '%s'.", event_name)
 
     return closed_event  # Return the updated event object
 
@@ -87,7 +87,7 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 async def send_event_message(channel: discord.Thread, event: Event):
     """Sends a new event message, pins it, and saves the message ID."""
     if not isinstance(event, Event):
-        _log.error(f"send_event_message received non-Event object: {type(event)}")
+        _log.error("send_event_message received non-Event object: %s", type(event))
         return
 
     view = get_event_view(event)
@@ -100,7 +100,7 @@ async def send_event_message(channel: discord.Thread, event: Event):
         # is tracked even if pinning fails.
         event.message_id = message.id
         save_event_data()
-        _log.info(f"Sent new event message for '{event.event_name}' (ID: {message.id}) in channel {channel.id}")
+        _log.info("Sent new event message for '%s' (ID: %s) in channel %s", event.event_name, message.id, channel.id)
 
         # Now, attempt to pin the message
         await message.pin(reason="New event message.")
@@ -108,16 +108,16 @@ async def send_event_message(channel: discord.Thread, event: Event):
     except discord.Forbidden as e:
         # This will catch permission errors on both .send() and .pin()
         if message:  # If message exists, send succeeded and pin failed
-            _log.warning(f"Failed to pin message for '{event.event_name}' due to permissions: {e}")
+            _log.warning("Failed to pin message for '%s' due to permissions: %s", event.event_name, e)
             raise PinPermissionError(channel, e) from e
         else:  # Send itself failed
-            _log.error(f"Failed to send event message for {event.event_name} in channel {channel.id}: {e}")
+            _log.error("Failed to send event message for %s in channel %s: %s", event.event_name, channel.id, e)
             raise  # Re-raise the original Forbidden error
     except discord.HTTPException as e:
         # Catch other HTTP errors from send or pin
-        _log.error(f"Failed to send or pin event message for {event.event_name} in channel {channel.id}: {e}")
+        _log.error("Failed to send or pin event message for %s in channel %s: %s", event.event_name, channel.id, e)
     except Exception as e:
-        _log.exception(f"Unexpected error sending event message for {event.event_name}: {e}")
+        _log.exception("Unexpected error sending event message for %s: %s", event.event_name, e)
 
 
 # --- REFACTORED fetch_thread_for_event ---
@@ -143,7 +143,7 @@ async def fetch_thread_for_event(client: discord.Client, event: Event) -> discor
         channel = client.get_channel(event.thread_id)
         # Fallback fetch if get_channel returns None (cache miss)
         if channel is None:
-            _log.debug(f"get_channel returned None for {event.thread_id}, attempting fetch_channel.")
+            _log.debug("get_channel returned None for %s, attempting fetch_channel.", event.thread_id)
             channel = await client.fetch_channel(event.thread_id)
 
     except discord.errors.NotFound as e:
@@ -155,7 +155,7 @@ async def fetch_thread_for_event(client: discord.Client, event: Event) -> discor
     except Exception as e:
         # Log unexpected errors during fetch but re-raise them
         _log.exception(
-            f"Unexpected error getting/fetching channel {event.thread_id} for event '{event.event_name}': {e}"
+            "Unexpected error getting/fetching channel %s for event '%s': %s", event.thread_id, event.event_name, e
         )
         raise  # Re-raise the original unexpected exception
 
@@ -177,28 +177,36 @@ async def _fetch_event_message(thread: discord.Thread, event: Event) -> discord.
 
     try:
         message = await thread.fetch_message(event.message_id)
-        _log.debug(f"Successfully fetched message {event.message_id} for event '{event.event_name}'.")
+        _log.debug("Successfully fetched message %s for event '%s'.", event.message_id, event.event_name)
         return message
     except discord.errors.NotFound:
         _log.warning(
-            f"Message ID {event.message_id} not found in thread {thread.id} for event '{event.event_name}'. "
-            f"Will send a new message."
+            "Message ID %s not found in thread %s for event '%s'. Will send a new message.",
+            event.message_id,
+            thread.id,
+            event.event_name,
         )
         event.message_id = None  # Clear invalid ID
         return None
     except discord.errors.Forbidden:
         _log.error(
-            f"Bot lacks permissions to fetch message {event.message_id} in thread {thread.id} "
-            f"for event '{event.event_name}'. Cannot update message."
+            "Bot lacks permissions to fetch message %s in thread %s for event '%s'. Cannot update message.",
+            event.message_id,
+            thread.id,
+            event.event_name,
         )
         return None  # Cannot proceed
     except discord.HTTPException as e:
         _log.error(
-            f"HTTP error fetching message {event.message_id} in thread {thread.id} for event '{event.event_name}': {e}"
+            "HTTP error fetching message %s in thread %s for event '%s': %s",
+            event.message_id,
+            thread.id,
+            event.event_name,
+            e,
         )
         return None  # Avoid proceeding if fetch failed unexpectedly
     except Exception as e:
-        _log.exception(f"Unexpected error fetching message {event.message_id} for event '{event.event_name}': {e}")
+        _log.exception("Unexpected error fetching message %s for event '%s': %s", event.message_id, event.event_name, e)
         return None  # Avoid proceeding on unknown errors
 
 
@@ -210,7 +218,7 @@ async def update_event_message(client: discord.Client, event: Event):
     Handles errors during thread fetching gracefully.
     """
     if not isinstance(event, Event):
-        _log.error(f"update_event_message received non-Event object: {type(event)}")
+        _log.error("update_event_message received non-Event object: %s", type(event))
         return
 
     # 1. Fetch and Validate Thread - Catch expected errors
@@ -221,11 +229,11 @@ async def update_event_message(client: discord.Client, event: Event):
         # Log handled errors from fetch_thread_for_event and stop processing for this event
         # Use the error's defined log level
         log_level = getattr(e, "log_level", logging.WARNING)
-        _log.log(log_level, f"Failed to get thread for event '{event.event_name}': {e}")
+        _log.log(log_level, "Failed to get thread for event '%s': %s", event.event_name, e)
         return
     except Exception as e:
         # Log unexpected errors during fetch and stop processing
-        _log.exception(f"Unexpected error fetching thread for event '{event.event_name}': {e}")
+        _log.exception("Unexpected error fetching thread for event '%s': %s", event.event_name, e)
         return
 
     # If fetch succeeded, thread is guaranteed to be a discord.Thread
@@ -247,17 +255,19 @@ async def update_event_message(client: discord.Client, event: Event):
         # Edit existing message
         try:
             await message.edit(content=message_content, view=view)
-            _log.info(f"Updated event message for '{event.event_name}' (ID: {message.id}) in thread {thread.id}")
+            _log.info("Updated event message for '%s' (ID: %s) in thread %s", event.event_name, message.id, thread.id)
         except discord.errors.Forbidden:
             _log.error(
-                f"Bot lacks permissions to edit message {message.id} in thread {thread.id} "
-                f"for event '{event.event_name}'."
+                "Bot lacks permissions to edit message %s in thread %s for event '%s'.",
+                message.id,
+                thread.id,
+                event.event_name,
             )
         except discord.HTTPException as e:
-            _log.error(f"Failed to update event message {message.id} for {event.event_name}: {e}")
+            _log.error("Failed to update event message %s for %s: %s", message.id, event.event_name, e)
         except Exception as e:
-            _log.exception(f"Unexpected error updating event message {message.id} for {event.event_name}: {e}")
+            _log.exception("Unexpected error updating event message %s for %s: %s", message.id, event.event_name, e)
     else:
         # Send a new message (handles missing ID or NotFound error during fetch)
-        _log.info(f"Sending new event message for '{event.event_name}' to thread {thread.id}.")
+        _log.info("Sending new event message for '%s' to thread %s.", event.event_name, thread.id)
         await send_event_message(thread, event)

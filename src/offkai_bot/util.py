@@ -35,7 +35,7 @@ def parse_event_datetime(date_time_str: str) -> datetime:
         # Make naive datetime aware using the defined JST timezone object
         aware_jst = naive_dt.replace(tzinfo=JST)  # <-- Use the defined JST
         utc_dt = aware_jst.astimezone(UTC)
-        _log.debug(f"Parsed '{date_time_str}' (assumed JST) to UTC: {utc_dt}")
+        _log.debug("Parsed '%s' (assumed JST) to UTC: %s", date_time_str, utc_dt)
         return utc_dt
     except ValueError:
         raise InvalidDateTimeFormatError()
@@ -66,9 +66,9 @@ def validate_event_datetime(event_datetime: datetime):
     """
     now_utc = datetime.now(UTC)
     if event_datetime <= now_utc:
-        _log.info(f"Validation failed: Event datetime {event_datetime} is in the past compared to {now_utc}.")
+        _log.info("Validation failed: Event datetime %s is in the past compared to %s.", event_datetime, now_utc)
         raise EventDateTimeInPastError()
-    _log.debug(f"Validation success: Event datetime {event_datetime} is in the future.")
+    _log.debug("Validation success: Event datetime %s is in the future.", event_datetime)
 
 
 def validate_event_deadline(event_datetime: datetime, event_deadline: datetime | None):
@@ -91,16 +91,18 @@ def validate_event_deadline(event_datetime: datetime, event_deadline: datetime |
 
     # 1. Check if deadline is in the future
     if event_deadline < now_utc:
-        _log.info(f"Validation failed: Deadline {event_deadline} is in the past compared to {now_utc}.")
+        _log.info("Validation failed: Deadline %s is in the past compared to %s.", event_deadline, now_utc)
         raise EventDeadlineInPastError()
 
     # 2. Check if deadline is before event time
     if event_deadline >= event_datetime:
-        _log.info(f"Validation failed: Deadline {event_deadline} is not before event time {event_datetime}.")
+        _log.info("Validation failed: Deadline %s is not before event time %s.", event_deadline, event_datetime)
         raise EventDeadlineAfterEventError()
 
     _log.debug(
-        f"Validation success: Deadline {event_deadline} is in the future and before event time {event_datetime}."
+        "Validation success: Deadline %s is in the future and before event time %s.",
+        event_deadline,
+        event_datetime,
     )
 
 
@@ -114,8 +116,14 @@ def log_command_usage(func):
     async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
         user = interaction.user
         command_name = interaction.command.name if interaction.command else func.__name__
-        _log.info(f"User '{user}' (ID: {user.id}) invoked command '{command_name}' in channel '{interaction.channel}'")
-        _log.debug(f"Arguments: args={args}, kwargs={kwargs}")
+        _log.info(
+            "User '%s' (ID: %s) invoked command '%s' in channel '%s'",
+            user,
+            user.id,
+            command_name,
+            interaction.channel,
+        )
+        _log.debug("Arguments: args=%s, kwargs=%s", args, kwargs)
         return await func(self, interaction, *args, **kwargs)
 
     return wrapper

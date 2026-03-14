@@ -63,7 +63,7 @@ class OffkaiClient(commands.Bot):
             await self.load_extension("offkai_bot.cogs.events")
             _log.info("Extensions loaded.")
         except Exception as e:
-            _log.exception(f"Failed to load extensions: {e}")
+            _log.exception("Failed to load extensions: %s", e)
             raise e
 
         # Load Data
@@ -102,13 +102,13 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
     match error:
         case app_commands.MissingRole():
             message = "❌ You need the Offkai Organizer role to use this command."
-            _log.warning(f"{user_info} - Missing Offkai Organizer role for command '{command_name}'.")
+            _log.warning("%s - Missing Offkai Organizer role for command '%s'.", user_info, command_name)
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
 
         case app_commands.CheckFailure():
             message = "❌ You do not have permission to use this command."
-            _log.warning(f"{user_info} - CheckFailure for command '{command_name}'.")
+            _log.warning("%s - CheckFailure for command '%s'.", user_info, command_name)
             await interaction.response.send_message(message, ephemeral=True)
             return  # Handled
 
@@ -123,7 +123,7 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
         # We send a followup instead of the standard error message.
         case PinPermissionError() as e:
             log_level = getattr(e, "log_level", logging.WARNING)
-            _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {e}")
+            _log.log(log_level, "%s - Handled (%s): %s", user_info, type(e).__name__, e)
             # The initial response was already sent by the command, so we use a followup
             await interaction.followup.send(str(e), ephemeral=True)
             return  # Handled
@@ -132,17 +132,20 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
         case BotCommandError() as e:
             message = str(e)
             log_level = getattr(e, "log_level", logging.INFO)
-            _log.log(log_level, f"{user_info} - Handled ({type(e).__name__}): {message}")
+            _log.log(log_level, "%s - Handled (%s): %s", user_info, type(e).__name__, message)
 
         # --- Specific Discord Errors (Keep separate) ---
         case discord.Forbidden():
             message = "❌ The bot lacks permissions to perform this action."
-            _log.warning(f"{user_info} - Encountered discord.Forbidden for command '{command_name}'.")
+            _log.warning("%s - Encountered discord.Forbidden for command '%s'.", user_info, command_name)
 
         # --- Default Case for Unhandled Errors (Keep separate) ---
         case _:
             _log.error(
-                f"{user_info} - Unhandled command error for '{command_name}': {error}",
+                "%s - Unhandled command error for '%s': %s",
+                user_info,
+                command_name,
+                error,
                 exc_info=original_error,
             )
             message = "❌ An unexpected error occurred. Please try again later or contact an admin."
@@ -155,10 +158,12 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
             else:
                 await interaction.followup.send(message, ephemeral=True)
         except discord.HTTPException as http_err:
-            _log.error(f"{user_info} - Failed to send error response message: {http_err}")
+            _log.error("%s - Failed to send error response message: %s", user_info, http_err)
         except Exception as e:
             _log.error(
-                f"{user_info} - Exception sending error response message: {e}",
+                "%s - Exception sending error response message: %s",
+                user_info,
+                e,
                 exc_info=e,
             )
 
@@ -166,7 +171,7 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
 # Event to run when the client is ready
 @client.event
 async def on_ready():
-    _log.info(f"Logged in as {client.user}")
+    _log.info("Logged in as %s", client.user)
 
 
 def parse_args() -> argparse.Namespace:
@@ -188,7 +193,7 @@ def main() -> None:
         # Explicitly load the configuration ONCE at startup
         config.load_config(args.config_path)
     except config.ConfigError as e:
-        _log.critical(f"Fatal Error: Failed to load configuration - {e}")
+        _log.critical("Fatal Error: Failed to load configuration - %s", e)
         sys.exit(1)
 
     # Now access the config via the accessor function
@@ -203,4 +208,4 @@ def main() -> None:
         try:
             client.run(settings["DISCORD_TOKEN"], log_handler=None)  # Use basicConfig handler
         except Exception as e:
-            _log.exception(f"Fatal error running bot: {e}")
+            _log.exception("Fatal error running bot: %s", e)

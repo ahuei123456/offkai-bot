@@ -34,23 +34,24 @@ class SendMessageTask(Task):
 
     async def action(self):
         """Sends the defined message to the specified channel."""
-        _log.debug(f"Executing SendMessageTask for channel {self.channel_id}")
+        _log.debug("Executing SendMessageTask for channel %s", self.channel_id)
         try:
             channel = self.client.get_channel(self.channel_id)
             # Use isinstance with a tuple for multiple types
             if isinstance(channel, discord.TextChannel | discord.Thread):
                 await channel.send(self.message)
             elif channel is None:
-                _log.warning(f"SendMessageTask: Channel {self.channel_id} not found.")
+                _log.warning("SendMessageTask: Channel %s not found.", self.channel_id)
             else:
                 _log.warning(
-                    f"SendMessageTask: Channel {self.channel_id} "
-                    f"is not a text channel or thread (Type: {type(channel)})."
+                    "SendMessageTask: Channel %s is not a text channel or thread (Type: %s).",
+                    self.channel_id,
+                    type(channel),
                 )
         except discord.HTTPException as e:
-            _log.error(f"SendMessageTask failed to send message to channel {self.channel_id}: {e}")
+            _log.error("SendMessageTask failed to send message to channel %s: %s", self.channel_id, e)
         except Exception as e:
-            _log.exception(f"Unexpected error in SendMessageTask for channel {self.channel_id}: {e}")
+            _log.exception("Unexpected error in SendMessageTask for channel %s: %s", self.channel_id, e)
 
 
 # --- Concrete Task: Close Offkai ---
@@ -73,22 +74,22 @@ class CloseOffkaiTask(Task):
         Executes the logic to automatically close the specified event.
         Handles errors specific to the closing process. Overrides base action.
         """
-        _log.info(f"Executing CloseOffkaiTask for event: '{self.event_name}'")
+        _log.info("Executing CloseOffkaiTask for event: '%s'", self.event_name)
         try:
             # Call the core closing logic function
             # self.client is inherited from the Task dataclass
 
             await perform_close_event(self.client, self.event_name, self.close_msg)
-            _log.info(f"Successfully executed automatic closure for event: '{self.event_name}'")
+            _log.info("Successfully executed automatic closure for event: '%s'", self.event_name)
 
         # --- Error Handling within the Task Action ---
         except BotCommandError as e:
             log_level = getattr(e, "log_level", logging.WARNING)
-            _log.log(log_level, f"Error during automatic closure of '{self.event_name}': {e}")
+            _log.log(log_level, "Error during automatic closure of '%s': %s", self.event_name, e)
         except discord.HTTPException as e:
-            _log.error(f"Discord API error during automatic closure of '{self.event_name}': {e}")
+            _log.error("Discord API error during automatic closure of '%s': %s", self.event_name, e)
         except Exception as e:
-            _log.exception(f"Unexpected error during automatic closure of '{self.event_name}': {e}")
+            _log.exception("Unexpected error during automatic closure of '%s': %s", self.event_name, e)
         # --- End Error Handling ---
 
 
@@ -102,14 +103,14 @@ class DeleteRoleTask(Task):
 
     async def action(self):
         """Deletes the event participant role from the guild."""
-        _log.info(f"Executing DeleteRoleTask for event '{self.event_name}' (role {self.role_id})")
+        _log.info("Executing DeleteRoleTask for event '%s' (role %s)", self.event_name, self.role_id)
         for guild in self.client.guilds:
             role = guild.get_role(self.role_id)
             if role:
                 try:
                     await role.delete(reason=f"Offkai '{self.event_name}' ended")
-                    _log.info(f"Deleted role {self.role_id} for event '{self.event_name}'.")
+                    _log.info("Deleted role %s for event '%s'.", self.role_id, self.event_name)
                 except (discord.Forbidden, discord.HTTPException) as e:
-                    _log.error(f"Failed to delete role {self.role_id}: {e}")
+                    _log.error("Failed to delete role %s: %s", self.role_id, e)
                 return
-        _log.warning(f"Role {self.role_id} not found for deletion (event '{self.event_name}').")
+        _log.warning("Role %s not found for deletion (event '%s').", self.role_id, self.event_name)

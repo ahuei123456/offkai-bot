@@ -422,8 +422,11 @@ async def test_perform_close_event_fetch_thread_errors_handled(
     mock_log.log.assert_called_once()
     args, kwargs = mock_log.log.call_args
     assert args[0] == expected_log_level
-    assert f"Could not send closing message for event '{event_name_to_close}'" in args[1]
-    assert expected_log_fragment in args[1]
+    assert "Could not send closing message for event" in args[1]
+    # With lazy %s-style logging, the event name and error are passed as separate args
+    assert event_name_to_close in args[2:]
+    formatted_msg = args[1] % args[2:]
+    assert expected_log_fragment in formatted_msg
 
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
@@ -467,8 +470,12 @@ async def test_perform_close_event_send_close_msg_fails_handled(
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
     mock_log.warning.assert_called_once()
-    assert f"Could not send closing message to thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
-    assert str(send_error) in mock_log.warning.call_args[0][0]
+    args = mock_log.warning.call_args[0]
+    assert "Could not send closing message to thread" in args[0]
+    # With lazy %s-style logging, thread id and error are passed as separate args
+    formatted_msg = args[0] % args[1:]
+    assert str(mock_thread.id) in formatted_msg
+    assert str(send_error) in formatted_msg
 
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
@@ -512,7 +519,8 @@ async def test_perform_close_event_unexpected_send_error_handled(
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
     mock_log.exception.assert_called_once()
-    assert (
-        f"Unexpected error sending closing message for event '{event_name_to_close}'"
-        in mock_log.exception.call_args[0][0]
-    )
+    args = mock_log.exception.call_args[0]
+    assert "Unexpected error sending closing message for event" in args[0]
+    # With lazy %s-style logging, event name is passed as a separate arg
+    formatted_msg = args[0] % args[1:]
+    assert event_name_to_close in formatted_msg

@@ -100,8 +100,10 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
                 ts = datetime.fromisoformat(resp_dict["timestamp"])
             except (ValueError, TypeError):
                 _log.warning(
-                    f"Could not parse ISO timestamp '{resp_dict.get('timestamp')}' for {event_name}, "
-                    f"user {resp_dict.get('user_id')}"
+                    "Could not parse ISO timestamp '%s' for %s, user %s",
+                    resp_dict.get("timestamp"),
+                    event_name,
+                    resp_dict.get("user_id"),
                 )
                 ts = None
 
@@ -127,7 +129,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             display_name=display_name,
         )
     except (TypeError, ValueError) as e:
-        _log.error(f"Error creating Response object for event {event_name} from dict {resp_dict}: {e}")
+        _log.error("Error creating Response object for event %s from dict %s: %s", event_name, resp_dict, e)
         return None
 
 
@@ -140,8 +142,10 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
                 ts = datetime.fromisoformat(entry_dict["timestamp"])
             except (ValueError, TypeError):
                 _log.warning(
-                    f"Could not parse ISO timestamp '{entry_dict.get('timestamp')}' for {event_name}, "
-                    f"user {entry_dict.get('user_id')}"
+                    "Could not parse ISO timestamp '%s' for %s, user %s",
+                    entry_dict.get("timestamp"),
+                    event_name,
+                    entry_dict.get("user_id"),
                 )
                 ts = None
 
@@ -167,7 +171,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             display_name=display_name,
         )
     except (TypeError, ValueError) as e:
-        _log.error(f"Error creating WaitlistEntry object for event {event_name} from dict {entry_dict}: {e}")
+        _log.error("Error creating WaitlistEntry object for event %s from dict %s: %s", event_name, entry_dict, e)
         return None
 
 
@@ -190,8 +194,9 @@ def _load_responses() -> dict[str, EventData]:
 
         if not isinstance(raw_data, dict):
             _log.error(
-                f"Invalid format in {file_path}: "
-                f"Expected a JSON object (dict), got {type(raw_data)}. Loading empty responses."
+                "Invalid format in %s: Expected a JSON object (dict), got %s. Loading empty responses.",
+                file_path,
+                type(raw_data),
             )
             raw_data = {}
 
@@ -207,8 +212,11 @@ def _load_responses() -> dict[str, EventData]:
             for event_name, event_data in raw_data.items():
                 if not isinstance(event_data, dict):
                     _log.warning(
-                        f"Invalid format for event '{event_name}' in {file_path}: "
-                        f"Expected a dict with 'attendees'/'waitlist', got {type(event_data)}. Skipping."
+                        "Invalid format for event '%s' in %s: "
+                        "Expected a dict with 'attendees'/'waitlist', got %s. Skipping.",
+                        event_name,
+                        file_path,
+                        type(event_data),
                     )
                     continue
 
@@ -216,11 +224,11 @@ def _load_responses() -> dict[str, EventData]:
                 attendees_list = []
                 attendees_raw = event_data.get("attendees", [])
                 if not isinstance(attendees_raw, list):
-                    _log.warning(f"Attendees for '{event_name}' is not a list. Skipping attendees.")
+                    _log.warning("Attendees for '%s' is not a list. Skipping attendees.", event_name)
                 else:
                     for resp_dict in attendees_raw:
                         if not isinstance(resp_dict, dict):
-                            _log.warning(f"Invalid attendee item in '{event_name}': Expected dict. Skipping.")
+                            _log.warning("Invalid attendee item in '%s': Expected dict. Skipping.", event_name)
                             continue
                         response = _parse_response_from_dict(resp_dict, event_name)
                         if response:
@@ -230,11 +238,11 @@ def _load_responses() -> dict[str, EventData]:
                 waitlist_list = []
                 waitlist_raw = event_data.get("waitlist", [])
                 if not isinstance(waitlist_raw, list):
-                    _log.warning(f"Waitlist for '{event_name}' is not a list. Skipping waitlist.")
+                    _log.warning("Waitlist for '%s' is not a list. Skipping waitlist.", event_name)
                 else:
                     for entry_dict in waitlist_raw:
                         if not isinstance(entry_dict, dict):
-                            _log.warning(f"Invalid waitlist item in '{event_name}': Expected dict. Skipping.")
+                            _log.warning("Invalid waitlist item in '%s': Expected dict. Skipping.", event_name)
                             continue
                         entry = _parse_waitlist_entry_from_dict(entry_dict, event_name)
                         if entry:
@@ -252,15 +260,19 @@ def _load_responses() -> dict[str, EventData]:
                 processed_responses = []
                 if not isinstance(response_list, list):
                     _log.warning(
-                        f"Invalid format for event '{event_name}' in {file_path}: "
-                        f"Expected a list, got {type(response_list)}. Skipping."
+                        "Invalid format for event '%s' in %s: Expected a list, got %s. Skipping.",
+                        event_name,
+                        file_path,
+                        type(response_list),
                     )
                     continue
 
                 for resp_dict in response_list:
                     if not isinstance(resp_dict, dict):
                         _log.warning(
-                            f"Invalid response item for event '{event_name}' in {file_path}: Expected a dict. Skipping."
+                            "Invalid response item for event '%s' in %s: Expected a dict. Skipping.",
+                            event_name,
+                            file_path,
                         )
                         continue
                     response = _parse_response_from_dict(resp_dict, event_name)
@@ -273,7 +285,7 @@ def _load_responses() -> dict[str, EventData]:
             old_waitlist: dict[str, list[WaitlistEntry]] | None = None
             waitlist_file = settings.get("WAITLIST_FILE")
             if waitlist_file and os.path.exists(waitlist_file) and os.path.getsize(waitlist_file) > 0:
-                _log.info(f"Found old waitlist file at {waitlist_file}. Migrating...")
+                _log.info("Found old waitlist file at %s. Migrating...", waitlist_file)
                 try:
                     with open(waitlist_file, "r", encoding="utf-8") as wf:
                         waitlist_raw = json.load(wf)
@@ -294,7 +306,7 @@ def _load_responses() -> dict[str, EventData]:
 
                             old_waitlist[event_name] = processed_entries
                 except Exception as e:
-                    _log.warning(f"Could not load old waitlist file: {e}")
+                    _log.warning("Could not load old waitlist file: %s", e)
 
             # Migrate to new format
             responses_dict = _migrate_old_format_to_new(old_responses, old_waitlist)
@@ -305,23 +317,23 @@ def _load_responses() -> dict[str, EventData]:
             _log.info("Migration complete. Saved to new format.")
 
     except FileNotFoundError:
-        _log.warning(f"{file_path} not found or empty. Creating default empty file.")
+        _log.warning("%s not found or empty. Creating default empty file.", file_path)
         try:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump({}, file, indent=4)
-            _log.info(f"Created empty responses file at {file_path}")
+            _log.info("Created empty responses file at %s", file_path)
         except OSError as e:
-            _log.error(f"Could not create default responses file at {file_path}: {e}")
+            _log.error("Could not create default responses file at %s: %s", file_path, e)
         RESPONSE_DATA_CACHE = {}
         return {}
     except json.JSONDecodeError:
         _log.error(
-            f"Error decoding JSON from {file_path}. File might be corrupted or invalid. Loading empty responses."
+            "Error decoding JSON from %s. File might be corrupted or invalid. Loading empty responses.", file_path
         )
         RESPONSE_DATA_CACHE = {}
         return {}
     except Exception as e:
-        _log.exception(f"An unexpected error occurred loading response data from {file_path}: {e}")
+        _log.exception("An unexpected error occurred loading response data from %s: %s", file_path, e)
         RESPONSE_DATA_CACHE = {}
         return {}
 
@@ -355,9 +367,9 @@ def save_responses():
                 ensure_ascii=False,
             )
     except OSError as e:
-        _log.error(f"Error writing response data to {settings['RESPONSES_FILE']}: {e}")
+        _log.error("Error writing response data to %s: %s", settings["RESPONSES_FILE"], e)
     except Exception as e:
-        _log.exception(f"An unexpected error occurred saving response data: {e}")
+        _log.exception("An unexpected error occurred saving response data: %s", e)
 
 
 def get_responses(event_name: str) -> list[Response]:
@@ -385,19 +397,19 @@ def add_response(event_name: str, response: Response) -> None:
 
     # Check for duplicate response in attendees
     if any(r.user_id == response.user_id for r in event_data["attendees"]):
-        _log.warning(f"User {response.user_id} already responded to event {event_name}. Raising error.")
+        _log.warning("User %s already responded to event %s. Raising error.", response.user_id, event_name)
         raise DuplicateResponseError(event_name, response.user_id)
 
     # Check if user is on waitlist
     if any(e.user_id == response.user_id for e in event_data["waitlist"]):
-        _log.warning(f"User {response.user_id} is on waitlist for event {event_name}. Cannot add to responses.")
+        _log.warning("User %s is on waitlist for event %s. Cannot add to responses.", response.user_id, event_name)
         raise DuplicateResponseError(event_name, response.user_id)
 
     # If no duplicate, proceed with adding
     event_data["attendees"].append(response)
     all_data[event_name] = event_data
     save_responses()
-    _log.info(f"Added response from user {response.user_id} to event {event_name}.")
+    _log.info("Added response from user %s to event %s.", response.user_id, event_name)
 
 
 def remove_response(event_name: str, user_id: int) -> None:
@@ -416,13 +428,13 @@ def remove_response(event_name: str, user_id: int) -> None:
     # Check if any response was actually removed
     if len(event_data["attendees"]) == initial_count:
         # No response found for the user, raise error
-        _log.warning(f"No response found for user {user_id} in event {event_name} to remove. Raising error.")
+        _log.warning("No response found for user %s in event %s to remove. Raising error.", user_id, event_name)
         raise ResponseNotFoundError(event_name, user_id)
     else:
         # Response found and removed, update the cache and save
         all_data[event_name] = event_data
         save_responses()
-        _log.info(f"Removed response from user {user_id} for event {event_name}.")
+        _log.info("Removed response from user %s for event %s.", user_id, event_name)
 
 
 def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:
@@ -436,19 +448,19 @@ def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:
 
     # Check for duplicate entry in waitlist
     if any(e.user_id == entry.user_id for e in event_data["waitlist"]):
-        _log.warning(f"User {entry.user_id} already on waitlist for event {event_name}. Raising error.")
+        _log.warning("User %s already on waitlist for event %s. Raising error.", entry.user_id, event_name)
         raise DuplicateResponseError(event_name, entry.user_id)
 
     # Check if user has already responded
     if any(r.user_id == entry.user_id for r in event_data["attendees"]):
-        _log.warning(f"User {entry.user_id} already responded to event {event_name}. Cannot add to waitlist.")
+        _log.warning("User %s already responded to event %s. Cannot add to waitlist.", entry.user_id, event_name)
         raise DuplicateResponseError(event_name, entry.user_id)
 
     # If no duplicate, proceed with adding
     event_data["waitlist"].append(entry)
     all_data[event_name] = event_data
     save_responses()
-    _log.info(f"Added user {entry.user_id} to waitlist for event {event_name}.")
+    _log.info("Added user %s to waitlist for event %s.", entry.user_id, event_name)
 
 
 def remove_from_waitlist(event_name: str, user_id: int) -> None:
@@ -464,12 +476,12 @@ def remove_from_waitlist(event_name: str, user_id: int) -> None:
     event_data["waitlist"] = [e for e in event_data["waitlist"] if e.user_id != user_id]
 
     if len(event_data["waitlist"]) == initial_count:
-        _log.warning(f"No waitlist entry found for user {user_id} in event {event_name}. Raising error.")
+        _log.warning("No waitlist entry found for user %s in event %s. Raising error.", user_id, event_name)
         raise ResponseNotFoundError(event_name, user_id)
     else:
         all_data[event_name] = event_data
         save_responses()
-        _log.info(f"Removed user {user_id} from waitlist for event {event_name}.")
+        _log.info("Removed user %s from waitlist for event %s.", user_id, event_name)
 
 
 def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
@@ -487,7 +499,7 @@ def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
     first_entry = event_data["waitlist"].pop(0)
     all_data[event_name] = event_data
     save_responses()
-    _log.info(f"Promoted user {first_entry.user_id} from waitlist for event {event_name}.")
+    _log.info("Promoted user %s from waitlist for event %s.", first_entry.user_id, event_name)
 
     return first_entry
 
@@ -507,7 +519,7 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
             promoted_entry = event_data["waitlist"].pop(i)
             all_data[event_name] = event_data
             save_responses()
-            _log.info(f"Promoted specific user {user_id} from waitlist for event {event_name}.")
+            _log.info("Promoted specific user %s from waitlist for event %s.", user_id, event_name)
             return promoted_entry
 
     raise ResponseNotFoundError(event_name, user_id)
@@ -556,7 +568,7 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[i
         if len(response.drinks) > 0:
             drinks.extend(response.drinks)
 
-    _log.info(f"Calculated attendance for '{event_name}': {total_count} attendees.")
+    _log.info("Calculated attendance for '%s': %s attendees.", event_name, total_count)
     return total_count, attendee_names
 
 
@@ -596,7 +608,7 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False) -> tuple[int
             waitlisted_names.append(name)
             total_count += 1
 
-    _log.info(f"Calculated waitlist for '{event_name}': {total_count} waitlisted.")
+    _log.info("Calculated waitlist for '%s': %s waitlisted.", event_name, total_count)
     return total_count, waitlisted_names
 
 
@@ -615,9 +627,9 @@ def calculate_drinks(event_name: str) -> tuple[int, dict[str, int]]:
     if len(drinks) > 0:
         drinks_count = Counter(drinks)
 
-        _log.info(f"Calculated {len(drinks)} drink(s) for '{event_name}'.")
+        _log.info("Calculated %s drink(s) for '%s'.", len(drinks), event_name)
 
         return len(drinks), drinks_count
     else:
-        _log.info(f"No drinks found for '{event_name}'.")
+        _log.info("No drinks found for '%s'.", event_name)
         return 0, {}

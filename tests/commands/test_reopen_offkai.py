@@ -267,9 +267,10 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
 
     # Sending update message should be skipped, warning logged
     mock_log.log.assert_called_once()
-    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for ThreadNotFoundError
-    assert f"Could not send reopening message for event '{event_name_to_reopen}'" in mock_log.log.call_args[0][1]
-    assert "Could not find thread channel" in mock_log.log.call_args[0][1]
+    log_call_args = mock_log.log.call_args[0]
+    assert log_call_args[0] == logging.WARNING  # Default level for ThreadNotFoundError
+    assert log_call_args[1] == "Could not send reopening message for event '%s': %s"
+    assert log_call_args[2] == event_name_to_reopen
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -320,9 +321,10 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
 
     # Sending update message should be skipped, warning logged
     mock_log.log.assert_called_once()
-    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for MissingChannelIDError
-    assert f"Could not send reopening message for event '{event_name_to_reopen}'" in mock_log.log.call_args[0][1]
-    assert "does not have a channel ID" in mock_log.log.call_args[0][1]
+    log_call_args = mock_log.log.call_args[0]
+    assert log_call_args[0] == logging.WARNING  # Default level for MissingChannelIDError
+    assert log_call_args[1] == "Could not send reopening message for event '%s': %s"
+    assert log_call_args[2] == event_name_to_reopen
 
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
@@ -372,9 +374,10 @@ async def test_reopen_offkai_fetch_thread_access_error(
 
     # Sending update message should be skipped, error logged
     mock_log.log.assert_called_once()
-    assert mock_log.log.call_args[0][0] == logging.ERROR  # Check level for ThreadAccessError
-    assert f"Could not send reopening message for event '{event_name_to_reopen}'" in mock_log.log.call_args[0][1]
-    assert "Bot lacks permissions" in mock_log.log.call_args[0][1]
+    log_call_args = mock_log.log.call_args[0]
+    assert log_call_args[0] == logging.ERROR  # Check level for ThreadAccessError
+    assert log_call_args[1] == "Could not send reopening message for event '%s': %s"
+    assert log_call_args[2] == event_name_to_reopen
 
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
@@ -433,7 +436,8 @@ async def test_reopen_offkai_send_reopen_msg_fails(
 
     # Warning should be logged for send failure
     mock_log.warning.assert_called_once()
-    assert f"Could not send reopening message to thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
+    assert mock_log.warning.call_args[0][0] == "Could not send reopening message to thread %s for event '%s': %s"
+    assert mock_log.warning.call_args[0][1] == mock_thread.id
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(

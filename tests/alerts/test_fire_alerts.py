@@ -61,8 +61,8 @@ async def test_fire_alert_no_tasks_scheduled(mock_log):
 
     # Assert
     assert not alerts._scheduled_tasks  # Should remain empty
-    mock_log.debug.assert_any_call(f"Processing tasks for time key (JST): {current_key}")
-    mock_log.debug.assert_any_call(f"No tasks scheduled for {current_key}.")
+    mock_log.debug.assert_any_call("Processing tasks for time key (JST): %s", current_key)
+    mock_log.debug.assert_any_call("No tasks scheduled for %s.", current_key)
     mock_log.info.assert_not_called()  # No tasks found/executed
 
 

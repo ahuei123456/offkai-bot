@@ -217,9 +217,10 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
 
     # Editing thread should be skipped, warning logged
     mock_log.log.assert_called_once()
-    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for ThreadNotFoundError
-    assert f"Could not archive thread for event '{event_name_to_archive}'" in mock_log.log.call_args[0][1]
-    assert "Could not find thread channel" in mock_log.log.call_args[0][1]
+    log_call_args = mock_log.log.call_args[0]
+    assert log_call_args[0] == logging.WARNING  # Default level for ThreadNotFoundError
+    assert log_call_args[1] == "Could not archive thread for event '%s': %s"
+    assert log_call_args[2] == event_name_to_archive
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -268,9 +269,10 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
 
     # Editing thread should be skipped, warning logged
     mock_log.log.assert_called_once()
-    assert mock_log.log.call_args[0][0] == logging.WARNING  # Default level for MissingChannelIDError
-    assert f"Could not archive thread for event '{event_name_to_archive}'" in mock_log.log.call_args[0][1]
-    assert "does not have a channel ID" in mock_log.log.call_args[0][1]
+    log_call_args = mock_log.log.call_args[0]
+    assert log_call_args[0] == logging.WARNING  # Default level for MissingChannelIDError
+    assert log_call_args[1] == "Could not archive thread for event '%s': %s"
+    assert log_call_args[2] == event_name_to_archive
 
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_archive}' has been archived."
@@ -318,9 +320,10 @@ async def test_archive_offkai_fetch_thread_access_error(
 
     # Editing thread should be skipped, error logged
     mock_log.log.assert_called_once()
-    assert mock_log.log.call_args[0][0] == logging.ERROR  # Check level for ThreadAccessError
-    assert f"Could not archive thread for event '{event_name_to_archive}'" in mock_log.log.call_args[0][1]
-    assert "Bot lacks permissions" in mock_log.log.call_args[0][1]
+    log_call_args = mock_log.log.call_args[0]
+    assert log_call_args[0] == logging.ERROR  # Check level for ThreadAccessError
+    assert log_call_args[1] == "Could not archive thread for event '%s': %s"
+    assert log_call_args[2] == event_name_to_archive
 
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_archive}' has been archived."
@@ -429,7 +432,8 @@ async def test_archive_offkai_thread_edit_fails(
 
     # Warning should be logged for edit failure
     mock_log.warning.assert_called_once()
-    assert f"Could not archive thread {mock_thread.id}" in mock_log.warning.call_args[0][0]
+    assert mock_log.warning.call_args[0][0] == "Could not archive thread %s: %s"
+    assert mock_log.warning.call_args[0][1] == mock_thread.id
 
     # Final confirmation should still be sent
     mock_interaction.response.send_message.assert_awaited_once_with(
@@ -477,7 +481,7 @@ async def test_archive_offkai_deletes_role(
     # Assert
     mock_interaction.guild.get_role.assert_called_once_with(99999)
     mock_role.delete.assert_awaited_once_with(reason=f"Offkai '{event_name_to_archive}' archived")
-    mock_log.info.assert_any_call(f"Deleted participant role 99999 for archived event '{event_name_to_archive}'.")
+    mock_log.info.assert_any_call("Deleted participant role %s for archived event '%s'.", 99999, event_name_to_archive)
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_archive}' has been archived."
     )
@@ -523,8 +527,9 @@ async def test_archive_offkai_role_deletion_failure_non_fatal(
     # Assert — role deletion was attempted but failed
     mock_role.delete.assert_awaited_once()
     mock_log.warning.assert_called()
-    warning_msg = mock_log.warning.call_args_list[-1][0][0]
-    assert f"Failed to delete participant role for '{event_name_to_archive}'" in warning_msg
+    warning_call = mock_log.warning.call_args_list[-1][0]
+    assert warning_call[0] == "Failed to delete participant role for '%s': %s"
+    assert warning_call[1] == event_name_to_archive
     # Archive still succeeds
     mock_interaction.response.send_message.assert_awaited_once_with(
         f"✅ Event '{event_name_to_archive}' has been archived."
