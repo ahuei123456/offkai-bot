@@ -45,15 +45,56 @@ def test_parse_event_datetime_success():
         mock_log.debug.assert_called_once()  # Check logging occurred
 
 
+def test_parse_event_datetime_textual_date_success():
+    """Test parsing a textual date format converts assumed JST to UTC."""
+    date_str = "15 Aug 2024 19:30"
+
+    expected_naive = datetime(2024, 8, 15, 19, 30)
+    expected_aware_jst = expected_naive.replace(tzinfo=JST)
+    expected_utc = expected_aware_jst.astimezone(UTC)
+
+    with patch("offkai_bot.util._log") as mock_log:
+        result = parse_event_datetime(date_str)
+        assert result == expected_utc
+        assert result.tzinfo is UTC
+        mock_log.debug.assert_called_once()
+
+
+@patch("offkai_bot.util.datetime")
+def test_parse_event_datetime_relative_success(mock_dt):
+    """Test parsing a relative date with an explicit time."""
+    now_jst = datetime(2026, 3, 28, 12, 0, 0, tzinfo=JST)
+    mock_dt.now.return_value = now_jst
+
+    with patch("offkai_bot.util._log") as mock_log:
+        result = parse_event_datetime("tomorrow 7pm")
+
+    assert result == datetime(2026, 3, 29, 10, 0, 0, tzinfo=UTC)
+    assert result.tzinfo is UTC
+    mock_dt.now.assert_called_once_with(JST)
+    mock_log.debug.assert_called_once()
+
+
+@patch("offkai_bot.util.datetime")
+def test_parse_event_datetime_relative_date_only_success(mock_dt):
+    """Test parsing a relative date without an explicit time uses dateparser defaults."""
+    now_jst = datetime(2026, 3, 28, 12, 0, 0, tzinfo=JST)
+    mock_dt.now.return_value = now_jst
+
+    with patch("offkai_bot.util._log") as mock_log:
+        result = parse_event_datetime("tomorrow")
+
+    assert result == datetime(2026, 3, 29, 3, 0, 0, tzinfo=UTC)
+    assert result.tzinfo is UTC
+    mock_dt.now.assert_called_once_with(JST)
+    mock_log.debug.assert_called_once()
+
+
 @pytest.mark.parametrize(
     "invalid_str",
     [
-        "2024-08-15",  # Missing time
-        "19:30",  # Missing date
-        "2024/08/15 19:30",  # Wrong separator
-        "15-08-2024 19:30",  # Wrong date order
-        "2024-08-15 7:30 PM",  # Wrong time format
         "invalid date string",  # Completely wrong
+        "7pm",  # Rejected by dateparser with the current parser settings
         "",  # Empty string
     ],
 )

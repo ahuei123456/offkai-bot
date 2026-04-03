@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import discord
+from dateparser.date import DateDataParser  # type: ignore[import-untyped]
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.errors import (
@@ -21,24 +22,36 @@ _log = logging.getLogger(__name__)
 JST = ZoneInfo("Asia/Tokyo")
 _log.info("Using ZoneInfo for JST timezone.")
 
+_DATEPARSER_SETTINGS = {
+    "TIMEZONE": "Asia/Tokyo",
+    "TO_TIMEZONE": "UTC",
+    "RETURN_AS_TIMEZONE_AWARE": True,
+    "PREFER_DATES_FROM": "future",
+}
+_DATE_TIME_EXAMPLE_TEXT = "a date and time, for example '2024-08-15 19:30' or 'tomorrow 7pm'"
+
 
 # --- Parsing/Validation Helpers ---
 
 
 def parse_event_datetime(date_time_str: str) -> datetime:
     """
-    Parses the date string or raises InvalidDateTimeFormatError.
+    Parses a free-form date/time string or raises InvalidDateTimeFormatError.
     IMPORTANT: Assumes the parsed datetime should be treated as JST and converts to UTC.
     """
-    try:
-        naive_dt = datetime.strptime(date_time_str, r"%Y-%m-%d %H:%M")
-        # Make naive datetime aware using the defined JST timezone object
-        aware_jst = naive_dt.replace(tzinfo=JST)  # <-- Use the defined JST
-        utc_dt = aware_jst.astimezone(UTC)
-        _log.debug("Parsed '%s' (assumed JST) to UTC: %s", date_time_str, utc_dt)
-        return utc_dt
-    except ValueError:
-        raise InvalidDateTimeFormatError()
+    normalized_input = date_time_str.strip()
+    if not normalized_input:
+        raise InvalidDateTimeFormatError(_DATE_TIME_EXAMPLE_TEXT)
+
+    parser = DateDataParser(settings={**_DATEPARSER_SETTINGS, "RELATIVE_BASE": datetime.now(JST)})
+    parsed_data = parser.get_date_data(normalized_input)
+    parsed_datetime = parsed_data.date_obj
+    if parsed_datetime is None:
+        raise InvalidDateTimeFormatError(_DATE_TIME_EXAMPLE_TEXT)
+
+    utc_dt = parsed_datetime.astimezone(UTC)
+    _log.debug("Parsed '%s' (assumed JST) to UTC: %s", normalized_input, utc_dt)
+    return utc_dt
 
 
 def parse_drinks(drinks_str: str | None) -> list[str]:
