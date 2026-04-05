@@ -149,9 +149,12 @@ class NoWaitlistEntriesFoundError(BotCommandError):
 class InvalidDateTimeFormatError(BotCommandError):
     """Raised when a provided date/time string is not in the expected format."""
 
-    def __init__(self, expected_format: str = "YYYY-MM-DD HH:MM"):
+    def __init__(
+        self,
+        expected_format: str = "a date and time, for example '2024-08-15 19:30' or 'tomorrow 7pm'",
+    ):
         self.expected_format = expected_format
-        super().__init__(f"❌ Invalid date format. Use {expected_format}.")
+        super().__init__(f"❌ Invalid date/time. Use {expected_format}.")
 
 
 class InvalidChannelTypeError(BotCommandError):
