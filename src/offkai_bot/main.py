@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
 import discord
@@ -29,6 +30,9 @@ from offkai_bot.event_actions import (
 
 _log = logging.getLogger(__name__)
 settings: dict[str, Any] = {}
+LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s: %(message)s"
+DEFAULT_LOG_FILE = "logs/offkai-bot.log"
+_OFFKAI_LOG_HANDLER_ATTR = "_offkai_bot_managed_handler"
 
 
 async def load_and_update_events(client: discord.Client):
@@ -180,14 +184,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def configure_logging(log_file: str | None = DEFAULT_LOG_FILE) -> None:
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    for handler in root_logger.handlers[:]:
+        if getattr(handler, _OFFKAI_LOG_HANDLER_ATTR, False):
+            root_logger.removeHandler(handler)
+            handler.close()
+
+    formatter = logging.Formatter(LOG_FORMAT)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    setattr(stream_handler, _OFFKAI_LOG_HANDLER_ATTR, True)
+    root_logger.addHandler(stream_handler)
+
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        setattr(file_handler, _OFFKAI_LOG_HANDLER_ATTR, True)
+        root_logger.addHandler(file_handler)
+
+    discord_logger = logging.getLogger("discord")
+    discord_logger.setLevel(logging.WARNING)  # Reduce discord lib noise
+
+
 def main() -> None:
     global settings
     args = parse_args()
 
     # Setup logging
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
-    discord_logger = logging.getLogger("discord")
-    discord_logger.setLevel(logging.WARNING)  # Reduce discord lib noise
+    configure_logging(log_file=None)
 
     try:
         # Explicitly load the configuration ONCE at startup
@@ -198,6 +228,10 @@ def main() -> None:
 
     # Now access the config via the accessor function
     settings = config.get_config()
+    log_file = settings.get("LOG_FILE", DEFAULT_LOG_FILE)
+    configure_logging(log_file)
+    if log_file:
+        _log.info("Logging to %s", log_file)
 
     # Validate config before running
     if not settings["DISCORD_TOKEN"]:
