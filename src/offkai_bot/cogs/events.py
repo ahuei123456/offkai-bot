@@ -642,7 +642,7 @@ class EventsCog(commands.Cog):
     close_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     broadcast.autocomplete("event_name")(offkai_autocomplete_active)
     delete_response.autocomplete("event_name")(offkai_autocomplete_active)
-    promote.autocomplete("event_name")(offkai_autocomplete_active)
+    promote.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     promote.autocomplete("username")(waitlist_user_autocomplete)
     attendance.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     waitlist.autocomplete("event_name")(offkai_autocomplete_all_non_archived)

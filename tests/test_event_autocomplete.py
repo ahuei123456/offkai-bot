@@ -252,6 +252,12 @@ async def test_offkai_autocomplete_all_non_archived(mock_base_autocomplete, mock
     mock_base_autocomplete.assert_awaited_once_with(mock_interaction, current_str, open_status=None)
 
 
+async def test_promote_event_autocomplete_includes_all_non_archived_events():
+    """Test promote can find closed, non-archived events with waitlists."""
+    autocomplete = EventsCog.promote._params["event_name"].autocomplete
+    assert autocomplete is EventsCog.offkai_autocomplete_all_non_archived
+
+
 # --- Tests for waitlist_user_autocomplete ---
 
 
