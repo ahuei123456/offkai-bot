@@ -207,6 +207,107 @@ async def test_attendance_success_truncation(
     mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
+@patch("offkai_bot.cogs.events.discord.File")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_attendance_over_100_sends_file_by_dm(
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_discord_file,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test attendance sends the full list as a DM text file when over 100 people."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_interaction.user.send = AsyncMock()
+    mock_file = MagicMock()
+    mock_discord_file.return_value = mock_file
+
+    attendee_list = [f"User{i:03d}" for i in range(101)]
+    mock_calculate_attendance.return_value = (101, attendee_list)
+    expected_output = f"**Attendance for {event_name_target}**\n\nTotal Attendees: **101**\n\n" + "\n".join(
+        f"{i + 1}. {name}" for i, name in enumerate(attendee_list)
+    )
+
+    # Act
+    await EventsCog.attendance.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+    )
+
+    # Assert
+    mock_get_event.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_discord_file.assert_called_once()
+    assert mock_discord_file.call_args.kwargs["filename"] == "attendance_Summer_Bash.txt"
+    assert mock_discord_file.call_args.kwargs["fp"].getvalue() == expected_output.encode("utf-8")
+    mock_interaction.user.send.assert_awaited_once_with(
+        f"Attendance for **{event_name_target}** is attached as a text file.",
+        file=mock_file,
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"Attendance list for '{event_name_target}' has been sent to you by DM.",
+        ephemeral=True,
+    )
+    mock_log.warning.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.discord.File")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_attendance_over_100_falls_back_to_ephemeral_file_when_dm_fails(
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_discord_file,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test attendance attaches the file ephemerally if the DM cannot be sent."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_interaction.user.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "Cannot send DM"))
+    dm_file = MagicMock()
+    fallback_file = MagicMock()
+    mock_discord_file.side_effect = [dm_file, fallback_file]
+
+    attendee_list = [f"User{i:03d}" for i in range(101)]
+    mock_calculate_attendance.return_value = (101, attendee_list)
+
+    # Act
+    await EventsCog.attendance.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+    )
+
+    # Assert
+    mock_get_event.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    assert mock_discord_file.call_count == 2
+    mock_interaction.user.send.assert_awaited_once_with(
+        f"Attendance for **{event_name_target}** is attached as a text file.",
+        file=dm_file,
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        "I couldn't send you a DM, so I've attached the attendance list here.",
+        file=fallback_file,
+        ephemeral=True,
+    )
+    mock_log.warning.assert_called_once()
+
+
 @patch("offkai_bot.cogs.events.calculate_attendance")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")

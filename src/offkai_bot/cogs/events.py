@@ -1,5 +1,7 @@
 import contextlib
+import io
 import logging
+import re
 
 import discord
 from discord import app_commands
@@ -56,6 +58,29 @@ from offkai_bot.util import (
 )
 
 _log = logging.getLogger(__name__)
+
+ATTENDANCE_FILE_THRESHOLD = 100
+DISCORD_MESSAGE_SOFT_LIMIT = 1900
+
+
+def _format_attendance_output(event_name: str, total_count: int, attendee_list: list[str]) -> str:
+    output = f"**Attendance for {event_name}**\n\n"
+    output += f"Total Attendees: **{total_count}**\n\n"
+    lines = [f"{i + 1}. {name}" for i, name in enumerate(attendee_list)]
+    output += "\n".join(lines)
+    return output
+
+
+def _attendance_filename(event_name: str) -> str:
+    safe_event_name = re.sub(r"[^A-Za-z0-9._-]+", "_", event_name).strip("._")
+    return f"attendance_{safe_event_name or 'event'}.txt"
+
+
+def _attendance_file(event_name: str, output: str) -> discord.File:
+    return discord.File(
+        fp=io.BytesIO(output.encode("utf-8")),
+        filename=_attendance_filename(event_name),
+    )
 
 
 class EventsCog(commands.Cog):
@@ -507,13 +532,34 @@ class EventsCog(commands.Cog):
         if sort:
             attendee_list.sort(key=str.lower)
 
-        output = f"**Attendance for {event_name}**\n\n"
-        output += f"Total Attendees: **{total_count}**\n\n"
-        lines = [f"{i + 1}. {name}" for i, name in enumerate(attendee_list)]
-        output += "\n".join(lines)
+        output = _format_attendance_output(event_name, total_count, attendee_list)
 
-        if len(output) > 1900:
-            output = output[:1900] + "\n... (list truncated)"
+        if total_count > ATTENDANCE_FILE_THRESHOLD:
+            try:
+                await interaction.user.send(
+                    f"Attendance for **{event_name}** is attached as a text file.",
+                    file=_attendance_file(event_name, output),
+                )
+                await interaction.response.send_message(
+                    f"Attendance list for '{event_name}' has been sent to you by DM.",
+                    ephemeral=True,
+                )
+            except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+                _log.warning(
+                    "Could not DM attendance list to user %s for event '%s': %s",
+                    interaction.user.id,
+                    event_name,
+                    e,
+                )
+                await interaction.response.send_message(
+                    "I couldn't send you a DM, so I've attached the attendance list here.",
+                    file=_attendance_file(event_name, output),
+                    ephemeral=True,
+                )
+            return
+
+        if len(output) > DISCORD_MESSAGE_SOFT_LIMIT:
+            output = output[:DISCORD_MESSAGE_SOFT_LIMIT] + "\n... (list truncated)"
 
         await interaction.response.send_message(output, ephemeral=True)
 
