@@ -160,6 +160,7 @@ Before running Offkai Bot, you need:
        "EVENTS_FILE": "data/events.json",
        "RESPONSES_FILE": "data/responses.json",
        "RANKING_FILE": "data/ranking.json",
+       "LOG_FILE": "logs/offkai-bot.log",
        "GUILDS": [
            123456789012345678
        ]
@@ -174,6 +175,7 @@ Before running Offkai Bot, you need:
    | `EVENTS_FILE` | string | ✅ | Path to events data file (e.g., `data/events.json`) |
    | `RESPONSES_FILE` | string | ✅ | Path to responses data file (includes both attendees and waitlist) |
    | `RANKING_FILE` | string | ✅ | Path to ranking data file (e.g., `data/ranking.json`) |
+   | `LOG_FILE` | string | ❌ | Path to bot log file (defaults to `logs/offkai-bot.log`; set to `null` to log only to console) |
    | `GUILDS` | array | ✅ | List of Discord server IDs where bot will be active |
 
    **Note:** The `WAITLIST_FILE` field is deprecated. Waitlist data is now stored in the responses file alongside attendee data. If you have an old `waitlist.json` file, it will be automatically migrated on first run.
@@ -181,6 +183,10 @@ Before running Offkai Bot, you need:
 3. **Data Directory:**
 
    The bot will automatically create the `data/` directory and JSON files if they don't exist.
+
+4. **Log File:**
+
+   The bot logs to both the console and `logs/offkai-bot.log` by default. When using Docker Compose, `./logs` is mounted into the container so the log file appears on the host.
 
 ### Running the Bot
 
@@ -192,6 +198,12 @@ uv run offkai-bot
 **With custom config path:**
 ```bash
 uv run offkai-bot --config-path /path/to/config.json
+```
+
+**With Docker Compose:**
+```bash
+docker compose up -d --build
+docker compose logs -f discord-offkai-bot
 ```
 
 **For development (with auto-reload):**
