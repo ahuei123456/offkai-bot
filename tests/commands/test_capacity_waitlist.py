@@ -312,6 +312,74 @@ async def test_modal_adds_to_waitlist_when_past_deadline(
     mock_add_response.assert_not_called()
 
 
+@pytest.mark.asyncio
+@patch("offkai_bot.interactions.add_to_waitlist")
+@patch("offkai_bot.interactions.add_response")
+async def test_modal_validation_error_is_sent_by_dm(
+    mock_add_response, mock_add_to_waitlist, event_with_capacity, mock_interaction, mock_cog
+):
+    """Test modal validation errors are sent by DM so they are not lost in thread scrollback."""
+    modal = GatheringModal(event=event_with_capacity)
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "x"
+    modal.behave_checkbox_input = MagicMock()
+    modal.behave_checkbox_input.value = "Yes"
+    modal.arrival_checkbox_input = MagicMock()
+    modal.arrival_checkbox_input.value = "Yes"
+    modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = ""
+    mock_interaction.user.send = AsyncMock()
+
+    with patch("offkai_bot.interactions._log") as mock_log:
+        await modal.on_submit(mock_interaction)
+
+    mock_interaction.user.send.assert_awaited_once()
+    dm_message = mock_interaction.user.send.call_args.args[0]
+    assert "Extra people must be a number between 0 and 5." in dm_message
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        "❌ I couldn't process your response. I've sent you a DM with the details.",
+        ephemeral=True,
+    )
+    mock_add_response.assert_not_called()
+    mock_add_to_waitlist.assert_not_called()
+    mock_log.info.assert_called_once()
+    log_args = mock_log.info.call_args.args
+    assert log_args[0] == "Rejected modal submission for event '%s' by user %s: %s"
+    assert log_args[1] == event_with_capacity.event_name
+    assert log_args[2] == mock_interaction.user.id
+    assert "Extra people must be a number between 0 and 5." in str(log_args[3])
+
+
+@pytest.mark.asyncio
+@patch("offkai_bot.interactions.add_to_waitlist")
+@patch("offkai_bot.interactions.add_response")
+async def test_modal_validation_error_falls_back_to_ephemeral_when_dm_blocked(
+    mock_add_response, mock_add_to_waitlist, event_with_capacity, mock_interaction, mock_cog
+):
+    """Test modal validation errors still reach users with closed DMs via ephemeral fallback."""
+    modal = GatheringModal(event=event_with_capacity)
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "x"
+    modal.behave_checkbox_input = MagicMock()
+    modal.behave_checkbox_input.value = "Yes"
+    modal.arrival_checkbox_input = MagicMock()
+    modal.arrival_checkbox_input.value = "Yes"
+    modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = ""
+    mock_interaction.user.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "Cannot DM"))
+
+    await modal.on_submit(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        "❌ Extra people must be a number between 0 and 5.",
+        ephemeral=True,
+    )
+    mock_add_response.assert_not_called()
+    mock_add_to_waitlist.assert_not_called()
+
+
 # --- Tests for Waitlist Functionality ---
 
 
