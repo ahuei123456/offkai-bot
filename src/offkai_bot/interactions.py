@@ -40,6 +40,26 @@ async def error_message(interaction: discord.Interaction, message: str):
     await interaction.response.send_message(f"❌ {message}", ephemeral=True)
 
 
+async def modal_error_message(interaction: discord.Interaction, event_name: str, message: str):
+    dm_message = f"❌ I couldn't process your response for **{event_name}**.\n\n{message}"
+    try:
+        await interaction.user.send(dm_message)
+    except (discord.Forbidden, discord.HTTPException) as e:
+        _log.warning(
+            "Could not DM modal submission error to user %s for event '%s': %s",
+            interaction.user.id,
+            event_name,
+            e,
+        )
+        await error_message(interaction, message)
+        return
+
+    await interaction.response.send_message(
+        "❌ I couldn't process your response. I've sent you a DM with the details.",
+        ephemeral=True,
+    )
+
+
 def get_current_attendance_count(event_name: str) -> int:
     """Calculate total current attendance including extra people."""
     responses = get_responses(event_name)
@@ -625,11 +645,17 @@ class GatheringModal(ui.Modal):
 
         except ValidationError as e:
             # Handle specific validation errors raised by helpers
-            await error_message(interaction, str(e))
+            _log.info(
+                "Rejected modal submission for event '%s' by user %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
+            )
+            await modal_error_message(interaction, self.event.event_name, str(e))
             # No return needed here, function ends after except block
 
         except DuplicateResponseError as e:
-            await error_message(interaction, str(e))
+            await modal_error_message(interaction, self.event.event_name, str(e))
 
         except Exception as e:
             # Catch any other unexpected errors during Response creation or add_response
