@@ -266,7 +266,7 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 ### Attendance Management
 
 - `/attendance` - View list of attendees
-  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False)
+  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False), drinks (optional, default: False; shows per-attendee drink choices)
 
 - `/drinks` - View drinks summary
   - Parameters: event_name
