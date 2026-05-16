@@ -1116,6 +1116,68 @@ def test_calculate_attendance_no_extras(mock_paths):
     assert "UserB" in attendee_names
 
 
+def test_calculate_attendance_with_drinks(mock_paths):
+    """Test calculate_attendance can append drinks for primaries and extras."""
+    resp1 = Response(
+        user_id=111,
+        username="UserA",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event D",
+        timestamp=datetime.now(UTC),
+        drinks=["cola", "water"],
+        extras_names=["Alice"],
+    )
+    resp2 = Response(
+        user_id=222,
+        username="UserB",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event D",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event D": make_event_data([resp1, resp2])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event D", drinks=True)
+
+    assert total_count == 4
+    assert attendee_names == [
+        "UserA - cola",
+        "Alice (UserA +1) - water",
+        "  (UserA +2) - N/A",
+        "UserB - N/A",
+    ]
+
+
+def test_calculate_attendance_with_drinks_and_nicknames(mock_paths):
+    """Test calculate_attendance can combine nicknames and drinks."""
+    resp = Response(
+        user_id=111,
+        username="foo",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event ND",
+        timestamp=datetime.now(UTC),
+        drinks=["tea", "juice"],
+        extras_names=["bar"],
+        display_name="goo",
+    )
+
+    response_data.RESPONSE_DATA_CACHE = {"Event ND": make_event_data([resp])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event ND", nicknames=True, drinks=True)
+
+    assert total_count == 2
+    assert attendee_names == ["foo (goo) - tea", "bar (foo +1) - juice"]
+
+
 # --- Tests for display_name field ---
 
 

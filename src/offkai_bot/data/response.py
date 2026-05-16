@@ -525,7 +525,7 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
     raise ResponseNotFoundError(event_name, user_id)
 
 
-def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[int, list[str]]:
+def calculate_attendance(event_name: str, *, nicknames: bool = False, drinks: bool = False) -> tuple[int, list[str]]:
     """
     Calculates the total attendance count and generates a list of attendee names
     (including extras) for a given event.
@@ -533,6 +533,7 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[i
     Args:
         event_name: The name of the event.
         nicknames: If True, show display names alongside usernames when they differ.
+        drinks: If True, append each attendee's drink choice.
 
     Returns:
         A tuple containing:
@@ -547,13 +548,15 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[i
         raise NoResponsesFoundError(event_name)
 
     attendee_names = []
-    drinks = []
     total_count = 0
     for response in responses:
         # Add the main person
         name = response.username
         if nicknames and response.display_name and response.display_name != response.username:
             name = f"{response.username} ({response.display_name})"
+        if drinks:
+            drink = response.drinks[0] if response.drinks else "N/A"
+            name = f"{name} - {drink}"
         attendee_names.append(name)
         total_count += 1
 
@@ -561,12 +564,12 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False) -> tuple[i
         for i in range(response.extra_people):
             name = response.extras_names[i] if i < len(response.extras_names) else " "
             name += f" ({response.username} +{i + 1})"
+            if drinks:
+                drink_index = i + 1
+                drink = response.drinks[drink_index] if drink_index < len(response.drinks) else "N/A"
+                name = f"{name} - {drink}"
             attendee_names.append(name)
             total_count += 1
-
-        # Add drinks (if required)
-        if len(response.drinks) > 0:
-            drinks.extend(response.drinks)
 
     _log.info("Calculated attendance for '%s': %s attendees.", event_name, total_count)
     return total_count, attendee_names

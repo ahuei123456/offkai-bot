@@ -96,7 +96,7 @@ async def test_attendance_success(
     # 1. Check get_event call
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check calculate_attendance call
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
     # 3. Check final interaction response with correct formatting
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
@@ -109,6 +109,49 @@ async def test_attendance_success(
     )
     mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
     # 4. Check logs (optional)
+    mock_log.warning.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_attendance_with_drinks(
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that drinks=True is passed through and rendered inline."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_calculate_attendance.return_value = (
+        3,
+        ["UserA - cola", "Alice (UserA +1) - water", "  (UserB +1) - N/A"],
+    )
+
+    # Act
+    await EventsCog.attendance.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+        drinks=True,
+    )
+
+    # Assert
+    mock_get_event.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=True)
+    expected_output = (
+        f"**Attendance for {event_name_target}**\n\n"
+        "Total Attendees: **3**\n\n"
+        "1. UserA - cola\n"
+        "2. Alice (UserA +1) - water\n"
+        "3.   (UserB +1) - N/A"
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
     mock_log.warning.assert_not_called()
 
 
@@ -146,7 +189,7 @@ async def test_attendance_sort_success(
     # 1. Check get_event call
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check calculate_attendance call
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
     # 3. Check final interaction response with correct formatting
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
@@ -203,7 +246,7 @@ async def test_attendance_success_truncation(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
     mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
@@ -244,7 +287,60 @@ async def test_attendance_over_100_sends_file_by_dm(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_discord_file.assert_called_once()
+    assert mock_discord_file.call_args.kwargs["filename"] == "attendance_Summer_Bash.txt"
+    assert mock_discord_file.call_args.kwargs["fp"].getvalue() == expected_output.encode("utf-8")
+    mock_interaction.user.send.assert_awaited_once_with(
+        f"Attendance for **{event_name_target}** is attached as a text file.",
+        file=mock_file,
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"Attendance list for '{event_name_target}' has been sent to you by DM.",
+        ephemeral=True,
+    )
+    mock_log.warning.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.discord.File")
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_attendance_over_100_with_drinks_sends_file_by_dm(
+    mock_log,
+    mock_get_event,
+    mock_calculate_attendance,
+    mock_discord_file,
+    mock_interaction,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test attendance includes drinks in the DM text file when requested."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_interaction.user.send = AsyncMock()
+    mock_file = MagicMock()
+    mock_discord_file.return_value = mock_file
+
+    attendee_list = [f"User{i:03d} - Drink{i:03d}" for i in range(101)]
+    mock_calculate_attendance.return_value = (101, attendee_list)
+    expected_output = f"**Attendance for {event_name_target}**\n\nTotal Attendees: **101**\n\n" + "\n".join(
+        f"{i + 1}. {name}" for i, name in enumerate(attendee_list)
+    )
+
+    # Act
+    await EventsCog.attendance.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+        drinks=True,
+    )
+
+    # Assert
+    mock_get_event.assert_called_once_with(event_name_target)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=True)
     mock_discord_file.assert_called_once()
     assert mock_discord_file.call_args.kwargs["filename"] == "attendance_Summer_Bash.txt"
     assert mock_discord_file.call_args.kwargs["fp"].getvalue() == expected_output.encode("utf-8")
@@ -294,7 +390,7 @@ async def test_attendance_over_100_falls_back_to_ephemeral_file_when_dm_fails(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
     assert mock_discord_file.call_count == 2
     mock_interaction.user.send.assert_awaited_once_with(
         f"Attendance for **{event_name_target}** is attached as a text file.",
@@ -366,7 +462,7 @@ async def test_attendance_no_responses_found(
 
     # Assert calls up to calculate_attendance
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
 
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
@@ -400,7 +496,7 @@ async def test_attendance_with_nicknames(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=True)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=True, drinks=False)
 
     expected_output = f"**Attendance for {event_name_target}**\n\nTotal Attendees: **2**\n\n1. foo (goo)\n2. bar"
     mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)

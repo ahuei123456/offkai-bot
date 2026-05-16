@@ -521,14 +521,20 @@ class EventsCog(commands.Cog):
         event_name="The name of the event.",
         sort="Whether to sort the attendance list. (default: False)",
         nicknames="Whether to show display names alongside usernames. (default: False)",
+        drinks="Whether to show each attendee's drink choice. (default: False)",
     )
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def attendance(
-        self, interaction: discord.Interaction, event_name: str, sort: bool = False, nicknames: bool = False
+        self,
+        interaction: discord.Interaction,
+        event_name: str,
+        sort: bool = False,
+        nicknames: bool = False,
+        drinks: bool = False,
     ):
         get_event(event_name)
-        total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames)
+        total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks)
         if sort:
             attendee_list.sort(key=str.lower)
 
