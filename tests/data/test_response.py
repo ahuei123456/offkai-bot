@@ -1436,3 +1436,110 @@ def test_calculate_waitlist_empty(mock_paths):
         pytest.raises(NoWaitlistEntriesFoundError),
     ):
         response_data.calculate_waitlist("Event W")
+
+
+# --- Tests for sorting and extras bundling ---
+
+
+def test_calculate_attendance_sorting_bundles_extras_after_main_user(mock_paths):
+    """Test that calculate_attendance with sort=True sorts by main user and bundles extras immediately after."""
+    resp_b = Response(
+        user_id=222,
+        username="B",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[" AA", "AB "],  # spaces to verify stripping
+    )
+    resp_a = Response(
+        user_id=111,
+        username="A",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+    resp_c = Response(
+        user_id=333,
+        username="C",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+
+    # Place them in non-sorted order in the cache
+    response_data.RESPONSE_DATA_CACHE = {"Event X": make_event_data([resp_b, resp_a, resp_c])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, attendee_names = response_data.calculate_attendance("Event X", sort=True)
+
+    assert total_count == 5
+    assert attendee_names == [
+        "A",
+        "B",
+        "AA (B +1)",
+        "AB (B +2)",
+        "C",
+    ]
+
+
+def test_calculate_waitlist_sorting_bundles_extras_after_main_user(mock_paths):
+    """Test that calculate_waitlist with sort=True sorts by main user and bundles extras immediately after."""
+    entry_b = WaitlistEntry(
+        user_id=222,
+        username="B",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[" AA", "AB "],  # spaces to verify stripping
+    )
+    entry_a = WaitlistEntry(
+        user_id=111,
+        username="A",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+    entry_c = WaitlistEntry(
+        user_id=333,
+        username="C",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event X",
+        timestamp=datetime.now(UTC),
+        drinks=[],
+        extras_names=[],
+    )
+
+    # Place them in non-sorted order in the cache
+    response_data.RESPONSE_DATA_CACHE = {"Event X": make_event_data(waitlist=[entry_b, entry_a, entry_c])}
+
+    with patch("offkai_bot.data.response.load_responses", return_value=response_data.RESPONSE_DATA_CACHE):
+        total_count, waitlisted_names = response_data.calculate_waitlist("Event X", sort=True)
+
+    assert total_count == 5
+    assert waitlisted_names == [
+        "A",
+        "B",
+        "AA (B +1)",
+        "AB (B +2)",
+        "C",
+    ]

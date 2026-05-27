@@ -534,9 +534,7 @@ class EventsCog(commands.Cog):
         drinks: bool = False,
     ):
         get_event(event_name)
-        total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks)
-        if sort:
-            attendee_list.sort(key=str.lower)
+        total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks, sort=sort)
 
         output = _format_attendance_output(event_name, total_count, attendee_list)
 
@@ -584,9 +582,7 @@ class EventsCog(commands.Cog):
         self, interaction: discord.Interaction, event_name: str, sort: bool = False, nicknames: bool = False
     ):
         get_event(event_name)
-        total_count, waitlisted_list = calculate_waitlist(event_name, nicknames=nicknames)
-        if sort:
-            waitlisted_list.sort(key=str.lower)
+        total_count, waitlisted_list = calculate_waitlist(event_name, nicknames=nicknames, sort=sort)
 
         output = f"**Waitlist for {event_name}**\n\n"
         output += f"Total Waitlisted: **{total_count}**\n\n"

@@ -86,7 +86,7 @@ async def test_waitlist_success(
     )
 
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False, sort=False)
 
     expected_output = (
         f"**Waitlist for {event_name_target}**\n\n"
@@ -116,7 +116,7 @@ async def test_waitlist_sort_success(
     mock_get_event.return_value = mock_event_obj
 
     mock_total_count = 3
-    mock_waitlisted_list = ["UserC", "UserA", "UserB"]
+    mock_waitlisted_list = ["UserA", "UserB", "UserC"]
     mock_calculate_waitlist.return_value = (mock_total_count, mock_waitlisted_list)
 
     await EventsCog.waitlist.callback(
@@ -127,7 +127,7 @@ async def test_waitlist_sort_success(
     )
 
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False, sort=True)
 
     expected_output = (
         f"**Waitlist for {event_name_target}**\n\n"
@@ -175,7 +175,7 @@ async def test_waitlist_success_truncation(
     )
 
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False, sort=False)
     mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
@@ -231,7 +231,7 @@ async def test_waitlist_no_entries_found(
         )
 
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False)
+    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False, sort=False)
     mock_interaction.response.send_message.assert_not_awaited()
 
 
@@ -260,7 +260,7 @@ async def test_waitlist_with_nicknames(
     )
 
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=True)
+    mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=True, sort=False)
 
     expected_output = f"**Waitlist for {event_name_target}**\n\nTotal Waitlisted: **2**\n\n1. foo (goo)\n2. bar"
     mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)

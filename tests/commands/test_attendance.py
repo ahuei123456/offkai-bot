@@ -96,7 +96,7 @@ async def test_attendance_success(
     # 1. Check get_event call
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check calculate_attendance call
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
     # 3. Check final interaction response with correct formatting
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
@@ -143,7 +143,7 @@ async def test_attendance_with_drinks(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=True)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=True, sort=False)
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
         "Total Attendees: **3**\n\n"
@@ -174,7 +174,7 @@ async def test_attendance_sort_success(
 
     # Mock the data layer function returning attendance data
     mock_total_count = 5
-    mock_attendee_list = ["UserC", "UserC +1", "UserA", "UserB", "UserB +1"]
+    mock_attendee_list = ["UserA", "UserB", "UserB +1", "UserC", "UserC +1"]
     mock_calculate_attendance.return_value = (mock_total_count, mock_attendee_list)
 
     # Act
@@ -189,7 +189,7 @@ async def test_attendance_sort_success(
     # 1. Check get_event call
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check calculate_attendance call
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=True)
     # 3. Check final interaction response with correct formatting
     expected_output = (
         f"**Attendance for {event_name_target}**\n\n"
@@ -246,7 +246,7 @@ async def test_attendance_success_truncation(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
     mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
@@ -287,7 +287,7 @@ async def test_attendance_over_100_sends_file_by_dm(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
     mock_discord_file.assert_called_once()
     assert mock_discord_file.call_args.kwargs["filename"] == "attendance_Summer_Bash.txt"
     assert mock_discord_file.call_args.kwargs["fp"].getvalue() == expected_output.encode("utf-8")
@@ -340,7 +340,7 @@ async def test_attendance_over_100_with_drinks_sends_file_by_dm(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=True)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=True, sort=False)
     mock_discord_file.assert_called_once()
     assert mock_discord_file.call_args.kwargs["filename"] == "attendance_Summer_Bash.txt"
     assert mock_discord_file.call_args.kwargs["fp"].getvalue() == expected_output.encode("utf-8")
@@ -390,7 +390,7 @@ async def test_attendance_over_100_falls_back_to_ephemeral_file_when_dm_fails(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
     assert mock_discord_file.call_count == 2
     mock_interaction.user.send.assert_awaited_once_with(
         f"Attendance for **{event_name_target}** is attached as a text file.",
@@ -462,7 +462,7 @@ async def test_attendance_no_responses_found(
 
     # Assert calls up to calculate_attendance
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
 
     # Assert subsequent steps were NOT called
     mock_interaction.response.send_message.assert_not_awaited()
@@ -496,7 +496,7 @@ async def test_attendance_with_nicknames(
 
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
-    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=True, drinks=False)
+    mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=True, drinks=False, sort=False)
 
     expected_output = f"**Attendance for {event_name_target}**\n\nTotal Attendees: **2**\n\n1. foo (goo)\n2. bar"
     mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
