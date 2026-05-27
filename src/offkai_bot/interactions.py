@@ -342,7 +342,7 @@ class GatheringModal(ui.Modal):
         if extras == "":
             names = []
         else:
-            names = extras.split(",")
+            names = [name.strip() for name in extras.split(",")]
             _log.debug("len(names)=%s, num_extra=%s", len(names), num_extra)
             if len(names) != num_extra:
                 raise ValidationError(

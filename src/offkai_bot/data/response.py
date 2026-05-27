@@ -525,7 +525,9 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
     raise ResponseNotFoundError(event_name, user_id)
 
 
-def calculate_attendance(event_name: str, *, nicknames: bool = False, drinks: bool = False) -> tuple[int, list[str]]:
+def calculate_attendance(
+    event_name: str, *, nicknames: bool = False, drinks: bool = False, sort: bool = False
+) -> tuple[int, list[str]]:
     """
     Calculates the total attendance count and generates a list of attendee names
     (including extras) for a given event.
@@ -534,6 +536,7 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False, drinks: bo
         event_name: The name of the event.
         nicknames: If True, show display names alongside usernames when they differ.
         drinks: If True, append each attendee's drink choice.
+        sort: If True, sort based on the main user and bundle extras after them.
 
     Returns:
         A tuple containing:
@@ -546,6 +549,9 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False, drinks: bo
     responses = get_responses(event_name)
     if not responses:
         raise NoResponsesFoundError(event_name)
+
+    if sort:
+        responses = sorted(responses, key=lambda r: r.username.lower())
 
     attendee_names = []
     total_count = 0
@@ -562,7 +568,9 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False, drinks: bo
 
         # Add extra people
         for i in range(response.extra_people):
-            name = response.extras_names[i] if i < len(response.extras_names) else " "
+            raw_name = response.extras_names[i] if i < len(response.extras_names) else ""
+            stripped_name = raw_name.strip() if isinstance(raw_name, str) else ""
+            name = stripped_name or " "
             name += f" ({response.username} +{i + 1})"
             if drinks:
                 drink_index = i + 1
@@ -575,7 +583,7 @@ def calculate_attendance(event_name: str, *, nicknames: bool = False, drinks: bo
     return total_count, attendee_names
 
 
-def calculate_waitlist(event_name: str, *, nicknames: bool = False) -> tuple[int, list[str]]:
+def calculate_waitlist(event_name: str, *, nicknames: bool = False, sort: bool = False) -> tuple[int, list[str]]:
     """
     Calculates the total waitlist count and generates a list of waitlisted names
     (including extras) for a given event.
@@ -583,6 +591,7 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False) -> tuple[int
     Args:
         event_name: The name of the event.
         nicknames: If True, show display names alongside usernames when they differ.
+        sort: If True, sort based on the main user and bundle extras after them.
 
     Returns:
         A tuple containing:
@@ -596,6 +605,9 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False) -> tuple[int
     if not entries:
         raise NoWaitlistEntriesFoundError(event_name)
 
+    if sort:
+        entries = sorted(entries, key=lambda e: e.username.lower())
+
     waitlisted_names = []
     total_count = 0
     for entry in entries:
@@ -606,7 +618,9 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False) -> tuple[int
         total_count += 1
 
         for i in range(entry.extra_people):
-            name = entry.extras_names[i] if i < len(entry.extras_names) else " "
+            raw_name = entry.extras_names[i] if i < len(entry.extras_names) else ""
+            stripped_name = raw_name.strip() if isinstance(raw_name, str) else ""
+            name = stripped_name or " "
             name += f" ({entry.username} +{i + 1})"
             waitlisted_names.append(name)
             total_count += 1
