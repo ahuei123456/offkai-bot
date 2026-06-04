@@ -670,6 +670,8 @@ async def test_modal_adds_to_waitlist_when_group_exceeds_capacity(event_with_cap
     modal.arrival_checkbox_input = MagicMock()
     modal.arrival_checkbox_input.value = "Yes"
     modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = "Guest1"
 
     await modal.on_submit(mock_interaction)
 
@@ -710,6 +712,8 @@ async def test_modal_capacity_exceeded_message_content(event_with_capacity, mock
     modal.arrival_checkbox_input = MagicMock()
     modal.arrival_checkbox_input.value = "Yes"
     modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = "Guest1"
 
     await modal.on_submit(mock_interaction)
 
@@ -753,6 +757,8 @@ async def test_capacity_reached_message_sent_when_filling_event(event_with_capac
         modal.arrival_checkbox_input = MagicMock()
         modal.arrival_checkbox_input.value = "Yes"
         modal.drink_choice_input = None
+        modal.extras_names_input = MagicMock()
+        modal.extras_names_input.value = "Guest1"
 
         await modal.on_submit(mock_interaction)
 
@@ -854,6 +860,8 @@ async def test_waitlist_capacity_exceeded_dm_contains_extra_charge_warning(
     modal.arrival_checkbox_input = MagicMock()
     modal.arrival_checkbox_input.value = "Yes"
     modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = "Guest1"
 
     await modal.on_submit(mock_interaction)
 

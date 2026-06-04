@@ -338,18 +338,28 @@ class GatheringModal(ui.Modal):
         return selected_drinks
 
     def _validate_extra_people_names(self, extras: str, num_extra: int) -> list[str]:
-        names: list[str] = []
-        if extras == "":
-            names = []
-        else:
-            names = [name.strip() for name in extras.split(",")]
-            _log.debug("len(names)=%s, num_extra=%s", len(names), num_extra)
-            if len(names) != num_extra:
-                raise ValidationError(
-                    f"Please provide exactly {num_extra} names "
-                    "(one for each person you are bringing), separated by commas."
-                )
-        return names
+        if num_extra == 0:
+            if extras.strip() != "":
+                raise ValidationError("You specified 0 extra people, so please leave the extras names field empty.")
+            return []
+
+        # If they bring extra people, extras names are required
+        if not extras.strip():
+            raise ValidationError(
+                f"Please provide exactly {num_extra} name(s) "
+                "(one for each person you are bringing), separated by commas."
+            )
+
+        names = [name.strip() for name in extras.split(",")]
+        # Filter out empty names to ensure they don't submit ",,," or similar
+        non_empty_names = [name for name in names if name]
+
+        if len(non_empty_names) != num_extra:
+            raise ValidationError(
+                f"Please provide exactly {num_extra} non-empty name(s) "
+                "(one for each person you are bringing), separated by commas."
+            )
+        return non_empty_names
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""

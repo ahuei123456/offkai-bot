@@ -7,6 +7,7 @@ import discord
 import pytest
 
 from offkai_bot.data.event import Event
+from offkai_bot.interactions import GatheringModal, ValidationError
 
 # --- Fixtures ---
 
@@ -50,97 +51,105 @@ def sample_event():
 
 
 # --- Tests for _validate_extra_people_names ---
-# Test the validation method directly without creating a modal instance
 
 
-def test_validate_extra_people_names_empty_string_no_extras():
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_empty_string_no_extras(sample_event):
     """Test validation with empty string when no extra people expected."""
-    # Create a temporary modal instance just to call the method
-    # We need to do this in an async context or use a mock
-    # For simplicity, we'll test the logic directly
-    extras = ""
-    num_extra = 0
-
-    names: list[str] = []
-    if extras == "":
-        names = []
-    else:
-        names = extras.split(",")
-        if len(names) != num_extra:
-            pytest.fail("Should not raise error")
-
+    modal = GatheringModal(event=sample_event)
+    names = modal._validate_extra_people_names("", 0)
     assert names == []
 
 
-def test_validate_extra_people_names_correct_count():
-    """Test validation with correct number of names."""
-    extras = "Alice,Bob"
-    num_extra = 2
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_whitespace_no_extras(sample_event):
+    """Test validation with whitespace when no extra people expected."""
+    modal = GatheringModal(event=sample_event)
+    names = modal._validate_extra_people_names("   ", 0)
+    assert names == []
 
-    names = extras.split(",")
-    assert len(names) == num_extra
+
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_non_empty_no_extras(sample_event):
+    """Test validation raises error when names are provided but 0 extras expected."""
+    modal = GatheringModal(event=sample_event)
+    with pytest.raises(ValidationError) as exc_info:
+        modal._validate_extra_people_names("Alice", 0)
+    assert "You specified 0 extra people" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_correct_count(sample_event):
+    """Test validation with correct number of names."""
+    modal = GatheringModal(event=sample_event)
+    names = modal._validate_extra_people_names("Alice,Bob", 2)
     assert names == ["Alice", "Bob"]
 
 
-def test_validate_extra_people_names_single_name():
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_single_name(sample_event):
     """Test validation with single extra person."""
-    extras = "Charlie"
-    num_extra = 1
-
-    names = extras.split(",")
-    assert len(names) == num_extra
+    modal = GatheringModal(event=sample_event)
+    names = modal._validate_extra_people_names("Charlie", 1)
     assert names == ["Charlie"]
 
 
-def test_validate_extra_people_names_with_spaces():
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_with_spaces(sample_event):
     """Test validation with names containing spaces."""
-    extras = "Alice Smith,Bob Jones,Charlie Brown"
-    num_extra = 3
-
-    names = extras.split(",")
-    assert len(names) == num_extra
+    modal = GatheringModal(event=sample_event)
+    names = modal._validate_extra_people_names("Alice Smith, Bob Jones, Charlie Brown", 3)
     assert names == ["Alice Smith", "Bob Jones", "Charlie Brown"]
 
 
-def test_validate_extra_people_names_too_few_names():
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_too_few_names(sample_event):
     """Test validation raises error when too few names provided."""
-    extras = "Alice"
-    num_extra = 2
+    modal = GatheringModal(event=sample_event)
+    with pytest.raises(ValidationError) as exc_info:
+        modal._validate_extra_people_names("Alice", 2)
+    assert "Please provide exactly 2 non-empty name(s)" in str(exc_info.value)
 
-    names = extras.split(",")
-    assert len(names) != num_extra
 
-
-def test_validate_extra_people_names_too_many_names():
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_too_many_names(sample_event):
     """Test validation raises error when too many names provided."""
-    extras = "Alice,Bob,Charlie"
-    num_extra = 2
+    modal = GatheringModal(event=sample_event)
+    with pytest.raises(ValidationError) as exc_info:
+        modal._validate_extra_people_names("Alice,Bob,Charlie", 2)
+    assert "Please provide exactly 2 non-empty name(s)" in str(exc_info.value)
 
-    names = extras.split(",")
-    assert len(names) != num_extra
 
-
-def test_validate_extra_people_names_empty_when_extras_expected():
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_empty_when_extras_expected(sample_event):
     """Test validation with empty string when extras are expected."""
-    extras = ""
-    num_extra = 1
-
-    names = [] if extras == "" else extras.split(",")
-
-    assert len(names) != num_extra
+    modal = GatheringModal(event=sample_event)
+    with pytest.raises(ValidationError) as exc_info:
+        modal._validate_extra_people_names("", 1)
+    assert "Please provide exactly 1 name(s)" in str(exc_info.value)
 
 
-def test_validate_extra_people_names_provided_when_no_extras():
-    """Test validation with names provided when no extras expected."""
-    extras = "Alice"
-    num_extra = 0
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_whitespace_when_extras_expected(sample_event):
+    """Test validation with whitespace when extras are expected."""
+    modal = GatheringModal(event=sample_event)
+    with pytest.raises(ValidationError) as exc_info:
+        modal._validate_extra_people_names("    ", 1)
+    assert "Please provide exactly 1 name(s)" in str(exc_info.value)
 
-    names = extras.split(",")
-    assert len(names) != num_extra
+
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_commas_only_when_extras_expected(sample_event):
+    """Test validation with commas only when extras are expected."""
+    modal = GatheringModal(event=sample_event)
+    with pytest.raises(ValidationError) as exc_info:
+        modal._validate_extra_people_names(",,,,", 2)
+    assert "Please provide exactly 2 non-empty name(s)" in str(exc_info.value)
 
 
-# Note: Integration tests with GatheringModal.on_submit are more complex
-# because they require an async event loop and proper Discord.py context.
-# The unit tests above cover the validation logic itself.
-# End-to-end testing of the modal submission should be done manually or
-# with a more comprehensive test framework that can handle Discord.py modals.
+@pytest.mark.asyncio
+async def test_validate_extra_people_names_trailing_comma_accepted(sample_event):
+    """Test that a trailing comma is ignored, treating it as correct count."""
+    modal = GatheringModal(event=sample_event)
+    names = modal._validate_extra_people_names("Alice, Bob, ", 2)
+    assert names == ["Alice", "Bob"]
