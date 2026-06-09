@@ -175,7 +175,6 @@ cython_debug/
 
 # Events and responses
 data/*.json
-bot/config.json
 logs/
 
 ^.dockerignore
