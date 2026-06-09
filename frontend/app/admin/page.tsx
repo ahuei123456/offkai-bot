@@ -95,7 +95,7 @@ export default function AdminPage() {
           token = url.searchParams.get('token') || decodedText
         } catch { /* not a URL */ }
 
-        const res = await fetch('/api/checkin', {
+        const res = await fetch(`/api/checkin?key=${key}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),

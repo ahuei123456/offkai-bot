@@ -111,7 +111,23 @@ export function writeCheckins(checkins: CheckinRecord[]): boolean {
 
 export function getActiveEvent(events: Event[]): Event | null {
   if (events.length === 0) return null
-  const active = events.find(e => !e.archived)
-  if (active) return active
+
+  // 1. Try to find the latest open and non-archived event (searching from most recent to oldest)
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.open && !e.archived) {
+      return e
+    }
+  }
+
+  // 2. Fallback to the latest non-archived event (searching from most recent to oldest)
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (!e.archived) {
+      return e
+    }
+  }
+
+  // 3. Fallback to the last event in the list
   return events[events.length - 1]
 }

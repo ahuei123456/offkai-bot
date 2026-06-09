@@ -24,6 +24,11 @@ export async function GET(request: NextRequest) {
 // POST /api/checkin — registers a checkin { token }
 export async function POST(request: NextRequest) {
   try {
+    const key = request.nextUrl.searchParams.get('key')
+    if (!ADMIN_KEY || key !== ADMIN_KEY) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { token } = body
     if (!token) {

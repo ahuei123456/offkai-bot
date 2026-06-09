@@ -36,3 +36,6 @@ jobs:
 
       - name: Test with pytest
         run: uv run pytest bot/tests
+
+      - name: Build Bot Docker Image
+        run: docker build -t discord-offkai-bot -f bot/Dockerfile .
