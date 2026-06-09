@@ -5,7 +5,8 @@ from datetime import timedelta
 import discord
 
 from offkai_bot.alerts.alerts import register_alert
-from offkai_bot.alerts.task import CloseOffkaiTask, DeleteRoleTask, SendMessageTask
+from offkai_bot.alerts.task import CloseOffkaiTask, DeleteRoleTask, SendMessageTask, SendPreEventDMsTask
+from offkai_bot.config import get_config
 from offkai_bot.data.event import Event
 from offkai_bot.errors import AlertTimeInPastError
 
@@ -62,6 +63,32 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                 )
 
                 _log.info("Registered 1 week reminder for '%s'.", event.event_name)
+
+    # Pre-event DM: 1 day before the event itself, with JWT check-in link
+    settings = get_config()
+    jwt_secret: str | None = settings.get("JWT_SECRET")
+    frontend_url: str | None = settings.get("CHECKIN_FRONTEND_URL")
+    if jwt_secret and frontend_url:
+        with contextlib.suppress(AlertTimeInPastError):
+            register_alert(
+                event.event_datetime - timedelta(days=1),
+                SendPreEventDMsTask(
+                    client=client,
+                    event_name=event.event_name,
+                    event_datetime=event.event_datetime,
+                    venue=event.venue,
+                    address=event.address,
+                    google_maps_link=event.google_maps_link,
+                    jwt_secret=jwt_secret,
+                    frontend_url=frontend_url,
+                ),
+            )
+            _log.info("Registered pre-event DM task for '%s'.", event.event_name)
+    else:
+        _log.info(
+            "Skipping pre-event DM registration for '%s': JWT_SECRET or CHECKIN_FRONTEND_URL not set in config.",
+            event.event_name,
+        )
 
     # Role deletion: 1 day after event (independent of deadline)
     if event.role_id:

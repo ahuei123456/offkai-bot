@@ -2,11 +2,14 @@
 import logging
 from abc import ABC, abstractmethod  # Import ABC and abstractmethod
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 import discord
+import jwt as pyjwt
 
 from offkai_bot.errors import BotCommandError  # Import base error for catching known issues
 from offkai_bot.event_actions import perform_close_event
+from offkai_bot.util import JST
 
 _log = logging.getLogger(__name__)
 
@@ -114,3 +117,117 @@ class DeleteRoleTask(Task):
                     _log.error("Failed to delete role %s: %s", self.role_id, e)
                 return
         _log.warning("Role %s not found for deletion (event '%s').", self.role_id, self.event_name)
+
+
+# --- Concrete Task: Send Pre-Event DMs ---
+@dataclass
+class SendPreEventDMsTask(Task):
+    """Sends a reminder DM to every confirmed attendee 1 day before the event.
+
+    Each DM includes the attendee's registration details and a JWT-signed
+    check-in page URL they can show at the door.  Requires JWT_SECRET and
+    CHECKIN_FRONTEND_URL to be set in config.json.
+    """
+
+    event_name: str
+    event_datetime: datetime
+    venue: str
+    address: str
+    google_maps_link: str
+    jwt_secret: str
+    frontend_url: str
+
+    async def action(self):
+        from offkai_bot.data.response import get_responses
+
+        _log.info("Executing SendPreEventDMsTask for event: '%s'", self.event_name)
+
+        responses = get_responses(self.event_name)
+        if not responses:
+            _log.info("No attendees found for '%s'. Skipping pre-event DMs.", self.event_name)
+            return
+
+        # Token valid until 7 days after the event
+        exp = self.event_datetime + timedelta(days=7)
+        dt_str = self.event_datetime.astimezone(JST).strftime(r"%Y-%m-%d %H:%M") + " JST"
+
+        sent = 0
+        failed = 0
+        for response in responses:
+            try:
+                token = pyjwt.encode(
+                    {
+                        "user_id": response.user_id,
+                        "event_name": self.event_name,
+                        "exp": int(exp.timestamp()),
+                    },
+                    self.jwt_secret,
+                    algorithm="HS256",
+                )
+                checkin_url = f"{self.frontend_url.rstrip('/')}/?token={token}"
+
+                drinks_msg = f"\n🍺 **Drinks**: {', '.join(response.drinks)}" if response.drinks else ""
+                drinks_msg_jp = f"\n🍺 **飲み物**: {', '.join(response.drinks)}" if response.drinks else ""
+
+                guests_msg = ""
+                guests_msg_jp = ""
+                if response.extra_people > 0:
+                    names = ", ".join(n for n in response.extras_names if n.strip()) or "—"
+                    guests_msg = f"\n👥 **Guests**: {response.extra_people} ({names})"
+                    guests_msg_jp = f"\n👥 **同伴者**: {response.extra_people}名（{names}）"
+
+                dm = (
+                    f"🎉 See you tomorrow at **{self.event_name}**!\n\n"
+                    f"📅 **Date & Time**: {dt_str}\n"
+                    f"🍽️ **Venue**: {self.venue}\n"
+                    f"📍 **Address**: {self.address}\n"
+                    f"🌎 **Map**: {self.google_maps_link}\n\n"
+                    f"Your confirmed registration:\n"
+                    f"✔ Attendance Confirmed"
+                    f"{drinks_msg}"
+                    f"{guests_msg}\n\n"
+                    f"🎫 **Check-In Page**\n"
+                    f"{checkin_url}\n"
+                    f"Show this at the door to check in quickly!\n\n"
+                    f"---\n\n"
+                    f"🎉 明日は**{self.event_name}**でお会いしましょう！\n\n"
+                    f"📅 **日時**: {dt_str}\n"
+                    f"🍽️ **会場**: {self.venue}\n"
+                    f"📍 **住所**: {self.address}\n"
+                    f"🌎 **地図**: {self.google_maps_link}\n\n"
+                    f"参加確定内容：\n"
+                    f"✔ 参加確定"
+                    f"{drinks_msg_jp}"
+                    f"{guests_msg_jp}\n\n"
+                    f"🎫 **チェックインページ**\n"
+                    f"{checkin_url}\n"
+                    f"入口でこのページを見せてチェックインしてください！"
+                )
+
+                user = await self.client.fetch_user(response.user_id)
+                await user.send(dm)
+                sent += 1
+                _log.info("Sent pre-event DM to user %s for event '%s'.", response.user_id, self.event_name)
+            except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+                failed += 1
+                _log.warning(
+                    "Could not send pre-event DM to user %s for event '%s': %s",
+                    response.user_id,
+                    self.event_name,
+                    e,
+                )
+            except Exception as e:
+                failed += 1
+                _log.exception(
+                    "Unexpected error sending pre-event DM to user %s for event '%s': %s",
+                    response.user_id,
+                    self.event_name,
+                    e,
+                )
+
+        _log.info(
+            "Pre-event DM task for '%s' complete. Sent: %s, Failed: %s.",
+            self.event_name,
+            sent,
+            failed,
+        )
