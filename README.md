@@ -151,8 +151,8 @@ The repository is organized as a monorepo:
 
 Running via Docker Compose automatically launches both the Discord bot and the Next.js web application, linking their data directories read-write:
 
-1. **Create the configurations:**
-   Create a config file at `bot/config.json` (see template below). Make sure paths point to `data/` since they are relative to the `/app` container root.
+1. **Verify the configuration:**
+   The configuration file at `bot/config.json` is tracked in Git and pre-configured. You can edit it if you need to customize your paths, making sure they point to `data/` since they are relative to the `/app` container root.
 
 2. **Configure env variables:**
    In the root `.env` file, set `ADMIN_KEY` to a secure password. This key authorizes staff to view the check-in panel.
@@ -231,7 +231,7 @@ GUILDS=123456789012345678
 
 ### 2. Bot Configuration (`bot/config.json`)
 
-Create a `bot/config.json` file inside the `bot` folder to configure database file paths. (These paths are relative to the `/app` container root):
+The `bot/config.json` file inside the `bot` folder is tracked in Git and pre-configured for the monorepo layout. You can edit it if you need to customize your database file paths (which are relative to the `/app` container root):
 
 ```json
 {
