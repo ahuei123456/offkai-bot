@@ -18,7 +18,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
-ADD . /app
+COPY pyproject.toml uv.lock /app/
+COPY bot /app/bot
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
@@ -28,4 +29,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
 # Presuming there is a `my_app` command provided by the project
-CMD ["uv", "run", "offkai-bot", "--config-path", "./config.json"]
+CMD ["uv", "run", "offkai-bot", "--config-path", "bot/config.json"]

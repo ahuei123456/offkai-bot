@@ -6,7 +6,6 @@ import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
-
 from offkai_bot.cogs.events import EventsCog
 from offkai_bot.errors import EventNotFoundError, ResponseNotFoundError
 

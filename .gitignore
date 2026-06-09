@@ -175,9 +175,14 @@ cython_debug/
 
 # Events and responses
 data/*.json
-config.json
+bot/config.json
+logs/
 
 ^.dockerignore
 
 # VSCode stuff
 .vscode/
+
+# Codex/Antigravity helper files
+.codex
+.codex/

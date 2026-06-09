@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-
 from offkai_bot.data.event import Event
 from offkai_bot.errors import (
     EventAlreadyClosedError,

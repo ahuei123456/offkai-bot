@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 
 import pytest
-
 from offkai_bot.data.response import (
     Response,
     WaitlistEntry,

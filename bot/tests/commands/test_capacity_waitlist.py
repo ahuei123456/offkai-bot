@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord.ext import commands
-
 from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event

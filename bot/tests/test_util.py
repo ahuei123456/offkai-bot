@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import discord  # Import discord for type mocking
 import pytest
-
 from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,

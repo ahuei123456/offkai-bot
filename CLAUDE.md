@@ -9,20 +9,29 @@ Discord bot for managing event attendance at group gatherings (offkais). Handles
 ## Commands
 
 ```bash
-# Run tests
-uv run pytest
-uv run pytest tests/data/test_event.py              # single file
-uv run pytest tests/data/test_event.py::test_name   # single test
+# Bot - Run tests
+uv run pytest bot/tests
+uv run pytest bot/tests/data/test_event.py              # single file
+uv run pytest bot/tests/data/test_event.py::test_name   # single test
 
-# Lint and format
+# Bot - Lint and format
 uvx ruff check --fix .
 uvx ruff format .
 
-# Type check
-uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
+# Bot - Type check
+uvx ty check
+
+# Frontend - Local dev
+npm run dev --prefix frontend
+
+# Frontend - Build
+npm run build --prefix frontend
+
+# Frontend - Lint
+npm run lint --prefix frontend
 ```
 
-**Note:** Always use `uv`, never `python3` directly. There is a pre-existing mypy error in `src/offkai_bot/alerts/alerts.py:5` (unused type: ignore comment) — not related to new changes.
+**Note:** Always use `uv`, never `python3` directly. The type checks run cleanly under `ty`.
 
 ## Architecture
 
@@ -88,16 +97,17 @@ uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
 
 ## Configuration
 
-- `config.json` at project root with keys: `DISCORD_TOKEN`, `EVENTS_FILE`, `RESPONSES_FILE`, `RANKING_FILE`, `GUILDS`.
+- `bot/config.json` with keys: `DISCORD_TOKEN`, `EVENTS_FILE`, `RESPONSES_FILE`, `RANKING_FILE`, `GUILDS`.
 - Accessed via `get_config()` singleton.
 
 ## Quality Gates
 
 All tasks must pass these gates before completion:
 
-1. **Linting**: `uvx ruff check --fix .` — no remaining lint errors.
-2. **Type Checking**: `uvx mypy src/ --extra-checks --warn-unused-ignores --pretty` — must be clean. No `type: ignore` unless absolutely necessary and justified.
-3. **Testing**: `uv run pytest` — all tests must pass. New features must have associated tests.
+1. **Bot Linting**: `uvx ruff check --fix .` — no remaining lint errors.
+2. **Bot Type Checking**: `uvx ty check` — must be clean. No `type: ignore` unless absolutely necessary and justified.
+3. **Bot Testing**: `uv run pytest bot/tests` — all tests must pass. New features must have associated tests.
+4. **Frontend Linting/Build**: `npm run lint --prefix frontend` and `npm run build --prefix frontend` must compile without errors.
 
 ## Style
 

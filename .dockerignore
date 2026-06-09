@@ -1,1 +1,11 @@
-.venv
+# Ignore everything not needed for the bot container build
+.git/
+.venv/
+data/
+logs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+frontend/
+.env
+*.log
