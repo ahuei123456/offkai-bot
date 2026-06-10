@@ -31,8 +31,11 @@ jobs:
       - name: Format with Ruff
         run: uv run ruff format .
 
-      - name: Type-check with mypy
-        run: uv run mypy . --pretty --extra-checks --ignore-missing-imports
+      - name: Type-check with ty
+        run: uvx ty check
 
       - name: Test with pytest
-        run: uv run pytest tests
+        run: uv run pytest bot/tests
+
+      - name: Build Bot Docker Image
+        run: docker build -t discord-offkai-bot -f bot/Dockerfile .

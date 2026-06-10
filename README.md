@@ -135,50 +135,121 @@ Before running Offkai Bot, you need:
    - Enable Developer Mode in Discord (User Settings > Advanced > Developer Mode)
    - Right-click your server and select "Copy Server ID"
 
+## Monorepo Layout
+
+The repository is organized as a monorepo:
+* **`bot/`**: Contains the Python Discord bot code, test files, and its Dockerfile.
+* **`frontend/`**: Contains the Next.js frontend application (admin dashboard, check-in scanning, and RSVP cards) and its Dockerfile.
+* **`data/`**: Shared runtime databases (JSON files) on the host machine.
+* **`logs/`**: Log files from the bot's runtime.
+
+---
+
 ## How to Run
 
-### Installation
+### Running with Docker Compose (Recommended)
 
-1. **Clone the repository:**
+Running via Docker Compose automatically launches both the Discord bot and the Next.js web application, linking their data directories read-write:
+
+1. **Verify the configuration:**
+   The configuration file at `bot/config.json` is tracked in Git and pre-configured. You can edit it if you need to customize your paths, making sure they point to `data/` since they are relative to the `/app` container root.
+
+2. **Configure env variables:**
+   In the root `.env` file, set `ADMIN_KEY` to a secure password. This key authorizes staff to view the check-in panel.
+
+3. **Launch the services:**
    ```bash
-   git clone <repository-url>
-   cd offkai-bot
+   docker compose up -d --build
    ```
 
-2. **Verify uv is installed:**
+4. **Verify container status:**
    ```bash
-   uv --version
+   docker compose ps
+   docker compose logs -f
    ```
 
-### Configuration
+### Running the Bot Standalone (Without Frontend)
 
-1. **Create a `config.json` file in the project root:**
+If you only want to run the Discord bot and do not need the Next.js web application, you have two options:
 
-   ```json
-   {
-       "DISCORD_TOKEN": "YOUR_BOT_TOKEN_HERE",
-       "EVENTS_FILE": "data/events.json",
-       "RESPONSES_FILE": "data/responses.json",
-       "RANKING_FILE": "data/ranking.json",
-       "LOG_FILE": "logs/offkai-bot.log",
-       "GUILDS": [
-           123456789012345678
-       ]
-   }
-   ```
+#### Option A: From the `bot/` directory (Recommended)
+Navigate to the `bot/` folder and launch compose. It will start only the bot container, still storing data and logs in the shared parent folders:
+```bash
+cd bot
+docker compose up -d --build
+```
 
-2. **Configuration Fields:**
+#### Option B: From the root directory
+You can start only the bot service from the main compose file:
+```bash
+docker compose up -d --build discord-offkai-bot
+```
 
-   | Field | Type | Required | Description |
-   |-------|------|----------|-------------|
-   | `DISCORD_TOKEN` | string | ✅ | Your Discord bot token. **Keep this secret!** |
-   | `EVENTS_FILE` | string | ✅ | Path to events data file (e.g., `data/events.json`) |
-   | `RESPONSES_FILE` | string | ✅ | Path to responses data file (includes both attendees and waitlist) |
-   | `RANKING_FILE` | string | ✅ | Path to ranking data file (e.g., `data/ranking.json`) |
-   | `LOG_FILE` | string | ❌ | Path to bot log file (defaults to `logs/offkai-bot.log`; set to `null` to log only to console) |
-   | `GUILDS` | array | ✅ | List of Discord server IDs where bot will be active |
+### Running Locally for Development
 
-   **Note:** The `WAITLIST_FILE` field is deprecated. Waitlist data is now stored in the responses file alongside attendee data. If you have an old `waitlist.json` file, it will be automatically migrated on first run.
+#### 1. Running the Bot
+Make sure you are in the root directory.
+```bash
+# Verify uv is installed
+uv --version
+
+# Run the bot
+uv run offkai-bot --config-path bot/config.json
+```
+
+#### 2. Running the Frontend
+Navigate to the `frontend/` directory:
+```bash
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Start the Next.js dev server
+npm run dev
+```
+Open [http://localhost:8090](http://localhost:8090) in your browser. (The API routes will automatically read database files from the sibling `../data/` folder).
+
+---
+
+## Configuration
+
+### 1. Environment Secrets (`.env`)
+
+Create a `.env` file in the root directory. This is where all sensitive credentials and API keys are stored for both the bot and the frontend:
+
+```env
+# Frontend Admin Key (for the staff check-in dashboard)
+ADMIN_KEY=supersecretadmin123
+
+# Discord Bot Token
+DISCORD_TOKEN=YOUR_DISCORD_TOKEN_HERE
+
+# Guild IDs (comma-separated list of server IDs where the bot is active)
+GUILDS=123456789012345678
+```
+
+### 2. Bot Configuration (`bot/config.json`)
+
+The `bot/config.json` file inside the `bot` folder is tracked in Git and pre-configured for the monorepo layout. You can edit it if you need to customize your database file paths (which are relative to the `/app` container root):
+
+```json
+{
+    "EVENTS_FILE": "data/events.json",
+    "RESPONSES_FILE": "data/responses.json",
+    "WAITLIST_FILE": "data/waitlist.json",
+    "RANKING_FILE": "data/ranking.json"
+}
+```
+
+### Configuration Fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `EVENTS_FILE` | string | ✅ | Path to events data file inside container (e.g., `data/events.json`) |
+| `RESPONSES_FILE` | string | ✅ | Path to responses data file (includes both attendees and waitlist) |
+| `RANKING_FILE` | string | ✅ | Path to ranking data file (e.g., `data/ranking.json`) |
+| `WAITLIST_FILE` | string | ❌ | Path to waitlist data file (optional; waitlist is migrated to responses on first run) |
 
 3. **Data Directory:**
 
@@ -206,25 +277,25 @@ docker compose up -d --build
 docker compose logs -f discord-offkai-bot
 ```
 
-**For development (with auto-reload):**
+**For development (running main.py):**
 ```bash
-uv run python -m offkai_bot.main
+uv run python -m offkai_bot.main --config-path bot/config.json
 ```
 
 ### Running Tests
 
 ```bash
 # Run all tests
-uv run pytest
+uv run pytest bot/tests
 
 # Run specific test file
-uv run pytest tests/test_event_actions.py
+uv run pytest bot/tests/test_event_actions.py
 
 # Run with verbose output
-uv run pytest -v
+uv run pytest bot/tests -v
 
 # Run with coverage
-uv run pytest --cov=offkai_bot
+uv run pytest bot/tests --cov=bot/src/offkai_bot
 ```
 
 ### Code Quality Checks
@@ -240,7 +311,7 @@ uvx ruff format .
 uvx ruff check .
 
 # Type checking
-uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
+uv run ty check
 ```
 
 ## Commands
@@ -343,10 +414,10 @@ We welcome contributions! Here's how you can help:
 3. **Make your changes**
 4. **Run tests and quality checks:**
    ```bash
-   uv run pytest
+   uv run pytest bot/tests
    uvx ruff format .
    uvx ruff check .
-   uvx mypy src/ --extra-checks --warn-unused-ignores --pretty
+   uv run ty check
    ```
 5. **Commit your changes:**
    ```bash
@@ -380,7 +451,7 @@ uv sync
 uv run prek install
 
 # Run tests in watch mode
-uv run pytest-watch
+uvx pytest-watch bot/tests
 
 # Check code quality
 uv run prek run --all-files
@@ -402,6 +473,29 @@ uv run prek run --all-files
 - Provide constructive feedback
 - Focus on the issue, not the person
 - Help create a welcoming environment for all contributors
+
+---
+
+## Deployment
+
+A helper deployment script `deploy.sh` is provided in the root directory to automate deploying updates on your production host (e.g. Raspberry Pi):
+
+1. **Host Setup:**
+   * Clone the repository into `/home/eyal/offkai-bot/` on your Pi.
+   * Create your production `.env` and `bot/config.json` configurations in that folder.
+   * Run the deploy script manually:
+     ```bash
+     ./deploy.sh
+     ```
+
+2. **How the Script Works:**
+   * It resets the local repository to match `origin/master`.
+   * It safely cleans untracked files *without* deleting your active production databases (`data/`), bot logs (`logs/`), the configuration (`bot/config.json`), or your environment secrets (`.env`).
+   * It pulls the latest Docker images, stops the old containers, and starts the new ones in detached mode.
+   * Finally, it prunes old unused images to save disk space on the Pi.
+
+3. **CI/CD Integration:**
+   * If you are using GitHub Actions with a self-hosted runner on the Pi, you can trigger this script automatically on push to `master`. The workflow is located at `.github/workflows/deploy-to-pi.yml`.
 
 ---
 

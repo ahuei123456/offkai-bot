@@ -1,0 +1,50 @@
+name: Deploy frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chibachanners-frontend-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy frontend
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Check out frontend repository
+        uses: actions/checkout@v4
+
+      - name: Build and recreate frontend container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose up -d --build --remove-orphans
+
+      - name: Verify frontend health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8090/api/health > /dev/null; then
+              echo "Frontend is healthy on port 8090."
+              exit 0
+            fi
+            echo "Waiting for frontend health check (${attempt}/30)..."
+            sleep 2
+          done
+          echo "Frontend failed to become healthy." >&2
+          docker compose logs --tail=200 chibachanners-frontend || true
+          exit 1
+
+      - name: Remove dangling Docker images
+        if: success()
+        shell: bash
+        run: docker image prune -f

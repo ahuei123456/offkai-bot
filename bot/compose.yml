@@ -1,0 +1,13 @@
+services:
+  discord-offkai-bot:
+    build:
+      context: ..
+      dockerfile: bot/Dockerfile
+    container_name: discord-offkai-bot
+    volumes:
+      - ../data:/app/data
+      - ../logs:/app/logs
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - GUILDS=${GUILDS}
+    restart: unless-stopped

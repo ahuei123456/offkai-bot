@@ -1,8 +1,31 @@
 services:
   discord-offkai-bot:
-    build: .
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
     container_name: discord-offkai-bot
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - GUILDS=${GUILDS}
     restart: unless-stopped
+
+  chibachanners-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chibachanners-frontend
+    user: "root"
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/app/offkai-bot-data
+    environment:
+      - MOCK_MODE=false
+      - ADMIN_KEY=${ADMIN_KEY}
+      - BOT_DATA_DIR=/app/offkai-bot-data
+    depends_on:
+      - discord-offkai-bot

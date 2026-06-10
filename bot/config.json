@@ -1,0 +1,6 @@
+{
+    "EVENTS_FILE": "data/events.json",
+    "RESPONSES_FILE": "data/responses.json",
+    "WAITLIST_FILE": "data/waitlist.json",
+    "RANKING_FILE": "data/ranking.json"
+}

@@ -31,7 +31,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.15.0",
+    "ty",
     "pytest>=8.3.5",
     "ruff>=0.15.0",
     "pytest-asyncio>=0.23.0",
@@ -40,7 +40,7 @@ dev = [
 
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["bot/src"]
 asyncio_mode = "auto" # Good practice for pytest-asyncio
 
 [tool.ruff]
@@ -123,7 +123,11 @@ docstring-code-format = false
 docstring-code-line-length = "dynamic"
 
 
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true
-extra_checks = true
+[tool.ty.src]
+include = ["bot/src"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bot/src/offkai_bot"]
