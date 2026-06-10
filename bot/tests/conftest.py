@@ -57,6 +57,7 @@ def mock_config_patch(mock_config):
         patch("offkai_bot.data.event.get_config", return_value=mock_config),
         patch("offkai_bot.data.response.get_config", return_value=mock_config),
         patch("offkai_bot.data.ranking.get_config", return_value=mock_config),
+        patch("offkai_bot.interactions.get_config", return_value=mock_config),
     ):
         yield
 

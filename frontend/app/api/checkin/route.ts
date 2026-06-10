@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'crypto'
 import { readEvents, readResponses, readCheckins, writeCheckins, getActiveEvent } from '../db'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
@@ -60,7 +61,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Only allow checking in attendees (not waitlist)
-    const cleanedToken = token.trim().toLowerCase()
+    let cleanedToken = token.trim().toLowerCase()
+
+    if (ADMIN_KEY) {
+      if (cleanedToken.includes('.')) {
+        const [id, sig] = cleanedToken.split('.')
+        const expectedSig = crypto.createHmac('sha256', ADMIN_KEY).update(id).digest('hex').substring(0, 16)
+        if (sig === expectedSig) {
+          cleanedToken = id.toLowerCase()
+        } else {
+          return NextResponse.json({ error: 'invalid_token_signature' }, { status: 401 })
+        }
+      } else {
+        // In production (when ADMIN_KEY is configured), do not allow raw guessable tokens!
+        return NextResponse.json({ error: 'invalid_token_format' }, { status: 401 })
+      }
+    }
+
     const attendee = (eventResponses.attendees || []).find(
       a => a.user_id.toString() === cleanedToken || a.username.toLowerCase() === cleanedToken
     )

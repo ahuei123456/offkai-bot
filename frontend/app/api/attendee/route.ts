@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'crypto'
 import { readEvents, readResponses, readCheckins, getActiveEvent } from '../db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
+const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
 
 const MOCK_EVENT = {
   event_name: 'Bandori 10th Offkai',
@@ -53,7 +55,22 @@ export async function GET(request: NextRequest) {
   }
 
   // Look for attendee in attendees list or waitlist list matching user_id or username
-  const cleanedToken = token.trim().toLowerCase()
+  let cleanedToken = token.trim().toLowerCase()
+
+  if (ADMIN_KEY) {
+    if (cleanedToken.includes('.')) {
+      const [id, sig] = cleanedToken.split('.')
+      const expectedSig = crypto.createHmac('sha256', ADMIN_KEY).update(id).digest('hex').substring(0, 16)
+      if (sig === expectedSig) {
+        cleanedToken = id.toLowerCase()
+      } else {
+        return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+      }
+    } else {
+      // In production (when ADMIN_KEY is configured), do not allow raw guessable tokens!
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    }
+  }
 
   let attendee = (eventResponses.attendees || []).find(
     a => a.user_id.toString() === cleanedToken || a.username.toLowerCase() === cleanedToken

@@ -1,5 +1,7 @@
 # src/offkai_bot/util.py
 import functools
+import hashlib
+import hmac
 import logging
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -140,3 +142,11 @@ def log_command_usage(func):
         return await func(self, interaction, *args, **kwargs)
 
     return wrapper
+
+
+def generate_checkin_signature(user_id: int, secret_key: str) -> str:
+    """Computes a 16-character HMAC-SHA256 signature of a user_id using the secret_key."""
+    if not secret_key:
+        return ""
+    h = hmac.new(secret_key.encode("utf-8"), str(user_id).encode("utf-8"), hashlib.sha256)
+    return h.hexdigest()[:16]

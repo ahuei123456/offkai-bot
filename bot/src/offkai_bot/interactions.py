@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import discord
 from discord import ui
 
+from offkai_bot.config import get_config
 from offkai_bot.data.event import Event
 from offkai_bot.data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from offkai_bot.data.response import (
@@ -24,6 +25,7 @@ from offkai_bot.errors import (
 )
 from offkai_bot.messages import MILESTONE_MESSAGES
 from offkai_bot.role_management import assign_event_role, remove_event_role
+from offkai_bot.util import generate_checkin_signature
 
 _log = logging.getLogger(__name__)
 
@@ -177,12 +179,27 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
 
         # Notify the promoted user
         try:
+            settings = get_config()
+            admin_key = settings.get("ADMIN_KEY", "")
+            frontend_url = settings.get("FRONTEND_URL", "")
+
+            token = str(promoted_entry.user_id)
+            if admin_key:
+                sig = generate_checkin_signature(promoted_entry.user_id, admin_key)
+                if sig:
+                    token = f"{promoted_entry.user_id}.{sig}"
+
+            rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {frontend_url}/?token={token}" if frontend_url else ""
+            rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {frontend_url}/?token={token}" if frontend_url else ""
+
             promoted_user = await client.fetch_user(promoted_entry.user_id)
             await promoted_user.send(
                 f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
-                f"You've been automatically moved from the waitlist to confirmed attendees.\n\n"
+                f"You've been automatically moved from the waitlist to confirmed attendees.\n"
+                f"{rsvp_link_msg}\n\n"
                 f"🎉 朗報です！**{event.event_name}**に空きが出ました！\n"
-                f"ウェイトリストから自動的に参加確定に移動されました。\n\n"
+                f"ウェイトリストから自動的に参加確定に移動されました。\n"
+                f"{rsvp_link_msg_jp}\n\n"
                 f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
                 f"If you withdraw late, you are fully responsible for any consequences, including "
                 f"payment requests from the event organizer and potential server moderation action.\n\n"
@@ -363,6 +380,19 @@ class GatheringModal(ui.Modal):
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
+        settings = get_config()
+        admin_key = settings.get("ADMIN_KEY", "")
+        frontend_url = settings.get("FRONTEND_URL", "")
+
+        token = str(response.user_id)
+        if admin_key:
+            sig = generate_checkin_signature(response.user_id, admin_key)
+            if sig:
+                token = f"{response.user_id}.{sig}"
+
+        rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {frontend_url}/?token={token}" if frontend_url else ""
+        rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {frontend_url}/?token={token}" if frontend_url else ""
+
         # 1. Create the confirmation message string
         drinks_msg = f"\n🍺 Drinks: {', '.join(response.drinks)}" if response.drinks else ""
         drinks_msg_jp = f"\n🍺 飲み物: {', '.join(response.drinks)}" if response.drinks else ""
@@ -371,12 +401,14 @@ class GatheringModal(ui.Modal):
             f"👥 Bringing: {response.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
-            f"{drinks_msg}\n\n"
+            f"{drinks_msg}"
+            f"{rsvp_link_msg}\n\n"
             f"✅ 参加確定: **{self.event.event_name}**\n"
             f"👥 同伴者: {response.extra_people}名\n"
             f"✔ 行動確認済み\n"
             f"✔ 到着確認済み"
-            f"{drinks_msg_jp}\n\n"
+            f"{drinks_msg_jp}"
+            f"{rsvp_link_msg_jp}\n\n"
             f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
             f"If you withdraw late, you are fully responsible for any consequences, including "
             f"payment requests from the event organizer and potential server moderation action.\n\n"

@@ -47,6 +47,8 @@ def load_config(path: str = "config.json") -> dict[str, Any]:
                 data["GUILDS"] = [int(g.strip()) for g in guilds_raw.split(",") if g.strip()]
         except Exception as e:
             _log.error("Failed to parse GUILDS from environment: %s", e)
+    data["ADMIN_KEY"] = os.environ.get("ADMIN_KEY", "")
+    data["FRONTEND_URL"] = os.environ.get("FRONTEND_URL", "")
 
     # Allow setting file paths from env
     for file_key, env_var, default_val in [
