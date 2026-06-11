@@ -161,12 +161,13 @@ export default function AdminPage() {
   }, [key, selectedEvent])
 
   // Manual check-out (admin button) — removes the check-in for this event.
+  // Uses POST with action=checkout because some proxies reject the DELETE method.
   const manualCheckout = useCallback(async (userId: number) => {
     const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
     const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
-      method: 'DELETE',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, event_name: selectedEvent || undefined }),
+      body: JSON.stringify({ action: 'checkout', user_id: userId, event_name: selectedEvent || undefined }),
     })
     if (res.ok) {
       setCheckins(prev => {
