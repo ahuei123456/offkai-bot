@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readEvents, readResponses, getActiveEvent } from '../db'
+import { readEvents, readResponses, getDefaultEvent } from '../db'
+import { parseEventParam } from '../validation'
+import { MOCK_EVENTS, MOCK_ATTENDEES } from '../mock'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
 const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
-
-const MOCK_EVENT_NAME = 'Bandori 10th Offkai'
-const MOCK_ATTENDEES = [
-  { user_id: 123, username: 'fadekyun', display_name: 'Fadekyun', drinks: ['Highball (L)'], extra_people: 1, extras_names: ['Senpai'], status: 'attending' },
-  { user_id: 124, username: 'sakichan', display_name: 'Sakichan', drinks: ['Oolong Tea (L)', 'Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-  { user_id: 125, username: 'hoshino', display_name: 'Hoshino', drinks: ['Sapporo Beer (L)'], extra_people: 2, extras_names: ['Friend A', 'Friend B'], status: 'attending' },
-  { user_id: 126, username: 'arisa', display_name: 'Arisa', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'waitlist' },
-]
 
 export async function GET(request: NextRequest) {
   const key = request.nextUrl.searchParams.get('key')
@@ -18,12 +12,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
+  const requestedEvent = parseEventParam(request.nextUrl.searchParams.get('event'))
+  if (requestedEvent === false) {
+    return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
+  }
+
   if (MOCK_MODE) {
-    return NextResponse.json({ event_name: MOCK_EVENT_NAME, attendees: MOCK_ATTENDEES })
+    const defaultEvent = getDefaultEvent(MOCK_EVENTS)
+    const eventName = requestedEvent || defaultEvent?.event_name
+    if (!eventName) {
+      return NextResponse.json({ event_name: 'No Active Event', attendees: [] })
+    }
+    if (!MOCK_ATTENDEES[eventName]) {
+      return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
+    }
+    return NextResponse.json({ event_name: eventName, attendees: MOCK_ATTENDEES[eventName] })
   }
 
   const events = readEvents()
-  const activeEvent = getActiveEvent(events)
+
+  // Resolve which event to show: an explicit (validated) selection, else default.
+  let activeEvent
+  if (requestedEvent) {
+    activeEvent = events.find(e => e.event_name === requestedEvent && !e.archived)
+    if (!activeEvent) {
+      return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
+    }
+  } else {
+    activeEvent = getDefaultEvent(events)
+  }
+
   if (!activeEvent) {
     return NextResponse.json({ event_name: 'No Active Event', attendees: [] })
   }

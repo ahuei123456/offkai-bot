@@ -109,25 +109,61 @@ export function writeCheckins(checkins: CheckinRecord[]): boolean {
   }
 }
 
-export function getActiveEvent(events: Event[]): Event | null {
-  if (events.length === 0) return null
-
-  // 1. Try to find the latest open and non-archived event (searching from most recent to oldest)
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (e.open && !e.archived) {
-      return e
-    }
-  }
-
-  // 2. Fallback to the latest non-archived event (searching from most recent to oldest)
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (!e.archived) {
-      return e
-    }
-  }
-
-  // 3. Fallback to the last event in the list
-  return events[events.length - 1]
+// Returns the JST calendar day of a date as a YYYYMMDD integer, so two dates
+// can be compared by day without timezone drift (events are authored in JST).
+function jstDayNumber(d: Date): number {
+  const s = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d)
+  return parseInt(s.replace(/-/g, ''), 10)
 }
+
+// Minimal shape the default-selection logic needs — satisfied by both the real
+// Event and the MOCK_EVENTS entries.
+export interface EventLike {
+  event_name: string
+  event_datetime: string | null
+  archived: boolean
+}
+
+// Default event for the admin dropdown (issue #77):
+//  - the next upcoming non-archived event (earliest event whose JST date is today
+//    or later — so an event still counts as the default on the day it happens)
+//  - if every event is in the past, the most recent past one
+export function getDefaultEvent<T extends EventLike>(events: T[]): T | null {
+  const dated = events.filter(e => !e.archived && e.event_datetime)
+  if (dated.length === 0) {
+    const nonArchived = events.filter(e => !e.archived)
+    if (nonArchived.length > 0) return nonArchived[nonArchived.length - 1]
+    return events.length > 0 ? events[events.length - 1] : null
+  }
+
+  const todayKey = jstDayNumber(new Date())
+  const byTime = (a: T, b: T) =>
+    new Date(a.event_datetime!).getTime() - new Date(b.event_datetime!).getTime()
+
+  const upcoming = dated
+    .filter(e => jstDayNumber(new Date(e.event_datetime!)) >= todayKey)
+    .sort(byTime)
+  if (upcoming.length > 0) return upcoming[0]
+
+  // All past — pick the most recent.
+  return [...dated].sort(byTime).reverse()[0]
+}
+
+// Orders non-archived events for the admin dropdown (issue #77 review):
+//   1. events today + future, nearest first (ascending)
+//   2. then past events, most recent first (descending)
+// Archived events are excluded.
+export function orderEventsForDropdown<T extends EventLike>(events: T[]): T[] {
+  const todayKey = jstDayNumber(new Date())
+  const time = (e: T) => (e.event_datetime ? new Date(e.event_datetime).getTime() : 0)
+  const isUpcoming = (e: T) =>
+    e.event_datetime ? jstDayNumber(new Date(e.event_datetime)) >= todayKey : false
+
+  const selectable = events.filter(e => !e.archived)
+  const upcoming = selectable.filter(isUpcoming).sort((a, b) => time(a) - time(b))
+  const past = selectable.filter(e => !isUpcoming(e)).sort((a, b) => time(b) - time(a))
+  return [...upcoming, ...past]
+}
+
