@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, getDefaultEvent } from '../db'
+import { parseEventParam } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES } from '../mock'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
 const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
-
-const MAX_EVENT_NAME_LEN = 200
-
-// Validates the optional ?event= query param. Returns the trimmed string,
-// `null` when absent, or `false` when malformed.
-function parseEventParam(raw: string | null): string | null | false {
-  if (raw === null) return null
-  if (typeof raw !== 'string' || raw.length > MAX_EVENT_NAME_LEN) return false
-  const trimmed = raw.trim()
-  if (!trimmed) return false
-  return trimmed
-}
 
 export async function GET(request: NextRequest) {
   const key = request.nextUrl.searchParams.get('key')

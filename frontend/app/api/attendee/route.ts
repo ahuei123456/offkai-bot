@@ -1,126 +1,100 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
-import { readEvents, readResponses, readCheckins, getActiveEvent } from '../db'
+import { readEvents, readResponses, readCheckins, getDefaultEvent } from '../db'
+import { verifyToken } from '../token'
+import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
-const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
-
-const MOCK_EVENT = {
-  event_name: 'Bandori 10th Offkai',
-  venue: 'TBD',
-  address: 'Tokyo, Japan',
-  google_maps_link: '',
-  event_datetime: '2026-06-14T12:00:00+09:00',
-  event_deadline: '2026-06-12T00:00:00+09:00',
-  open: true,
-  drinks: ['Oolong Tea (L)', 'Cream Soda (L)', 'Coca-Cola (L)', 'Sapporo Beer (L)', 'Highball (L)', 'Fresh Lemon Sour (L)'],
-  max_capacity: 30,
-}
-
-const MOCK_ATTENDEE = {
-  status: 'attending',
-  username: 'fadekyun',
-  display_name: 'Fadekyun',
-  drinks: ['Highball (L)'],
-  extra_people: 1,
-  extras_names: ['Senpai'],
-  behavior_confirmed: true,
-  arrival_confirmed: false,
-}
 
 export async function GET(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get('token')
-  if (!token) return NextResponse.json({ error: 'missing_reference' }, { status: 400 })
+  const rawToken = request.nextUrl.searchParams.get('token')
+  if (!rawToken) return NextResponse.json({ error: 'missing_reference' }, { status: 400 })
+
+  const resolved = verifyToken(rawToken)
+  if (!resolved) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   if (MOCK_MODE) {
+    // Event is the one the (v2) token is bound to, else the same default the
+    // admin dashboard uses — never a divergent "active event" guess.
+    const eventName = resolved.eventName || getDefaultEvent(MOCK_EVENTS)?.event_name
+    if (!eventName || !MOCK_ATTENDEES[eventName]) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    }
+    const mockA = findMockAttendee(eventName, Number(resolved.userId))
+    if (!mockA) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const ev = MOCK_EVENTS.find(e => e.event_name === eventName)!
+    const isCheckedIn = mockCheckins.some(c => c.user_id === mockA.user_id && c.event_name === eventName)
     return NextResponse.json({
-      attendee: { ...MOCK_ATTENDEE, reference: token },
-      event: MOCK_EVENT,
+      attendee: {
+        status: mockA.status,
+        username: mockA.username,
+        display_name: mockA.display_name || mockA.username,
+        drinks: mockA.drinks,
+        extra_people: mockA.extra_people,
+        extras_names: mockA.extras_names,
+        behavior_confirmed: true,
+        arrival_confirmed: isCheckedIn,
+      },
+      event: ev,
     })
   }
 
   const events = readEvents()
-  const activeEvent = getActiveEvent(events)
-  if (!activeEvent) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 })
+
+  // Resolve the attendee's event: bound by the token (v2) or the shared default.
+  let event
+  if (resolved.eventName) {
+    event = events.find(e => e.event_name === resolved.eventName && !e.archived)
+  } else {
+    event = getDefaultEvent(events)
   }
+  if (!event) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
   const responses = readResponses()
-  const eventResponses = responses[activeEvent.event_name]
+  const eventResponses = responses[event.event_name]
   if (!eventResponses) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 
-  // Look for attendee in attendees list or waitlist list matching user_id or username
-  let cleanedToken = token.trim().toLowerCase()
-
-  if (ADMIN_KEY) {
-    if (cleanedToken.includes('.')) {
-      const [id, sig] = cleanedToken.split('.')
-      const expectedSig = crypto.createHmac('sha256', ADMIN_KEY).update(id).digest('hex').substring(0, 16)
-      if (sig === expectedSig) {
-        cleanedToken = id.toLowerCase()
-      } else {
-        return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-      }
-    } else {
-      // In production (when ADMIN_KEY is configured), do not allow raw guessable tokens!
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-    }
-  }
-
-  let attendee = (eventResponses.attendees || []).find(
-    a => a.user_id.toString() === cleanedToken || a.username.toLowerCase() === cleanedToken
-  )
+  const uid = resolved.userId
+  let attendee = (eventResponses.attendees || []).find(a => a.user_id.toString() === uid)
   let isWaitlist = false
-
   if (!attendee) {
-    attendee = (eventResponses.waitlist || []).find(
-      a => a.user_id.toString() === cleanedToken || a.username.toLowerCase() === cleanedToken
-    )
-    if (attendee) {
-      isWaitlist = true
-    }
+    attendee = (eventResponses.waitlist || []).find(a => a.user_id.toString() === uid)
+    if (attendee) isWaitlist = true
   }
-
   if (!attendee) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 
-  // Load checkins to see if they checked in on the frontend
   const checkins = readCheckins()
   const isCheckedIn = checkins.some(
-    c => c.user_id === attendee!.user_id && c.event_name === activeEvent.event_name
+    c => c.user_id === attendee!.user_id && c.event_name === event.event_name
   )
 
-  const attendeeData = {
-    status: isWaitlist ? 'waitlist' : 'attending',
-    username: attendee.username,
-    display_name: attendee.display_name || attendee.username,
-    drinks: attendee.drinks || [],
-    extra_people: attendee.extra_people || 0,
-    extras_names: attendee.extras_names || [],
-    behavior_confirmed: attendee.behavior_confirmed || false,
-    arrival_confirmed: isCheckedIn || attendee.arrival_confirmed || false,
-  }
-
-  const eventData = {
-    event_name: activeEvent.event_name,
-    venue: activeEvent.venue || 'TBA',
-    address: activeEvent.address || '',
-    google_maps_link: activeEvent.google_maps_link || '',
-    event_datetime: activeEvent.event_datetime || '',
-    event_deadline: activeEvent.event_deadline || '',
-    open: activeEvent.open,
-    drinks: activeEvent.drinks || [],
-    max_capacity: activeEvent.max_capacity || 0,
-  }
-
   return NextResponse.json({
-    attendee: attendeeData,
-    event: eventData
+    attendee: {
+      status: isWaitlist ? 'waitlist' : 'attending',
+      username: attendee.username,
+      display_name: attendee.display_name || attendee.username,
+      drinks: attendee.drinks || [],
+      extra_people: attendee.extra_people || 0,
+      extras_names: attendee.extras_names || [],
+      behavior_confirmed: attendee.behavior_confirmed || false,
+      arrival_confirmed: isCheckedIn || attendee.arrival_confirmed || false,
+    },
+    event: {
+      event_name: event.event_name,
+      venue: event.venue || 'TBA',
+      address: event.address || '',
+      google_maps_link: event.google_maps_link || '',
+      event_datetime: event.event_datetime || '',
+      event_deadline: event.event_deadline || '',
+      open: event.open,
+      drinks: event.drinks || [],
+      max_capacity: event.max_capacity || 0,
+    },
   })
 }

@@ -25,7 +25,18 @@ type EventOption = {
   open: boolean
 }
 
-type ScanResult = { ok: boolean; title: string; name: string }
+// Scanner result is keyed by a stable `kind` (not display wording) so the icon
+// and styling stay correct even if the copy changes.
+type ScanResultKind = 'checked_in' | 'already_checked_in' | 'wrong_event' | 'invalid_qr' | 'error'
+type ScanResult = { kind: ScanResultKind; name: string }
+
+const SCAN_RESULT_META: Record<ScanResultKind, { ok: boolean; icon: string; title: string }> = {
+  checked_in:         { ok: true,  icon: '✅', title: 'Checked In!' },
+  already_checked_in: { ok: true,  icon: '🔄', title: 'Already Checked In' },
+  wrong_event:        { ok: false, icon: '⛔', title: 'Wrong Event' },
+  invalid_qr:         { ok: false, icon: '❌', title: 'Invalid QR' },
+  error:              { ok: false, icon: '❌', title: 'Camera Error' },
+}
 
 function drinkDot(name: string) {
   const n = name.toLowerCase()
@@ -130,13 +141,27 @@ export default function AdminPage() {
   // Refresh attendee list + check-ins whenever the selected event changes.
   useEffect(() => {
     if (!authed || !selectedEvent) return
-    setScanResult(null)
-    loadAttendees(key, selectedEvent)
-    loadCheckins(key, selectedEvent)
+    let cancelled = false
+    const run = async () => {
+      await loadAttendees(key, selectedEvent)
+      if (!cancelled) await loadCheckins(key, selectedEvent)
+    }
+    run()
+    return () => { cancelled = true }
   }, [authed, selectedEvent, key, loadAttendees, loadCheckins])
 
-  // Forget sticky rows when the filter or event changes (fresh view).
-  useEffect(() => { setStickyIds(new Set()) }, [filter, selectedEvent])
+  // Switch the viewed event (resets transient view state at the source, not in
+  // an effect, per react-hooks guidance).
+  const changeEvent = useCallback((next: string) => {
+    setSelectedEvent(next)
+    setScanResult(null)
+    setStickyIds(new Set())
+  }, [])
+
+  const changeFilter = useCallback((next: 'all' | 'checked' | 'pending') => {
+    setFilter(next)
+    setStickyIds(new Set())
+  }, [])
 
   // Poll check-ins for the selected event every 10s.
   useEffect(() => {
@@ -191,7 +216,7 @@ export default function AdminPage() {
   const startScanner = useCallback(async () => {
     const QrScanner = Html5QrcodeRef.current
     if (!QrScanner) {
-      setScanResult({ ok: false, title: 'Scanner not ready', name: 'Reload the page and try again' })
+      setScanResult({ kind: 'error', name: 'Scanner not ready — reload the page and try again' })
       return
     }
 
@@ -212,13 +237,19 @@ export default function AdminPage() {
         async (decodedText: string) => {
           await stopScanner()
 
-          // Extract the token. Only accept URLs from THIS origin so a malicious
-          // QR can't smuggle in a foreign link (and we never navigate to it).
+          // Extract the token. Only accept QR codes whose URL is the SAME ORIGIN
+          // as this admin page, so a malicious QR can't smuggle in a foreign
+          // link — and we never navigate to the decoded value, only read its
+          // token. Assumes attendees + admin are served from one public domain
+          // (e.g. https://offkai.example.com/?token=... and /admin). It would
+          // reject valid QRs if staff opened admin on a different origin such as
+          // a LAN IP (http://192.168.x.x:8090/admin); loosen here if that's ever
+          // needed.
           let token: string | null = null
           try {
             const url = new URL(decodedText)
             if (url.origin !== window.location.origin) {
-              setScanResult({ ok: false, title: 'Unrecognised QR', name: 'This code is not from this site' })
+              setScanResult({ kind: 'invalid_qr', name: 'This code is not from this site' })
               return
             }
             token = url.searchParams.get('token')
@@ -228,7 +259,7 @@ export default function AdminPage() {
           }
 
           if (!token) {
-            setScanResult({ ok: false, title: 'Invalid QR', name: 'No check-in token found' })
+            setScanResult({ kind: 'invalid_qr', name: 'No check-in token found' })
             return
           }
 
@@ -243,15 +274,16 @@ export default function AdminPage() {
 
           if (res.ok && data.record) {
             setScanResult({
-              ok: true,
-              title: data.already_checked_in ? 'Already Checked In' : 'Checked In!',
+              kind: data.already_checked_in ? 'already_checked_in' : 'checked_in',
               name: data.record.name || 'Guest',
             })
             setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
+          } else if (data.error === 'wrong_event') {
+            setScanResult({ kind: 'wrong_event', name: `QR is for "${data.token_event}", not the selected event` })
           } else if (data.error === 'attendee_not_in_event') {
-            setScanResult({ ok: false, title: 'Wrong Event', name: 'Not registered for this event' })
+            setScanResult({ kind: 'wrong_event', name: 'Not registered for this event' })
           } else {
-            setScanResult({ ok: false, title: 'Invalid', name: 'QR code not recognised' })
+            setScanResult({ kind: 'invalid_qr', name: 'QR code not recognised' })
           }
         },
         () => { /* per-frame decode misses — ignore */ }
@@ -264,8 +296,7 @@ export default function AdminPage() {
       setScanning(false)
       scannerRef.current = null
       setScanResult({
-        ok: false,
-        title: 'Camera Error',
+        kind: 'error',
         name: isPermission
           ? 'Camera blocked. Allow camera access in your browser settings, then reload.'
           : noCamera
@@ -328,7 +359,7 @@ export default function AdminPage() {
         {events.length > 0 && (
           <select
             value={selectedEvent}
-            onChange={e => setSelectedEvent(e.target.value)}
+            onChange={e => changeEvent(e.target.value)}
             className="mt-3 w-full bg-white/10 border border-white/30 text-white text-xs font-bold rounded-xl px-3 py-2 outline-none appearance-none"
           >
             {events.map(ev => (
@@ -363,21 +394,24 @@ export default function AdminPage() {
         {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
         <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${!scanning && !scanResult ? 'hidden' : ''}`}>
           <div id={scannerDivId} className={`w-full ${scanning ? '' : 'hidden'}`} />
-          {!scanning && scanResult && (
-            <div className={`p-6 text-center ${scanResult.ok ? 'bg-green-50' : 'bg-red-50'}`}>
-              <div className="text-4xl mb-2">{scanResult.ok ? (scanResult.title === 'Already Checked In' ? '🔄' : '✅') : '❌'}</div>
-              <p className={`font-black text-lg uppercase ${scanResult.ok ? 'text-green-700' : 'text-red-700'}`}>
-                {scanResult.title}
-              </p>
-              <p className="font-bold text-sm mt-1 text-gray-600">{scanResult.name}</p>
-              <button
-                onClick={startScanner}
-                className="mt-4 bg-[#30364F] text-white font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
-              >
-                Scan Next
-              </button>
-            </div>
-          )}
+          {!scanning && scanResult && (() => {
+            const meta = SCAN_RESULT_META[scanResult.kind]
+            return (
+              <div className={`p-6 text-center ${meta.ok ? 'bg-green-50' : 'bg-red-50'}`}>
+                <div className="text-4xl mb-2">{meta.icon}</div>
+                <p className={`font-black text-lg uppercase ${meta.ok ? 'text-green-700' : 'text-red-700'}`}>
+                  {meta.title}
+                </p>
+                <p className="font-bold text-sm mt-1 text-gray-600">{scanResult.name}</p>
+                <button
+                  onClick={startScanner}
+                  className="mt-4 bg-[#30364F] text-white font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
+                >
+                  Scan Next
+                </button>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Filters + Search */}
@@ -385,7 +419,7 @@ export default function AdminPage() {
           {(['all', 'pending', 'checked'] as const).map(f => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => changeFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${filter === f ? 'bg-[#30364F] text-white' : 'bg-[#F0F0DB] text-[#30364F] border border-[#ACBAC4]'}`}
             >
               {f}

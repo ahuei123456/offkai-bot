@@ -1,104 +1,152 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
 import { readEvents, readResponses, readCheckins, writeCheckins, getDefaultEvent } from '../db'
 import type { CheckinRecord } from '../db'
+import { verifyToken } from '../token'
+import { parseEventParam, parseUserId } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
 const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
 
-const MAX_EVENT_NAME_LEN = 200
-const MAX_TOKEN_LEN = 2048
+// ---------------------------------------------------------------------------
+// Shared check-in / check-out mutations.
+// QR scan and the manual "Check In" button both call checkInAttendee(); the
+// manual "Check Out" button calls checkOutAttendee(). Both validate identically:
+//   - the event exists and is not archived
+//   - the attendee is registered (attending, not waitlist) for that event
+//   - records are scoped by (user_id, event_name)
+// ---------------------------------------------------------------------------
 
-function parseEventParam(raw: string | null): string | null | false {
-  if (raw === null) return null
-  if (typeof raw !== 'string' || raw.length > MAX_EVENT_NAME_LEN) return false
-  const trimmed = raw.trim()
-  if (!trimmed) return false
-  return trimmed
+type CheckInOutcome =
+  | { kind: 'checked_in'; record: CheckinRecord }
+  | { kind: 'already_checked_in'; record: CheckinRecord }
+  | { kind: 'event_not_found' }
+  | { kind: 'event_archived' }
+  | { kind: 'attendee_not_in_event' }
+  | { kind: 'write_error' }
+
+type CheckOutOutcome =
+  | { kind: 'checked_out'; user_id: number; event_name: string }
+  | { kind: 'event_not_found' }
+  | { kind: 'event_archived' }
+  | { kind: 'attendee_not_in_event' }
+  | { kind: 'not_checked_in' }
+  | { kind: 'write_error' }
+
+// Resolves an *attending* attendee for an event (works in mock + real mode).
+// Returns the display name, or an error kind.
+function resolveAttendee(eventName: string, userId: string):
+  | { ok: true; user_id: number; name: string }
+  | { ok: false; kind: 'event_not_found' | 'event_archived' | 'attendee_not_in_event' } {
+  if (MOCK_MODE) {
+    const ev = MOCK_EVENTS.find(e => e.event_name === eventName)
+    if (!ev || !MOCK_ATTENDEES[eventName]) return { ok: false, kind: 'event_not_found' }
+    if (ev.archived) return { ok: false, kind: 'event_archived' }
+    const a = findMockAttendee(eventName, Number(userId))
+    if (!a || a.status !== 'attending') return { ok: false, kind: 'attendee_not_in_event' }
+    return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
+  }
+
+  const ev = readEvents().find(e => e.event_name === eventName)
+  if (!ev) return { ok: false, kind: 'event_not_found' }
+  if (ev.archived) return { ok: false, kind: 'event_archived' }
+  const er = readResponses()[eventName]
+  const a = (er?.attendees || []).find(x => x.user_id.toString() === userId)
+  if (!a) return { ok: false, kind: 'attendee_not_in_event' }
+  return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
 }
 
-// Validates a manual user_id (number or numeric string). Returns the canonical
-// string form, or null if invalid.
-function parseUserId(raw: unknown): string | null {
-  if (typeof raw !== 'number' && typeof raw !== 'string') return null
-  const n = Number(raw)
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null
-  return String(n)
-}
-
-// Resolves a scanned token to a numeric user_id.
-// When ADMIN_KEY is set, the token MUST be a valid `<id>.<sig>` HMAC pair —
-// raw guessable ids are rejected. Returns the id string or null on failure.
-function resolveTokenUserId(token: string): string | null {
-  const cleaned = token.trim().toLowerCase()
-
-  if (ADMIN_KEY) {
-    if (!cleaned.includes('.')) return null
-    const [id, sig] = cleaned.split('.')
-    if (!id || !sig) return null
-    const expectedSig = crypto.createHmac('sha256', ADMIN_KEY).update(id).digest('hex').substring(0, 16)
-    if (sig !== expectedSig) return null
-    return id.toLowerCase()
-  }
-
-  return cleaned
-}
-
-// Shared check-out (removal) logic used by both POST (action=checkout) and
-// DELETE. Browsers proxy POST reliably; some reverse proxies (NPM/openresty)
-// reject the DELETE method outright, so the UI uses the POST path.
-function performCheckout(rawUserId: unknown, rawBodyEvent: unknown, rawQueryEvent: string | null) {
-  const userId = parseUserId(rawUserId)
-  if (userId === null) {
-    return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
-  }
-  const numericId = Number(userId)
-
-  const bodyEvent = parseEventParam(typeof rawBodyEvent === 'string' ? rawBodyEvent : null)
-  if (bodyEvent === false) {
-    return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
-  }
-  const queryEvent = parseEventParam(rawQueryEvent)
-  if (queryEvent === false) {
-    return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
-  }
-  const requestedEvent = bodyEvent || queryEvent
+function checkInAttendee(eventName: string, userId: string): CheckInOutcome {
+  const found = resolveAttendee(eventName, userId)
+  if (!found.ok) return { kind: found.kind }
 
   if (MOCK_MODE) {
-    const eventName = requestedEvent || getDefaultEvent(MOCK_EVENTS)?.event_name
-    if (!eventName) {
-      return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
+    const existing = mockCheckins.find(c => c.user_id === found.user_id && c.event_name === eventName)
+    if (existing) return { kind: 'already_checked_in', record: existing }
+    const record: CheckinRecord = {
+      user_id: found.user_id, event_name: eventName,
+      checked_in_at: new Date().toISOString(), name: found.name,
     }
-    const idx = mockCheckins.findIndex(c => c.user_id === numericId && c.event_name === eventName)
-    if (idx === -1) {
-      return NextResponse.json({ removed: false, error: 'not_checked_in' }, { status: 404 })
-    }
-    mockCheckins.splice(idx, 1)
-    return NextResponse.json({ removed: true, user_id: numericId, event_name: eventName })
-  }
-
-  const eventName = requestedEvent || getDefaultEvent(readEvents())?.event_name
-  if (!eventName) {
-    return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
+    mockCheckins.push(record)
+    return { kind: 'checked_in', record }
   }
 
   const checkins = readCheckins()
-  const idx = checkins.findIndex(c => c.user_id === numericId && c.event_name === eventName)
-  if (idx === -1) {
-    return NextResponse.json({ removed: false, error: 'not_checked_in' }, { status: 404 })
+  const existing = checkins.find(c => c.user_id === found.user_id && c.event_name === eventName)
+  if (existing) return { kind: 'already_checked_in', record: existing }
+  const record: CheckinRecord = {
+    user_id: found.user_id, event_name: eventName,
+    checked_in_at: new Date().toISOString(), name: found.name,
+  }
+  checkins.push(record)
+  if (!writeCheckins(checkins)) return { kind: 'write_error' }
+  return { kind: 'checked_in', record }
+}
+
+function checkOutAttendee(eventName: string, userId: string): CheckOutOutcome {
+  // Same validation as check-in (owner request): event exists, not archived,
+  // attendee belongs to the event.
+  const found = resolveAttendee(eventName, userId)
+  if (!found.ok) return { kind: found.kind }
+
+  if (MOCK_MODE) {
+    const idx = mockCheckins.findIndex(c => c.user_id === found.user_id && c.event_name === eventName)
+    if (idx === -1) return { kind: 'not_checked_in' }
+    mockCheckins.splice(idx, 1)
+    return { kind: 'checked_out', user_id: found.user_id, event_name: eventName }
   }
 
+  const checkins = readCheckins()
+  const idx = checkins.findIndex(c => c.user_id === found.user_id && c.event_name === eventName)
+  if (idx === -1) return { kind: 'not_checked_in' }
   checkins.splice(idx, 1)
-  if (!writeCheckins(checkins)) {
-    return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
+  if (!writeCheckins(checkins)) return { kind: 'write_error' }
+  return { kind: 'checked_out', user_id: found.user_id, event_name: eventName }
+}
+
+// Maps a check-in outcome to an HTTP response.
+function checkInResponse(outcome: CheckInOutcome) {
+  switch (outcome.kind) {
+    case 'checked_in': return NextResponse.json({ record: outcome.record, already_checked_in: false })
+    case 'already_checked_in': return NextResponse.json({ record: outcome.record, already_checked_in: true })
+    case 'event_not_found': return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
+    case 'event_archived': return NextResponse.json({ error: 'event_archived' }, { status: 400 })
+    case 'attendee_not_in_event': return NextResponse.json({ error: 'attendee_not_in_event' }, { status: 404 })
+    case 'write_error': return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
   }
-  return NextResponse.json({ removed: true, user_id: numericId, event_name: eventName })
+}
+
+function defaultEventName(): string | null {
+  const src = MOCK_MODE ? MOCK_EVENTS : readEvents()
+  return getDefaultEvent(src)?.event_name ?? null
+}
+
+// Shared check-out entry point used by both POST(action=checkout) and DELETE.
+function performCheckout(rawUserId: unknown, rawBodyEvent: unknown, rawQueryEvent: string | null) {
+  const userId = parseUserId(rawUserId)
+  if (userId === null) return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
+
+  const bodyEvent = parseEventParam(rawBodyEvent)
+  if (bodyEvent === false) return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
+  const queryEvent = parseEventParam(rawQueryEvent)
+  if (queryEvent === false) return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
+
+  const eventName = bodyEvent || queryEvent || defaultEventName()
+  if (!eventName) return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
+
+  const outcome = checkOutAttendee(eventName, userId)
+  switch (outcome.kind) {
+    case 'checked_out': return NextResponse.json({ removed: true, user_id: outcome.user_id, event_name: outcome.event_name })
+    case 'event_not_found': return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
+    case 'event_archived': return NextResponse.json({ error: 'event_archived' }, { status: 400 })
+    case 'attendee_not_in_event': return NextResponse.json({ error: 'attendee_not_in_event' }, { status: 404 })
+    case 'not_checked_in': return NextResponse.json({ removed: false, error: 'not_checked_in' }, { status: 404 })
+    case 'write_error': return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
+  }
 }
 
 // GET /api/checkin?key=<admin_key>&event=<event_name>
-// Returns the check-ins for the selected event only (so historical check-ins
-// never leak into another event's view — issue #77).
+// Returns the check-ins for the selected event only (no cross-event leakage).
 export async function GET(request: NextRequest) {
   const key = request.nextUrl.searchParams.get('key')
   if (!ADMIN_KEY || key !== ADMIN_KEY) {
@@ -109,29 +157,17 @@ export async function GET(request: NextRequest) {
   if (requestedEvent === false) {
     return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
   }
-
-  if (MOCK_MODE) {
-    const defaultEvent = getDefaultEvent(MOCK_EVENTS)
-    const eventName = requestedEvent || defaultEvent?.event_name
-    return NextResponse.json(mockCheckins.filter(c => c.event_name === eventName))
-  }
-
-  const checkins = readCheckins()
-
-  // Scope to the requested event, else the default event.
-  let eventName = requestedEvent
-  if (!eventName) {
-    eventName = getDefaultEvent(readEvents())?.event_name ?? null
-  }
+  const eventName = requestedEvent || defaultEventName()
   if (!eventName) return NextResponse.json([])
 
+  const checkins = MOCK_MODE ? mockCheckins : readCheckins()
   return NextResponse.json(checkins.filter(c => c.event_name === eventName))
 }
 
-// POST /api/checkin?key=<admin_key>  body: { token, event_name? }
-// Checks the scanned attendee into the selected event. The attendee must be
-// registered (attending) for THAT event — otherwise the scan is rejected rather
-// than silently checking them into the wrong event (issue #77 / #76).
+// POST /api/checkin?key=<admin_key>
+//   QR check-in : { token, event_name? }  (event from token; event_name guards mismatch)
+//   manual      : { user_id, event_name? }
+//   manual out  : { action: 'checkout', user_id, event_name? }
 export async function POST(request: NextRequest) {
   try {
     const key = request.nextUrl.searchParams.get('key')
@@ -141,128 +177,49 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}))
 
-    // Event can come from the body or the query string; both validated.
-    const bodyEvent = parseEventParam(typeof body?.event_name === 'string' ? body.event_name : null)
-    if (bodyEvent === false) {
-      return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
-    }
+    const bodyEvent = parseEventParam(body?.event_name)
+    if (bodyEvent === false) return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
     const queryEvent = parseEventParam(request.nextUrl.searchParams.get('event'))
-    if (queryEvent === false) {
-      return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
-    }
-    const requestedEvent = bodyEvent || queryEvent
+    if (queryEvent === false) return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
+    const selectedEvent = bodyEvent || queryEvent
 
-    // Manual check-out routed over POST (proxies may block DELETE).
+    // Manual check-out routed over POST (some proxies reject DELETE).
     if (body?.action === 'checkout') {
       return performCheckout(body?.user_id, body?.event_name, request.nextUrl.searchParams.get('event'))
     }
 
-    // Resolve the attendee id from either a manual admin action (user_id) or a
-    // scanned QR token. The whole request is already admin-key authenticated, so
-    // a manual user_id needs no token signature.
-    let userId: string | null
+    // Resolve user id + (optional) token-bound event.
+    let userId: string
+    let tokenEvent: string | null = null
     if (body?.user_id !== undefined && body?.user_id !== null) {
-      userId = parseUserId(body.user_id)
-      if (userId === null) {
-        return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
-      }
+      // Manual admin check-in — already admin-key authenticated, no token needed.
+      const parsed = parseUserId(body.user_id)
+      if (parsed === null) return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
+      userId = parsed
     } else {
-      const token: unknown = body?.token
-      if (typeof token !== 'string' || !token || token.length > MAX_TOKEN_LEN) {
-        return NextResponse.json({ error: 'missing_token' }, { status: 400 })
-      }
-      userId = resolveTokenUserId(token)
-      if (userId === null) {
-        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
-      }
+      const resolved = verifyToken(typeof body?.token === 'string' ? body.token : '')
+      if (!resolved) return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      userId = resolved.userId
+      tokenEvent = resolved.eventName
     }
 
-    if (MOCK_MODE) {
-      const defaultEvent = getDefaultEvent(MOCK_EVENTS)
-      const eventName = requestedEvent || defaultEvent?.event_name
-      if (!eventName || !MOCK_ATTENDEES[eventName]) {
-        return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
+    // Decide which event to check into.
+    //  - v2 token: the token's event is authoritative. If the admin dropdown
+    //    selected a different event, reject as wrong_event (the dropdown is only
+    //    a mismatch guard — it never reassigns the QR's event).
+    //  - manual / legacy token: use the selected event, else the shared default.
+    let targetEvent: string | null
+    if (tokenEvent) {
+      if (selectedEvent && selectedEvent !== tokenEvent) {
+        return NextResponse.json({ error: 'wrong_event', token_event: tokenEvent }, { status: 409 })
       }
-
-      const attendee = findMockAttendee(eventName, Number(userId))
-      if (!attendee || attendee.status !== 'attending') {
-        return NextResponse.json({ error: 'attendee_not_in_event' }, { status: 404 })
-      }
-
-      const existing = mockCheckins.find(c => c.user_id === attendee.user_id && c.event_name === eventName)
-      if (existing) {
-        return NextResponse.json({ record: existing, already_checked_in: true })
-      }
-
-      const record: CheckinRecord = {
-        user_id: attendee.user_id,
-        event_name: eventName,
-        checked_in_at: new Date().toISOString(),
-        name: attendee.display_name || attendee.username,
-      }
-      mockCheckins.push(record)
-      return NextResponse.json({ record, already_checked_in: false })
-    }
-
-    const events = readEvents()
-
-    // Resolve the target event (validated selection, else default).
-    let targetEvent
-    if (requestedEvent) {
-      targetEvent = events.find(e => e.event_name === requestedEvent && !e.archived)
-      if (!targetEvent) {
-        return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
-      }
+      targetEvent = tokenEvent
     } else {
-      targetEvent = getDefaultEvent(events)
+      targetEvent = selectedEvent || defaultEventName()
     }
-    if (!targetEvent) {
-      return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
-    }
+    if (!targetEvent) return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
 
-    const responses = readResponses()
-    const eventResponses = responses[targetEvent.event_name]
-    if (!eventResponses) {
-      return NextResponse.json({ error: 'no_responses_for_event' }, { status: 400 })
-    }
-
-    // Attendee must be in the *attending* list for the selected event.
-    const attendee = (eventResponses.attendees || []).find(
-      a => a.user_id.toString() === userId || a.username.toLowerCase() === userId
-    )
-    if (!attendee) {
-      return NextResponse.json({ error: 'attendee_not_in_event' }, { status: 404 })
-    }
-
-    const checkins = readCheckins()
-    const existingIndex = checkins.findIndex(
-      c => c.user_id === attendee.user_id && c.event_name === targetEvent.event_name
-    )
-
-    if (existingIndex !== -1) {
-      return NextResponse.json({
-        record: checkins[existingIndex],
-        already_checked_in: true
-      })
-    }
-
-    const newRecord: CheckinRecord = {
-      user_id: attendee.user_id,
-      event_name: targetEvent.event_name,
-      checked_in_at: new Date().toISOString(),
-      name: attendee.display_name || attendee.username
-    }
-
-    checkins.push(newRecord)
-    const success = writeCheckins(checkins)
-    if (!success) {
-      return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      record: newRecord,
-      already_checked_in: false
-    })
+    return checkInResponse(checkInAttendee(targetEvent, userId))
   } catch (e) {
     console.error('Error in checkin POST:', e)
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
@@ -270,7 +227,8 @@ export async function POST(request: NextRequest) {
 }
 
 // DELETE /api/checkin?key=<admin_key>  body: { user_id, event_name? }
-// Manually removes an attendee's check-in for the selected event (check out).
+// Kept for API completeness; the UI uses POST(action=checkout) because some
+// reverse proxies (openresty/NPM) reject the DELETE method.
 export async function DELETE(request: NextRequest) {
   try {
     const key = request.nextUrl.searchParams.get('key')
@@ -278,8 +236,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
     const body = await request.json().catch(() => ({}))
-    const queryEvent = request.nextUrl.searchParams.get('event')
-    return performCheckout(body?.user_id, body?.event_name, queryEvent)
+    return performCheckout(body?.user_id, body?.event_name, request.nextUrl.searchParams.get('event'))
   } catch (e) {
     console.error('Error in checkin DELETE:', e)
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })

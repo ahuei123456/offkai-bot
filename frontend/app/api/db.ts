@@ -151,25 +151,19 @@ export function getDefaultEvent<T extends EventLike>(events: T[]): T | null {
   return [...dated].sort(byTime).reverse()[0]
 }
 
-export function getActiveEvent(events: Event[]): Event | null {
-  if (events.length === 0) return null
+// Orders non-archived events for the admin dropdown (issue #77 review):
+//   1. events today + future, nearest first (ascending)
+//   2. then past events, most recent first (descending)
+// Archived events are excluded.
+export function orderEventsForDropdown<T extends EventLike>(events: T[]): T[] {
+  const todayKey = jstDayNumber(new Date())
+  const time = (e: T) => (e.event_datetime ? new Date(e.event_datetime).getTime() : 0)
+  const isUpcoming = (e: T) =>
+    e.event_datetime ? jstDayNumber(new Date(e.event_datetime)) >= todayKey : false
 
-  // 1. Try to find the latest open and non-archived event (searching from most recent to oldest)
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (e.open && !e.archived) {
-      return e
-    }
-  }
-
-  // 2. Fallback to the latest non-archived event (searching from most recent to oldest)
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (!e.archived) {
-      return e
-    }
-  }
-
-  // 3. Fallback to the last event in the list
-  return events[events.length - 1]
+  const selectable = events.filter(e => !e.archived)
+  const upcoming = selectable.filter(isUpcoming).sort((a, b) => time(a) - time(b))
+  const past = selectable.filter(e => !isUpcoming(e)).sort((a, b) => time(b) - time(a))
+  return [...upcoming, ...past]
 }
+
