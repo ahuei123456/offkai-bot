@@ -114,8 +114,12 @@ def build_checkin_reminder_message(event: Event, response: Response, rsvp_url: s
     if drinks:
         en.append(f"🍺 Drinks: {', '.join(drinks)}")
     if rsvp_url:
-        en += ["", f"🔗 **RSVP Page / QR Code:** {rsvp_url}"]
-    en += ["", "Please show the QR code at the door for check-in."]
+        en += [
+            "",
+            f"🔗 **RSVP Page / QR Code:** {rsvp_url}",
+            "",
+            "Please show the QR code at the door for check-in.",
+        ]
 
     # --- Japanese ---
     jp = [
@@ -131,8 +135,12 @@ def build_checkin_reminder_message(event: Event, response: Response, rsvp_url: s
     if drinks:
         jp.append(f"🍺 飲み物: {', '.join(drinks)}")
     if rsvp_url:
-        jp += ["", f"🔗 **RSVPページ / QRコード:** {rsvp_url}"]
-    jp += ["", "受付でQRコードをご提示ください。"]
+        jp += [
+            "",
+            f"🔗 **RSVPページ / QRコード:** {rsvp_url}",
+            "",
+            "受付でQRコードをご提示ください。",
+        ]
 
     return "\n".join(en) + "\n\n" + "\n".join(jp)
 

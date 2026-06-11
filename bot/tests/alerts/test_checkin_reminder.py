@@ -187,8 +187,12 @@ def test_message_omits_qr_lines_when_no_frontend_url():
     msg = build_checkin_reminder_message(_event(), _response(123), "")
     assert "RSVP Page / QR Code" not in msg
     assert "RSVPページ" not in msg
-    # Door instruction still present.
-    assert "Please show the QR code at the door for check-in." in msg
+    # No QR link -> no door-QR instruction either (would be meaningless).
+    assert "Please show the QR code at the door for check-in." not in msg
+    assert "受付でQRコードをご提示ください。" not in msg
+    # Core details are still present.
+    assert "Reminder: Future Offkai is tomorrow!" in msg
+    assert "リマインダー: Future Offkai は明日開催です！" in msg
 
 
 # --- Send-time behaviour ---
