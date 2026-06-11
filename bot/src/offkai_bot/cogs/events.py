@@ -7,7 +7,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from offkai_bot.alerts.reminders import register_deadline_reminders
+from offkai_bot.alerts.reminders import (
+    register_checkin_reminder,
+    register_deadline_reminders,
+    unregister_checkin_reminder,
+)
 from offkai_bot.data.event import (
     add_event,
     archive_event,
@@ -190,6 +194,7 @@ class EventsCog(commands.Cog):
         )
 
         register_deadline_reminders(self.bot, new_event, thread)
+        register_checkin_reminder(self.bot, new_event)
 
         # 6. Further Discord Interaction
         await send_event_message(thread, new_event)  # Handles saving after message send
@@ -268,6 +273,9 @@ class EventsCog(commands.Cog):
             )
 
         save_event_data()
+
+        # Re-schedule the check-in reminder in case the event time changed.
+        register_checkin_reminder(self.bot, modified_event)
 
         capacity_increased = False
         if max_capacity is not None and (old_capacity is None or max_capacity > old_capacity):
@@ -367,6 +375,7 @@ class EventsCog(commands.Cog):
     async def archive_offkai(self, interaction: discord.Interaction, event_name: str):
         archived_event = archive_event(event_name)
         save_event_data()
+        unregister_checkin_reminder(event_name)
         await update_event_message(self.bot, archived_event)
 
         try:
