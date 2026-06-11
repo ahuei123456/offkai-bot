@@ -63,6 +63,9 @@ export default function AdminPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [filter, setFilter] = useState<'all' | 'checked' | 'pending'>('all')
   const [search, setSearch] = useState('')
+  // Rows the admin just checked in/out — kept visible regardless of the active
+  // filter so a mistaken action can be undone in place (e.g. on the Pending tab).
+  const [stickyIds, setStickyIds] = useState<Set<number>>(new Set())
 
   const scannerRef = useRef<{ stop: () => Promise<void>; clear?: () => void } | null>(null)
   const Html5QrcodeRef = useRef<typeof import('html5-qrcode').Html5Qrcode | null>(null)
@@ -132,6 +135,9 @@ export default function AdminPage() {
     loadCheckins(key, selectedEvent)
   }, [authed, selectedEvent, key, loadAttendees, loadCheckins])
 
+  // Forget sticky rows when the filter or event changes (fresh view).
+  useEffect(() => { setStickyIds(new Set()) }, [filter, selectedEvent])
+
   // Poll check-ins for the selected event every 10s.
   useEffect(() => {
     if (!authed || !selectedEvent) return
@@ -150,6 +156,7 @@ export default function AdminPage() {
     const data = await res.json().catch(() => ({}))
     if (res.ok && data.record) {
       setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
+      setStickyIds(prev => new Set(prev).add(userId))
     }
   }, [key, selectedEvent])
 
@@ -167,6 +174,7 @@ export default function AdminPage() {
         delete next[userId]
         return next
       })
+      setStickyIds(prev => new Set(prev).add(userId))
     }
   }, [key, selectedEvent])
 
@@ -272,6 +280,7 @@ export default function AdminPage() {
   const filtered = attendees
     .filter(a => a.status === 'attending')
     .filter(a => {
+      if (stickyIds.has(a.user_id)) return true
       if (filter === 'checked') return !!checkins[a.user_id]
       if (filter === 'pending') return !checkins[a.user_id]
       return true
@@ -427,25 +436,23 @@ export default function AdminPage() {
                         <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Pending</span>
                       )}
                     </div>
-                    {/* Manual check-in */}
+                    {/* Manual check-in — always tappable; emphasised when active */}
                     <button
                       onClick={() => manualCheckin(a.user_id)}
-                      disabled={isIn}
                       aria-label={`Check in ${name}`}
                       title="Check in"
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isIn ? 'bg-gray-100 text-gray-300' : 'bg-green-100 text-green-700 active:bg-green-200'}`}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 active:scale-95 transition ${isIn ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700 active:bg-green-200'}`}
                     >
                       <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M20 6 9 17l-5-5" />
                       </svg>
                     </button>
-                    {/* Manual check-out */}
+                    {/* Manual check-out — always tappable */}
                     <button
                       onClick={() => manualCheckout(a.user_id)}
-                      disabled={!isIn}
                       aria-label={`Check out ${name}`}
                       title="Check out"
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${!isIn ? 'bg-gray-100 text-gray-300' : 'bg-red-100 text-red-700 active:bg-red-200'}`}
+                      className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-red-100 text-red-700 active:bg-red-200 active:scale-95 transition"
                     >
                       <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M18 6 6 18M6 6l12 12" />
