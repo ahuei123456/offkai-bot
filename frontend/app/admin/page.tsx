@@ -306,8 +306,16 @@ export default function AdminPage() {
     }
   }, [stopScanner])
 
-  const checkedInCount = Object.keys(checkins).length
-  const attendingCount = attendees.filter(a => a.status === 'attending').length
+  // Header counters reflect physical people, not RSVP records: each attending
+  // record is the primary attendee plus their extra_people guests, who check in
+  // as one group via the primary's single QR / manual action (issue #80).
+  const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
+  const attendingCount = attendees
+    .filter(a => a.status === 'attending')
+    .reduce((total, a) => total + groupSize(a), 0)
+  const checkedInCount = attendees
+    .filter(a => a.status === 'attending' && checkins[a.user_id])
+    .reduce((total, a) => total + groupSize(a), 0)
 
   const filtered = attendees
     .filter(a => a.status === 'attending')
