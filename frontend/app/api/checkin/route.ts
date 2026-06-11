@@ -18,6 +18,15 @@ function parseEventParam(raw: string | null): string | null | false {
   return trimmed
 }
 
+// Validates a manual user_id (number or numeric string). Returns the canonical
+// string form, or null if invalid.
+function parseUserId(raw: unknown): string | null {
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null
+  const n = Number(raw)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null
+  return String(n)
+}
+
 // Resolves a scanned token to a numeric user_id.
 // When ADMIN_KEY is set, the token MUST be a valid `<id>.<sig>` HMAC pair —
 // raw guessable ids are rejected. Returns the id string or null on failure.
@@ -80,10 +89,6 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}))
-    const token: unknown = body?.token
-    if (typeof token !== 'string' || !token || token.length > MAX_TOKEN_LEN) {
-      return NextResponse.json({ error: 'missing_token' }, { status: 400 })
-    }
 
     // Event can come from the body or the query string; both validated.
     const bodyEvent = parseEventParam(typeof body?.event_name === 'string' ? body.event_name : null)
@@ -96,9 +101,24 @@ export async function POST(request: NextRequest) {
     }
     const requestedEvent = bodyEvent || queryEvent
 
-    const userId = resolveTokenUserId(token)
-    if (userId === null) {
-      return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+    // Resolve the attendee id from either a manual admin action (user_id) or a
+    // scanned QR token. The whole request is already admin-key authenticated, so
+    // a manual user_id needs no token signature.
+    let userId: string | null
+    if (body?.user_id !== undefined && body?.user_id !== null) {
+      userId = parseUserId(body.user_id)
+      if (userId === null) {
+        return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
+      }
+    } else {
+      const token: unknown = body?.token
+      if (typeof token !== 'string' || !token || token.length > MAX_TOKEN_LEN) {
+        return NextResponse.json({ error: 'missing_token' }, { status: 400 })
+      }
+      userId = resolveTokenUserId(token)
+      if (userId === null) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
     }
 
     if (MOCK_MODE) {
@@ -189,6 +209,70 @@ export async function POST(request: NextRequest) {
     })
   } catch (e) {
     console.error('Error in checkin POST:', e)
+    return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
+}
+
+// DELETE /api/checkin?key=<admin_key>  body: { user_id, event_name? }
+// Manually removes an attendee's check-in for the selected event (check out).
+export async function DELETE(request: NextRequest) {
+  try {
+    const key = request.nextUrl.searchParams.get('key')
+    if (!ADMIN_KEY || key !== ADMIN_KEY) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    }
+
+    const body = await request.json().catch(() => ({}))
+
+    const userId = parseUserId(body?.user_id)
+    if (userId === null) {
+      return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
+    }
+    const numericId = Number(userId)
+
+    const bodyEvent = parseEventParam(typeof body?.event_name === 'string' ? body.event_name : null)
+    if (bodyEvent === false) {
+      return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
+    }
+    const queryEvent = parseEventParam(request.nextUrl.searchParams.get('event'))
+    if (queryEvent === false) {
+      return NextResponse.json({ error: 'invalid_event' }, { status: 400 })
+    }
+    const requestedEvent = bodyEvent || queryEvent
+
+    if (MOCK_MODE) {
+      const eventName = requestedEvent || getDefaultEvent(MOCK_EVENTS)?.event_name
+      if (!eventName) {
+        return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
+      }
+      const idx = mockCheckins.findIndex(c => c.user_id === numericId && c.event_name === eventName)
+      if (idx === -1) {
+        return NextResponse.json({ removed: false, error: 'not_checked_in' }, { status: 404 })
+      }
+      mockCheckins.splice(idx, 1)
+      return NextResponse.json({ removed: true, user_id: numericId, event_name: eventName })
+    }
+
+    const eventName = requestedEvent || getDefaultEvent(readEvents())?.event_name
+    if (!eventName) {
+      return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
+    }
+
+    const checkins = readCheckins()
+    const idx = checkins.findIndex(c => c.user_id === numericId && c.event_name === eventName)
+    if (idx === -1) {
+      return NextResponse.json({ removed: false, error: 'not_checked_in' }, { status: 404 })
+    }
+
+    checkins.splice(idx, 1)
+    const success = writeCheckins(checkins)
+    if (!success) {
+      return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
+    }
+
+    return NextResponse.json({ removed: true, user_id: numericId, event_name: eventName })
+  } catch (e) {
+    console.error('Error in checkin DELETE:', e)
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
 }

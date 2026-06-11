@@ -139,6 +139,37 @@ export default function AdminPage() {
     return () => clearInterval(id)
   }, [authed, selectedEvent, key, loadCheckins])
 
+  // Manual check-in (admin button) — no QR needed, admin is already authed.
+  const manualCheckin = useCallback(async (userId: number) => {
+    const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
+    const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, event_name: selectedEvent || undefined }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.record) {
+      setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
+    }
+  }, [key, selectedEvent])
+
+  // Manual check-out (admin button) — removes the check-in for this event.
+  const manualCheckout = useCallback(async (userId: number) => {
+    const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
+    const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, event_name: selectedEvent || undefined }),
+    })
+    if (res.ok) {
+      setCheckins(prev => {
+        const next = { ...prev }
+        delete next[userId]
+        return next
+      })
+    }
+  }, [key, selectedEvent])
+
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
       try { await scannerRef.current.stop() } catch { /* ignore */ }
@@ -385,15 +416,41 @@ export default function AdminPage() {
                       <p className="text-[9px] text-gray-400 mt-0.5">+{a.extra_people} guest{a.extra_people > 1 ? 's' : ''}{a.extras_names.length > 0 ? `: ${a.extras_names.join(', ')}` : ''}</p>
                     )}
                   </div>
-                  <div className="text-right shrink-0">
-                    {isIn ? (
-                      <div>
-                        <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">In</span>
-                        <p className="text-[9px] text-gray-400">{checkinTime}</p>
-                      </div>
-                    ) : (
-                      <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Pending</span>
-                    )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right min-w-[34px]">
+                      {isIn ? (
+                        <div>
+                          <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">In</span>
+                          <p className="text-[9px] text-gray-400">{checkinTime}</p>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Pending</span>
+                      )}
+                    </div>
+                    {/* Manual check-in */}
+                    <button
+                      onClick={() => manualCheckin(a.user_id)}
+                      disabled={isIn}
+                      aria-label={`Check in ${name}`}
+                      title="Check in"
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isIn ? 'bg-gray-100 text-gray-300' : 'bg-green-100 text-green-700 active:bg-green-200'}`}
+                    >
+                      <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    </button>
+                    {/* Manual check-out */}
+                    <button
+                      onClick={() => manualCheckout(a.user_id)}
+                      disabled={!isIn}
+                      aria-label={`Check out ${name}`}
+                      title="Check out"
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${!isIn ? 'bg-gray-100 text-gray-300' : 'bg-red-100 text-red-700 active:bg-red-200'}`}
+                    >
+                      <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </div>
