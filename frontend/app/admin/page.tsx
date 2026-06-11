@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { flushSync } from 'react-dom'
 
 type Attendee = {
   user_id: number
@@ -18,6 +19,14 @@ type CheckinRecord = {
   name: string
 }
 
+type EventOption = {
+  event_name: string
+  event_datetime: string | null
+  open: boolean
+}
+
+type ScanResult = { ok: boolean; title: string; name: string }
+
 function drinkDot(name: string) {
   const n = name.toLowerCase()
   if (n.includes('oolong'))      return 'bg-[#8B5E34]'
@@ -29,98 +38,202 @@ function drinkDot(name: string) {
   return 'bg-gray-400'
 }
 
+function formatEventLabel(ev: EventOption) {
+  let when = ''
+  if (ev.event_datetime) {
+    try {
+      when = ' — ' + new Date(ev.event_datetime).toLocaleDateString('en-GB', {
+        timeZone: 'Asia/Tokyo', day: '2-digit', month: 'short',
+      })
+    } catch { /* ignore */ }
+  }
+  return `${ev.event_name}${when}${ev.open ? '' : ' (closed)'}`
+}
+
 export default function AdminPage() {
   const [key, setKey] = useState('')
   const [authed, setAuthed] = useState(false)
   const [keyInput, setKeyInput] = useState('')
   const [eventName, setEventName] = useState('')
+  const [events, setEvents] = useState<EventOption[]>([])
+  const [selectedEvent, setSelectedEvent] = useState('')
   const [attendees, setAttendees] = useState<Attendee[]>([])
   const [checkins, setCheckins] = useState<Record<number, CheckinRecord>>({})
   const [scanning, setScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<{ ok: boolean; name: string; already: boolean } | null>(null)
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [filter, setFilter] = useState<'all' | 'checked' | 'pending'>('all')
   const [search, setSearch] = useState('')
-  const scannerRef = useRef<unknown>(null)
+
+  const scannerRef = useRef<{ stop: () => Promise<void>; clear?: () => void } | null>(null)
+  const Html5QrcodeRef = useRef<typeof import('html5-qrcode').Html5Qrcode | null>(null)
+  const selectedEventRef = useRef('')
+  const keyRef = useRef('')
   const scannerDivId = 'qr-scanner-container'
 
-  const fetchData = useCallback(async (adminKey: string) => {
-    const [attendeesRes, checkinsRes] = await Promise.all([
-      fetch(`/api/attendees?key=${adminKey}`),
-      fetch(`/api/checkin?key=${adminKey}`),
-    ])
-    if (!attendeesRes.ok) return false
-    const { event_name, attendees: att } = await attendeesRes.json()
-    const chk: CheckinRecord[] = checkinsRes.ok ? await checkinsRes.json() : []
+  // Keep refs in sync so the scan callback always reads current values.
+  useEffect(() => { selectedEventRef.current = selectedEvent }, [selectedEvent])
+  useEffect(() => { keyRef.current = key }, [key])
+
+  // Pre-load the QR library on mount. Importing it inside the click handler is a
+  // network fetch that crosses a task boundary and revokes the browser's
+  // user-gesture context, which makes getUserMedia throw NotAllowedError on
+  // iOS/Android even after the user grants the camera permission.
+  useEffect(() => {
+    let cancelled = false
+    import('html5-qrcode').then(({ Html5Qrcode }) => {
+      if (!cancelled) Html5QrcodeRef.current = Html5Qrcode
+    }).catch(() => { /* surfaced on first scan attempt */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const loadCheckins = useCallback(async (adminKey: string, ev: string) => {
+    const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
+    const res = await fetch(`/api/checkin?key=${encodeURIComponent(adminKey)}${evParam}`)
+    if (!res.ok) return
+    const chk: CheckinRecord[] = await res.json()
+    setCheckins(Object.fromEntries(chk.map(c => [c.user_id, c])))
+  }, [])
+
+  const loadAttendees = useCallback(async (adminKey: string, ev: string) => {
+    const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
+    const res = await fetch(`/api/attendees?key=${encodeURIComponent(adminKey)}${evParam}`)
+    if (!res.ok) return false
+    const { event_name, attendees: att } = await res.json()
     setEventName(event_name)
     setAttendees(att)
-    setCheckins(Object.fromEntries(chk.map((c: CheckinRecord) => [c.user_id, c])))
     return true
   }, [])
 
+  // Initial load after login: fetch event list + default, then its data.
+  const initialLoad = useCallback(async (adminKey: string) => {
+    const evRes = await fetch(`/api/events?key=${encodeURIComponent(adminKey)}`)
+    if (!evRes.ok) return false
+    const { events: evs, default_event_name } = await evRes.json()
+    const startEvent: string = default_event_name || (evs[0]?.event_name ?? '')
+    setEvents(evs)
+    setSelectedEvent(startEvent)
+    const ok = await loadAttendees(adminKey, startEvent)
+    if (!ok) return false
+    await loadCheckins(adminKey, startEvent)
+    return true
+  }, [loadAttendees, loadCheckins])
+
   const handleLogin = async () => {
-    const ok = await fetchData(keyInput)
+    const ok = await initialLoad(keyInput)
     if (ok) { setKey(keyInput); setAuthed(true) }
     else alert('Invalid key')
   }
 
-  // Poll checkins every 10s
+  // Refresh attendee list + check-ins whenever the selected event changes.
   useEffect(() => {
-    if (!authed) return
-    const id = setInterval(() => {
-      fetch(`/api/checkin?key=${key}`)
-        .then(r => r.ok ? r.json() : [])
-        .then((chk: CheckinRecord[]) => setCheckins(Object.fromEntries(chk.map((c: CheckinRecord) => [c.user_id, c]))))
-    }, 10_000)
-    return () => clearInterval(id)
-  }, [authed, key])
-
-  const startScanner = useCallback(async () => {
-    const { Html5Qrcode } = await import('html5-qrcode')
-    const scanner = new Html5Qrcode(scannerDivId)
-    scannerRef.current = scanner
-    setScanning(true)
+    if (!authed || !selectedEvent) return
     setScanResult(null)
+    loadAttendees(key, selectedEvent)
+    loadCheckins(key, selectedEvent)
+  }, [authed, selectedEvent, key, loadAttendees, loadCheckins])
 
-    await scanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      async (decodedText) => {
-        await scanner.stop()
-        setScanning(false)
-
-        // Extract token from URL or use raw value
-        let token = decodedText
-        try {
-          const url = new URL(decodedText)
-          token = url.searchParams.get('token') || decodedText
-        } catch { /* not a URL */ }
-
-        const res = await fetch(`/api/checkin?key=${key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        })
-        const data = await res.json()
-
-        if (res.ok) {
-          const name = data.record?.name || 'Guest'
-          setScanResult({ ok: true, name, already: !!data.already_checked_in })
-          setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
-        } else {
-          setScanResult({ ok: false, name: 'Invalid QR code', already: false })
-        }
-      },
-      () => { /* ignore scan errors */ }
-    )
-  }, [])
+  // Poll check-ins for the selected event every 10s.
+  useEffect(() => {
+    if (!authed || !selectedEvent) return
+    const id = setInterval(() => loadCheckins(key, selectedEvent), 10_000)
+    return () => clearInterval(id)
+  }, [authed, selectedEvent, key, loadCheckins])
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
-      try { await (scannerRef.current as { stop: () => Promise<void> }).stop() } catch { /* ignore */ }
+      try { await scannerRef.current.stop() } catch { /* ignore */ }
+      try { scannerRef.current.clear?.() } catch { /* ignore */ }
       scannerRef.current = null
     }
     setScanning(false)
   }, [])
+
+  const startScanner = useCallback(async () => {
+    const QrScanner = Html5QrcodeRef.current
+    if (!QrScanner) {
+      setScanResult({ ok: false, title: 'Scanner not ready', name: 'Reload the page and try again' })
+      return
+    }
+
+    // flushSync so the target div is in the DOM with real dimensions before
+    // html5-qrcode measures it.
+    flushSync(() => {
+      setScanResult(null)
+      setScanning(true)
+    })
+
+    const scanner = new QrScanner(scannerDivId)
+    scannerRef.current = scanner
+
+    try {
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText: string) => {
+          await stopScanner()
+
+          // Extract the token. Only accept URLs from THIS origin so a malicious
+          // QR can't smuggle in a foreign link (and we never navigate to it).
+          let token: string | null = null
+          try {
+            const url = new URL(decodedText)
+            if (url.origin !== window.location.origin) {
+              setScanResult({ ok: false, title: 'Unrecognised QR', name: 'This code is not from this site' })
+              return
+            }
+            token = url.searchParams.get('token')
+          } catch {
+            // Not a URL — treat the raw text as the token.
+            token = decodedText
+          }
+
+          if (!token) {
+            setScanResult({ ok: false, title: 'Invalid QR', name: 'No check-in token found' })
+            return
+          }
+
+          const ev = selectedEventRef.current
+          const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
+          const res = await fetch(`/api/checkin?key=${encodeURIComponent(keyRef.current)}${evParam}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, event_name: ev || undefined }),
+          })
+          const data = await res.json().catch(() => ({}))
+
+          if (res.ok && data.record) {
+            setScanResult({
+              ok: true,
+              title: data.already_checked_in ? 'Already Checked In' : 'Checked In!',
+              name: data.record.name || 'Guest',
+            })
+            setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
+          } else if (data.error === 'attendee_not_in_event') {
+            setScanResult({ ok: false, title: 'Wrong Event', name: 'Not registered for this event' })
+          } else {
+            setScanResult({ ok: false, title: 'Invalid', name: 'QR code not recognised' })
+          }
+        },
+        () => { /* per-frame decode misses — ignore */ }
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const lower = msg.toLowerCase()
+      const isPermission = lower.includes('notallowed') || lower.includes('permission') || lower.includes('denied')
+      const noCamera = lower.includes('notfound') || lower.includes('no camera') || lower.includes('overconstrained')
+      setScanning(false)
+      scannerRef.current = null
+      setScanResult({
+        ok: false,
+        title: 'Camera Error',
+        name: isPermission
+          ? 'Camera blocked. Allow camera access in your browser settings, then reload.'
+          : noCamera
+            ? 'No camera found on this device.'
+            : msg,
+      })
+    }
+  }, [stopScanner])
 
   const checkedInCount = Object.keys(checkins).length
   const attendingCount = attendees.filter(a => a.status === 'attending').length
@@ -169,7 +282,23 @@ export default function AdminPage() {
       <div className="bg-[#30364F] text-white p-6 rounded-b-3xl shadow-xl">
         <p className="text-[10px] font-black tracking-[0.2em] uppercase opacity-60 mb-1">Staff — Check-In</p>
         <h1 className="text-xl font-black uppercase tracking-tight leading-tight">{eventName}</h1>
-        <div className="flex gap-4 mt-3">
+
+        {/* Event selector (issue #77) */}
+        {events.length > 0 && (
+          <select
+            value={selectedEvent}
+            onChange={e => setSelectedEvent(e.target.value)}
+            className="mt-3 w-full bg-white/10 border border-white/30 text-white text-xs font-bold rounded-xl px-3 py-2 outline-none appearance-none"
+          >
+            {events.map(ev => (
+              <option key={ev.event_name} value={ev.event_name} className="text-[#30364F]">
+                {formatEventLabel(ev)}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <div className="flex gap-4 mt-3 items-center">
           <div className="text-center">
             <p className="text-2xl font-black">{checkedInCount}</p>
             <p className="text-[9px] uppercase opacity-60 tracking-widest">Checked In</p>
@@ -190,29 +319,25 @@ export default function AdminPage() {
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Scanner */}
-        {(scanning || scanResult) && (
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            {scanning && (
-              <div id={scannerDivId} className="w-full" />
-            )}
-            {!scanning && scanResult && (
-              <div className={`p-6 text-center ${scanResult.ok ? 'bg-green-50' : 'bg-red-50'}`}>
-                <div className="text-4xl mb-2">{scanResult.ok ? (scanResult.already ? '🔄' : '✅') : '❌'}</div>
-                <p className={`font-black text-lg uppercase ${scanResult.ok ? 'text-green-700' : 'text-red-700'}`}>
-                  {scanResult.already ? 'Already Checked In' : scanResult.ok ? 'Checked In!' : 'Invalid'}
-                </p>
-                <p className="font-bold text-sm mt-1 text-gray-600">{scanResult.name}</p>
-                <button
-                  onClick={() => { setScanResult(null); startScanner() }}
-                  className="mt-4 bg-[#30364F] text-white font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
-                >
-                  Scan Next
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
+        <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${!scanning && !scanResult ? 'hidden' : ''}`}>
+          <div id={scannerDivId} className={`w-full ${scanning ? '' : 'hidden'}`} />
+          {!scanning && scanResult && (
+            <div className={`p-6 text-center ${scanResult.ok ? 'bg-green-50' : 'bg-red-50'}`}>
+              <div className="text-4xl mb-2">{scanResult.ok ? (scanResult.title === 'Already Checked In' ? '🔄' : '✅') : '❌'}</div>
+              <p className={`font-black text-lg uppercase ${scanResult.ok ? 'text-green-700' : 'text-red-700'}`}>
+                {scanResult.title}
+              </p>
+              <p className="font-bold text-sm mt-1 text-gray-600">{scanResult.name}</p>
+              <button
+                onClick={startScanner}
+                className="mt-4 bg-[#30364F] text-white font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
+              >
+                Scan Next
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Filters + Search */}
         <div className="flex gap-2">
