@@ -10,6 +10,8 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - GUILDS=${GUILDS}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - ADMIN_KEY=${ADMIN_KEY}
     restart: unless-stopped
 
   chibachanners-frontend:
