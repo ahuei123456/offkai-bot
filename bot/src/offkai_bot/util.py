@@ -1,4 +1,5 @@
 # src/offkai_bot/util.py
+import base64
 import functools
 import hashlib
 import hmac
@@ -146,28 +147,48 @@ def log_command_usage(func):
 
 
 def generate_checkin_signature(user_id: int, secret_key: str) -> str:
-    """Computes a 16-character HMAC-SHA256 signature of a user_id using the secret_key."""
+    """Computes a 16-character HMAC-SHA256 signature of a user_id using the secret_key.
+
+    This is the *legacy* (event-less) token signature. The frontend still accepts
+    legacy tokens, but ``build_checkin_url`` now emits the event-bound v2 format
+    via ``build_checkin_token`` so a link can never resolve to the wrong event.
+    """
     if not secret_key:
         return ""
     h = hmac.new(secret_key.encode("utf-8"), str(user_id).encode("utf-8"), hashlib.sha256)
     return h.hexdigest()[:16]
 
 
-def build_checkin_url(user_id: int) -> str:
-    """Returns the attendee's personal check-in URL, or '' if FRONTEND_URL is not configured.
+def build_checkin_token(user_id: int, event_name: str, secret_key: str) -> str:
+    """Builds the event-bound v2 check-in token: ``v2.<payload>.<sig>`` where
+    ``payload = base64url(user_id:event_name)`` (no padding) and
+    ``sig = HMAC-SHA256(secret_key, payload)[:16]``.
 
-    Centralises the token-construction logic that was previously copy-pasted
-    across interactions.py and reminders.py so a future token-format change
-    only needs to be made in one place.
+    This mirrors the verifier in ``frontend/app/api/token.ts``. Binding the event
+    into the signed token means a reminder/signup link always resolves to the
+    event it was issued for, instead of falling back to the frontend's
+    "default event" guess when several events are open at once.
+    """
+    payload_bytes = f"{user_id}:{event_name}".encode()
+    payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode("ascii")
+    sig = hmac.new(secret_key.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
+    return f"v2.{payload}.{sig}"
+
+
+def build_checkin_url(user_id: int, event_name: str) -> str:
+    """Returns the attendee's personal, event-bound check-in URL, or '' if
+    FRONTEND_URL is not configured.
+
+    With ADMIN_KEY set, emits a signed v2 token bound to ``event_name`` so the
+    link can only ever resolve to that event. Without a key, falls back to the
+    bare user_id that the keyless frontend accepts. Centralises token
+    construction so the three call sites (signup, waitlist promotion, reminder)
+    stay in sync.
     """
     settings = get_config()
     frontend_url = settings.get("FRONTEND_URL", "")
     if not frontend_url:
         return ""
     admin_key = settings.get("ADMIN_KEY", "")
-    token = str(user_id)
-    if admin_key:
-        sig = generate_checkin_signature(user_id, admin_key)
-        if sig:
-            token = f"{user_id}.{sig}"
+    token = build_checkin_token(user_id, event_name, admin_key) if admin_key else str(user_id)
     return f"{frontend_url}/?token={token}"

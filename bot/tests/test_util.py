@@ -1,5 +1,8 @@
 # tests/test_util.py
 
+import base64
+import hashlib
+import hmac
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -14,9 +17,10 @@ from offkai_bot.errors import (
 )
 
 # Import functions and errors from the module under test
-# Import build_checkin_url for its own test section below
+# Import build_checkin_url / build_checkin_token for their own test sections below
 from offkai_bot.util import (
     JST,
+    build_checkin_token,
     build_checkin_url,
     generate_checkin_signature,
     parse_drinks,
@@ -299,6 +303,50 @@ def test_validate_event_deadline_past_error_takes_precedence(mock_dt):
     mock_dt.now.assert_called_once_with(UTC)
 
 
+# --- Tests for generate_checkin_signature (legacy, event-less) ---
+
+
+def test_generate_checkin_signature_matches_hmac():
+    """Legacy signature is HMAC-SHA256(secret, str(user_id))[:16]."""
+    expected = hmac.new(b"mykey", b"4242", hashlib.sha256).hexdigest()[:16]
+    assert generate_checkin_signature(4242, "mykey") == expected
+
+
+def test_generate_checkin_signature_empty_key_returns_empty():
+    """No secret key → empty signature (keyless deployments)."""
+    assert generate_checkin_signature(4242, "") == ""
+
+
+# --- Tests for build_checkin_token (v2 event-bound) ---
+
+
+def test_build_checkin_token_v2_format_and_signature():
+    """v2 token is v2.<base64url(user_id:event_name)>.<16-char HMAC over payload>."""
+    token = build_checkin_token(4242, "Summer Bash", "mykey")
+    parts = token.split(".")
+    assert len(parts) == 3
+    assert parts[0] == "v2"
+
+    payload, sig = parts[1], parts[2]
+    # Payload has no '=' padding (URL-safe, matches the frontend verifier).
+    assert "=" not in payload
+    # Payload decodes back to the exact "user_id:event_name".
+    decoded = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+    assert decoded == "4242:Summer Bash"
+    # Signature is HMAC-SHA256(secret, payload)[:16], matching token.ts.
+    expected_sig = hmac.new(b"mykey", payload.encode(), hashlib.sha256).hexdigest()[:16]
+    assert sig == expected_sig
+
+
+def test_build_checkin_token_v2_preserves_large_discord_id():
+    """An 18-digit Discord ID round-trips exactly (no JS-style precision loss)."""
+    uid = 191524132624531458
+    token = build_checkin_token(uid, "niji 8l tokyo d2", "k")
+    payload = token.split(".")[1]
+    decoded = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+    assert decoded == f"{uid}:niji 8l tokyo d2"
+
+
 # --- Tests for build_checkin_url ---
 
 
@@ -306,31 +354,32 @@ def test_validate_event_deadline_past_error_takes_precedence(mock_dt):
 def test_build_checkin_url_no_frontend_url(mock_get_config):
     """Returns '' when FRONTEND_URL is not configured."""
     mock_get_config.return_value = {"FRONTEND_URL": "", "ADMIN_KEY": "secret"}
-    assert build_checkin_url(42) == ""
+    assert build_checkin_url(42, "Summer Bash") == ""
 
 
 @patch("offkai_bot.util.get_config")
 def test_build_checkin_url_no_admin_key_uses_bare_user_id(mock_get_config):
-    """Without ADMIN_KEY the token is just the bare user_id."""
+    """Without ADMIN_KEY the token is just the bare user_id (keyless frontend)."""
     mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example", "ADMIN_KEY": ""}
-    result = build_checkin_url(99)
+    result = build_checkin_url(99, "Summer Bash")
     assert result == "https://offkai.example/?token=99"
 
 
 @patch("offkai_bot.util.get_config")
-def test_build_checkin_url_with_admin_key_produces_signed_token(mock_get_config):
-    """With ADMIN_KEY the token is <user_id>.<16-char HMAC> — same as generate_checkin_signature."""
+def test_build_checkin_url_with_admin_key_produces_v2_token(mock_get_config):
+    """With ADMIN_KEY the URL carries the event-bound v2 token."""
     mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example", "ADMIN_KEY": "mykey"}
-    result = build_checkin_url(4242)
+    result = build_checkin_url(4242, "Summer Bash")
 
-    expected_sig = generate_checkin_signature(4242, "mykey")
-    assert result == f"https://offkai.example/?token=4242.{expected_sig}"
+    expected_token = build_checkin_token(4242, "Summer Bash", "mykey")
+    assert result == f"https://offkai.example/?token={expected_token}"
+    assert "/?token=v2." in result
 
 
 @patch("offkai_bot.util.get_config")
 def test_build_checkin_url_missing_keys_default_to_empty(mock_get_config):
     """Keys absent from config dict are treated as empty strings — no KeyError."""
     mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example"}
-    result = build_checkin_url(7)
+    result = build_checkin_url(7, "Summer Bash")
     # No ADMIN_KEY → bare user_id token.
     assert result == "https://offkai.example/?token=7"
