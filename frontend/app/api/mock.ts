@@ -17,7 +17,8 @@ export interface MockEvent {
 }
 
 export interface MockAttendee {
-  user_id: number
+  // String to match the real BotAttendee.user_id (Discord snowflakes are 64-bit).
+  user_id: string
   username: string
   display_name: string | null
   drinks: string[]
@@ -72,24 +73,24 @@ export const MOCK_EVENTS: MockEvent[] = [
 // Distinct attendees per event so cross-event scans can be rejected.
 export const MOCK_ATTENDEES: Record<string, MockAttendee[]> = {
   'Bandori 10th Offkai': [
-    { user_id: 123, username: 'fadekyun', display_name: 'Fadekyun', drinks: ['Highball (L)'], extra_people: 1, extras_names: ['Senpai'], status: 'attending' },
-    { user_id: 124, username: 'sakichan', display_name: 'Sakichan', drinks: ['Oolong Tea (L)', 'Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-    { user_id: 125, username: 'hoshino', display_name: 'Hoshino', drinks: ['Sapporo Beer (L)'], extra_people: 2, extras_names: ['Friend A', 'Friend B'], status: 'attending' },
-    { user_id: 126, username: 'arisa', display_name: 'Arisa', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'waitlist' },
+    { user_id: '123', username: 'fadekyun', display_name: 'Fadekyun', drinks: ['Highball (L)'], extra_people: 1, extras_names: ['Senpai'], status: 'attending' },
+    { user_id: '124', username: 'sakichan', display_name: 'Sakichan', drinks: ['Oolong Tea (L)', 'Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
+    { user_id: '125', username: 'hoshino', display_name: 'Hoshino', drinks: ['Sapporo Beer (L)'], extra_people: 2, extras_names: ['Friend A', 'Friend B'], status: 'attending' },
+    { user_id: '126', username: 'arisa', display_name: 'Arisa', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'waitlist' },
   ],
   'Roselia Live Offkai': [
-    { user_id: 200, username: 'yukina', display_name: 'Yukina', drinks: ['Oolong Tea (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-    { user_id: 201, username: 'lisa', display_name: 'Lisa', drinks: ['Sapporo Beer (L)'], extra_people: 1, extras_names: ['Ako'], status: 'attending' },
+    { user_id: '200', username: 'yukina', display_name: 'Yukina', drinks: ['Oolong Tea (L)'], extra_people: 0, extras_names: [], status: 'attending' },
+    { user_id: '201', username: 'lisa', display_name: 'Lisa', drinks: ['Sapporo Beer (L)'], extra_people: 1, extras_names: ['Ako'], status: 'attending' },
   ],
   'MyGO!!!!! Offkai': [
-    { user_id: 300, username: 'tomori', display_name: 'Tomori', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-    { user_id: 301, username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'attending' },
+    { user_id: '300', username: 'tomori', display_name: 'Tomori', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
+    { user_id: '301', username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'attending' },
   ],
 }
 
 // Process-wide in-memory check-ins for mock mode (resets on server restart).
 export const mockCheckins: CheckinRecord[] = []
 
-export function findMockAttendee(eventName: string, userId: number): MockAttendee | undefined {
+export function findMockAttendee(eventName: string, userId: string): MockAttendee | undefined {
   return (MOCK_ATTENDEES[eventName] || []).find(a => a.user_id === userId)
 }

@@ -26,7 +26,7 @@ type CheckInOutcome =
   | { kind: 'write_error' }
 
 type CheckOutOutcome =
-  | { kind: 'checked_out'; user_id: number; event_name: string }
+  | { kind: 'checked_out'; user_id: string; event_name: string }
   | { kind: 'event_not_found' }
   | { kind: 'event_archived' }
   | { kind: 'attendee_not_in_event' }
@@ -36,13 +36,13 @@ type CheckOutOutcome =
 // Resolves an *attending* attendee for an event (works in mock + real mode).
 // Returns the display name, or an error kind.
 function resolveAttendee(eventName: string, userId: string):
-  | { ok: true; user_id: number; name: string }
+  | { ok: true; user_id: string; name: string }
   | { ok: false; kind: 'event_not_found' | 'event_archived' | 'attendee_not_in_event' } {
   if (MOCK_MODE) {
     const ev = MOCK_EVENTS.find(e => e.event_name === eventName)
     if (!ev || !MOCK_ATTENDEES[eventName]) return { ok: false, kind: 'event_not_found' }
     if (ev.archived) return { ok: false, kind: 'event_archived' }
-    const a = findMockAttendee(eventName, Number(userId))
+    const a = findMockAttendee(eventName, userId)
     if (!a || a.status !== 'attending') return { ok: false, kind: 'attendee_not_in_event' }
     return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
   }
@@ -51,7 +51,7 @@ function resolveAttendee(eventName: string, userId: string):
   if (!ev) return { ok: false, kind: 'event_not_found' }
   if (ev.archived) return { ok: false, kind: 'event_archived' }
   const er = readResponses()[eventName]
-  const a = (er?.attendees || []).find(x => x.user_id.toString() === userId)
+  const a = (er?.attendees || []).find(x => x.user_id === userId)
   if (!a) return { ok: false, kind: 'attendee_not_in_event' }
   return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
 }

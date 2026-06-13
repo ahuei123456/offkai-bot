@@ -15,7 +15,9 @@ export interface Event {
 }
 
 export interface BotAttendee {
-  user_id: number
+  // Discord snowflake IDs are 64-bit and exceed JS Number.MAX_SAFE_INTEGER, so
+  // they are kept as strings end-to-end to avoid precision loss (see parseBotJson).
+  user_id: string
   username: string
   display_name: string | null
   drinks: string[]
@@ -37,7 +39,7 @@ export interface BotResponses {
 }
 
 export interface CheckinRecord {
-  user_id: number
+  user_id: string
   event_name: string
   checked_in_at: string
   name: string
@@ -45,6 +47,17 @@ export interface CheckinRecord {
 
 const BOT_DATA_DIR = process.env.BOT_DATA_DIR ||
   (fs.existsSync('/app/offkai-bot-data') ? '/app/offkai-bot-data' : path.join(process.cwd(), '..', 'data'))
+
+// The bot serializes Discord user IDs as JSON numbers, but they are 64-bit
+// snowflakes that exceed Number.MAX_SAFE_INTEGER — a plain JSON.parse silently
+// rounds them (e.g. 191524132624531458 -> 191524132624531460), so they no
+// longer match the exact ID carried in a check-in token. Quote every
+// `"user_id": <digits>` before parsing so the value is preserved exactly as a
+// string. Already-quoted values (e.g. checkins.json written by this app) are
+// left untouched.
+function parseBotJson<T>(text: string): T {
+  return JSON.parse(text.replace(/("user_id"\s*:\s*)(\d+)/g, '$1"$2"')) as T
+}
 
 export function getEventsFilePath() {
   return path.join(BOT_DATA_DIR, 'events.json')
@@ -75,7 +88,7 @@ export function readResponses(): BotResponses {
   if (!fs.existsSync(filePath)) return {}
   try {
     const data = fs.readFileSync(filePath, 'utf8')
-    return JSON.parse(data)
+    return parseBotJson<BotResponses>(data)
   } catch (e) {
     console.error('Error reading responses:', e)
     return {}
@@ -87,7 +100,7 @@ export function readCheckins(): CheckinRecord[] {
   if (!fs.existsSync(filePath)) return []
   try {
     const data = fs.readFileSync(filePath, 'utf8')
-    return JSON.parse(data)
+    return parseBotJson<CheckinRecord[]>(data)
   } catch (e) {
     console.error('Error reading checkins:', e)
     return []

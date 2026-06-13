@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     if (!eventName || !MOCK_ATTENDEES[eventName]) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
-    const mockA = findMockAttendee(eventName, Number(resolved.userId))
+    const mockA = findMockAttendee(eventName, resolved.userId)
     if (!mockA) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     const ev = MOCK_EVENTS.find(e => e.event_name === eventName)!
     const isCheckedIn = mockCheckins.some(c => c.user_id === mockA.user_id && c.event_name === eventName)
@@ -59,10 +59,10 @@ export async function GET(request: NextRequest) {
   }
 
   const uid = resolved.userId
-  let attendee = (eventResponses.attendees || []).find(a => a.user_id.toString() === uid)
+  let attendee = (eventResponses.attendees || []).find(a => a.user_id === uid)
   let isWaitlist = false
   if (!attendee) {
-    attendee = (eventResponses.waitlist || []).find(a => a.user_id.toString() === uid)
+    attendee = (eventResponses.waitlist || []).find(a => a.user_id === uid)
     if (attendee) isWaitlist = true
   }
   if (!attendee) {
