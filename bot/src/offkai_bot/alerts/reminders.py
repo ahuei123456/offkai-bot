@@ -1,18 +1,17 @@
 import asyncio
 import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import discord
 
 from offkai_bot.alerts.alerts import register_alert, remove_alerts
 from offkai_bot.alerts.task import CloseOffkaiTask, DeleteRoleTask, SendMessageTask, Task
-from offkai_bot.config import get_config
 from offkai_bot.data.event import Event, get_event
 from offkai_bot.data.response import Response, get_responses
 from offkai_bot.errors import AlertTimeInPastError, EventNotFoundError
-from offkai_bot.util import JST, generate_checkin_signature
+from offkai_bot.util import JST, build_checkin_url
 
 # How long before an event starts the check-in reminder DMs are sent.
 CHECKIN_REMINDER_LEAD = timedelta(hours=24)
@@ -152,6 +151,10 @@ class SendCheckinReminderTask(Task):
     never posted to a channel/thread."""
 
     event_name: str
+    # Holds a reference to the background DM fan-out task created in action().
+    # Kept alive here so the GC cannot collect it before it finishes; also lets
+    # tests await it directly without sleeping.
+    _fan_out_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
 
     async def action(self) -> None:
         _log.info("Executing SendCheckinReminderTask for event: '%s'", self.event_name)
@@ -172,21 +175,21 @@ class SendCheckinReminderTask(Task):
             _log.info("SendCheckinReminderTask: no attendees for '%s'. Nothing to send.", self.event_name)
             return
 
-        settings = get_config()
-        admin_key = settings.get("ADMIN_KEY", "")
-        frontend_url = settings.get("FRONTEND_URL", "")
+        # Hand the slow DM fan-out off to a background task so action() returns
+        # promptly.  alert_loop is @tasks.loop(minutes=1.0) with no overlap — if
+        # action() blocks for longer than a minute (fetch_user + 0.5 s sleep per
+        # attendee adds up fast) the next tick fires late and any alert scheduled
+        # in the skipped minute is silently dropped.  create_task() schedules the
+        # coroutine on the running event loop and returns immediately.
+        self._fan_out_task = asyncio.create_task(self._send_dms(event, attendees))
 
+    async def _send_dms(self, event: Event, attendees: list[Response]) -> None:
+        """Fan-out: DM each confirmed attendee their private check-in link."""
         last_index = len(attendees) - 1
         sent = 0
         for index, response in enumerate(attendees):
-            # Per-attendee private URL, using the existing token format.
-            token = str(response.user_id)
-            if admin_key:
-                sig = generate_checkin_signature(response.user_id, admin_key)
-                if sig:
-                    token = f"{response.user_id}.{sig}"
-            rsvp_url = f"{frontend_url}/?token={token}" if frontend_url else ""
-
+            # Per-attendee private URL using the shared token helper.
+            rsvp_url = build_checkin_url(response.user_id)
             message = build_checkin_reminder_message(event, response, rsvp_url)
             try:
                 # DM the individual user. fetch_user + user.send opens a private

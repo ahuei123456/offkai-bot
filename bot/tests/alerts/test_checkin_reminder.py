@@ -1,5 +1,5 @@
 # tests/alerts/test_checkin_reminder.py
-import re
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -200,23 +200,26 @@ def test_message_omits_qr_lines_when_no_frontend_url():
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
+@patch("offkai_bot.alerts.reminders.build_checkin_url")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
 async def test_task_reloads_and_dms_each_confirmed_attendee(
-    mock_get_event, mock_get_responses, mock_get_config, _mock_sleep, mock_client
+    mock_get_event, mock_get_responses, mock_build_url, _mock_sleep, mock_client
 ):
     event = _event()
     mock_get_event.return_value = event
     mock_get_responses.return_value = [_response(1), _response(2), _response(3)]
-    mock_get_config.return_value = {"ADMIN_KEY": "k", "FRONTEND_URL": "https://offkai.example"}
+    mock_build_url.return_value = "https://offkai.example/?token=1.abc"
 
     users = [MagicMock() for _ in range(3)]
     for u in users:
         u.send = AsyncMock()
     mock_client.fetch_user = AsyncMock(side_effect=users)
 
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
+    assert task._fan_out_task is not None
+    await task._fan_out_task
 
     # Reloaded event + attendees at send time.
     mock_get_event.assert_called_once_with("Future Offkai")
@@ -232,17 +235,51 @@ async def test_task_reloads_and_dms_each_confirmed_attendee(
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
+@patch("offkai_bot.alerts.reminders.build_checkin_url")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
-async def test_task_skips_when_event_missing(mock_get_event, mock_get_responses, mock_get_config, _sleep, mock_client):
+async def test_action_returns_immediately_scheduling_background_task(
+    mock_get_event, mock_get_responses, mock_build_url, _mock_sleep, mock_client
+):
+    """action() must return before _send_dms completes so it doesn't stall alert_loop."""
+    mock_get_event.return_value = _event()
+    mock_get_responses.return_value = [_response(1), _response(2)]
+    mock_build_url.return_value = ""
+
+    # Use a gate that _send_dms must reach before we can assert it is running.
+    started = asyncio.Event()
+    original_fetch = AsyncMock(side_effect=lambda uid: started.set() or MagicMock(send=AsyncMock()))
+
+    mock_client.fetch_user = original_fetch
+
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
+
+    # action() returned; background task exists but may not have started yet.
+    assert task._fan_out_task is not None
+    assert isinstance(task._fan_out_task, asyncio.Task)
+    assert not task._fan_out_task.done()
+
+    # Let the event loop run and confirm it completes.
+    await task._fan_out_task
+    assert task._fan_out_task.done()
+
+
+@pytest.mark.asyncio
+@patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.reminders.get_responses")
+@patch("offkai_bot.alerts.reminders.get_event")
+async def test_task_skips_when_event_missing(mock_get_event, mock_get_responses, _sleep, mock_client):
     from offkai_bot.errors import EventNotFoundError
 
     mock_get_event.side_effect = EventNotFoundError("Future Offkai")
     mock_client.fetch_user = AsyncMock()
 
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
 
+    # Early return — no fan-out task created.
+    assert task._fan_out_task is None
     mock_get_responses.assert_not_called()
     mock_client.fetch_user.assert_not_awaited()
 
@@ -255,39 +292,41 @@ async def test_task_skips_archived_event(mock_get_event, mock_get_responses, _sl
     mock_get_event.return_value = _event(archived=True)
     mock_client.fetch_user = AsyncMock()
 
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
 
+    assert task._fan_out_task is None
     mock_get_responses.assert_not_called()
     mock_client.fetch_user.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
-async def test_task_no_attendees(mock_get_event, mock_get_responses, mock_get_config, _sleep, mock_client):
+async def test_task_no_attendees(mock_get_event, mock_get_responses, _sleep, mock_client):
     mock_get_event.return_value = _event()
     mock_get_responses.return_value = []
     mock_client.fetch_user = AsyncMock()
 
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
 
+    assert task._fan_out_task is None
     mock_client.fetch_user.assert_not_awaited()
-    mock_get_config.assert_not_called()
 
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
+@patch("offkai_bot.alerts.reminders.build_checkin_url")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
 async def test_blocked_dm_does_not_stop_others_or_fall_back_to_channel(
-    mock_get_event, mock_get_responses, mock_get_config, _sleep, mock_client
+    mock_get_event, mock_get_responses, mock_build_url, _sleep, mock_client
 ):
     mock_get_event.return_value = _event()
     mock_get_responses.return_value = [_response(1), _response(2)]
-    mock_get_config.return_value = {"ADMIN_KEY": "", "FRONTEND_URL": ""}
+    mock_build_url.return_value = ""
 
     blocked = MagicMock()
     blocked.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "blocked"))
@@ -295,8 +334,9 @@ async def test_blocked_dm_does_not_stop_others_or_fall_back_to_channel(
     ok.send = AsyncMock()
     mock_client.fetch_user = AsyncMock(side_effect=[blocked, ok])
 
-    # Must not raise.
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
+    await task._fan_out_task
 
     blocked.send.assert_awaited_once()
     ok.send.assert_awaited_once()
@@ -306,35 +346,37 @@ async def test_blocked_dm_does_not_stop_others_or_fall_back_to_channel(
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
+@patch("offkai_bot.alerts.reminders.build_checkin_url")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
-async def test_no_waitlist_user_is_dmed(mock_get_event, mock_get_responses, mock_get_config, _sleep, mock_client):
+async def test_no_waitlist_user_is_dmed(mock_get_event, mock_get_responses, mock_build_url, _sleep, mock_client):
     # The task only ever consults get_responses (confirmed attendees).
     mock_get_event.return_value = _event()
     mock_get_responses.return_value = [_response(1)]
-    mock_get_config.return_value = {"ADMIN_KEY": "", "FRONTEND_URL": ""}
+    mock_build_url.return_value = ""
 
     user = MagicMock()
     user.send = AsyncMock()
     mock_client.fetch_user = AsyncMock(return_value=user)
 
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
+    await task._fan_out_task
 
     mock_client.fetch_user.assert_awaited_once_with(1)
 
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
+@patch("offkai_bot.alerts.reminders.build_checkin_url")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
 async def test_logs_never_leak_token_url_or_body(
-    mock_get_event, mock_get_responses, mock_get_config, _sleep, mock_client, caplog
+    mock_get_event, mock_get_responses, mock_build_url, _sleep, mock_client, caplog
 ):
     mock_get_event.return_value = _event()
     mock_get_responses.return_value = [_response(1), _response(2)]
-    mock_get_config.return_value = {"ADMIN_KEY": "secretkey", "FRONTEND_URL": "https://offkai.example"}
+    mock_build_url.return_value = "https://offkai.example/?token=1.abcdef1234567890"
 
     ok = MagicMock()
     ok.send = AsyncMock()
@@ -342,8 +384,10 @@ async def test_logs_never_leak_token_url_or_body(
     blocked.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "blocked"))
     mock_client.fetch_user = AsyncMock(side_effect=[ok, blocked])
 
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
     with caplog.at_level("DEBUG"):
-        await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+        await task.action()
+        await task._fan_out_task
 
     text = caplog.text
     assert "token=" not in text
@@ -356,24 +400,25 @@ async def test_logs_never_leak_token_url_or_body(
 
 @pytest.mark.asyncio
 @patch("offkai_bot.alerts.reminders.asyncio.sleep", new_callable=AsyncMock)
-@patch("offkai_bot.alerts.reminders.get_config")
+@patch("offkai_bot.alerts.reminders.build_checkin_url")
 @patch("offkai_bot.alerts.reminders.get_responses")
 @patch("offkai_bot.alerts.reminders.get_event")
 async def test_token_shape_is_userid_dot_signature(
-    mock_get_event, mock_get_responses, mock_get_config, _sleep, mock_client
+    mock_get_event, mock_get_responses, mock_build_url, _sleep, mock_client
 ):
     mock_get_event.return_value = _event()
     mock_get_responses.return_value = [_response(4242)]
-    mock_get_config.return_value = {"ADMIN_KEY": "secretkey", "FRONTEND_URL": "https://offkai.example"}
+    # build_checkin_url now owns token construction; test it directly in test_util.py.
+    # Here we just verify the URL it returns ends up in the DM body unchanged.
+    mock_build_url.return_value = "https://offkai.example/?token=4242.abcdef1234567890"
 
     user = MagicMock()
     user.send = AsyncMock()
     mock_client.fetch_user = AsyncMock(return_value=user)
 
-    await SendCheckinReminderTask(client=mock_client, event_name="Future Offkai").action()
+    task = SendCheckinReminderTask(client=mock_client, event_name="Future Offkai")
+    await task.action()
+    await task._fan_out_task
 
     sent_body = user.send.await_args.args[0]
-    m = re.search(r"/\?token=(\d+)\.([0-9a-f]+)", sent_body)
-    assert m is not None, sent_body
-    assert m.group(1) == "4242"
-    assert len(m.group(2)) == 16  # 16-char HMAC slice, existing format
+    assert "https://offkai.example/?token=4242.abcdef1234567890" in sent_body

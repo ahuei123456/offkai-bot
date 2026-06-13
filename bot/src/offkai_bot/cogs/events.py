@@ -375,7 +375,7 @@ class EventsCog(commands.Cog):
     async def archive_offkai(self, interaction: discord.Interaction, event_name: str):
         archived_event = archive_event(event_name)
         save_event_data()
-        unregister_checkin_reminder(event_name)
+        unregister_checkin_reminder(archived_event.event_name)
         await update_event_message(self.bot, archived_event)
 
         try:

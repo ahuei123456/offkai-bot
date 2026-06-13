@@ -10,6 +10,7 @@ import discord
 from dateparser.date import DateDataParser  # type: ignore[import-untyped]
 
 # Use relative imports for sibling modules within the package
+from offkai_bot.config import get_config
 from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
@@ -150,3 +151,23 @@ def generate_checkin_signature(user_id: int, secret_key: str) -> str:
         return ""
     h = hmac.new(secret_key.encode("utf-8"), str(user_id).encode("utf-8"), hashlib.sha256)
     return h.hexdigest()[:16]
+
+
+def build_checkin_url(user_id: int) -> str:
+    """Returns the attendee's personal check-in URL, or '' if FRONTEND_URL is not configured.
+
+    Centralises the token-construction logic that was previously copy-pasted
+    across interactions.py and reminders.py so a future token-format change
+    only needs to be made in one place.
+    """
+    settings = get_config()
+    frontend_url = settings.get("FRONTEND_URL", "")
+    if not frontend_url:
+        return ""
+    admin_key = settings.get("ADMIN_KEY", "")
+    token = str(user_id)
+    if admin_key:
+        sig = generate_checkin_signature(user_id, admin_key)
+        if sig:
+            token = f"{user_id}.{sig}"
+    return f"{frontend_url}/?token={token}"
