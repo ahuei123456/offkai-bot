@@ -15,9 +15,17 @@ export function parseEventParam(raw: unknown): string | null | false {
 
 // Validates a manual user_id (number or numeric string).
 // Returns the canonical string form, or null if invalid.
+//
+// Discord IDs are 64-bit snowflakes that exceed Number.MAX_SAFE_INTEGER, so a
+// digit-string is validated and returned verbatim — never round-tripped through
+// Number(), which would silently corrupt it (191524132624531458 -> ...460).
 export function parseUserId(raw: unknown): string | null {
-  if (typeof raw !== 'number' && typeof raw !== 'string') return null
-  const n = Number(raw)
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null
-  return String(n)
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    return /^\d+$/.test(trimmed) ? trimmed : null
+  }
+  if (typeof raw === 'number') {
+    return Number.isInteger(raw) && raw >= 0 ? String(raw) : null
+  }
+  return null
 }

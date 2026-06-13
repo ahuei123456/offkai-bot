@@ -3,7 +3,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { flushSync } from 'react-dom'
 
 type Attendee = {
-  user_id: number
+  // Discord snowflake ID as a string (64-bit, exceeds JS safe-integer range).
+  user_id: string
   username: string
   display_name: string | null
   drinks: string[]
@@ -13,7 +14,7 @@ type Attendee = {
 }
 
 type CheckinRecord = {
-  user_id: number
+  user_id: string
   event_name: string
   checked_in_at: string
   name: string
@@ -69,14 +70,14 @@ export default function AdminPage() {
   const [events, setEvents] = useState<EventOption[]>([])
   const [selectedEvent, setSelectedEvent] = useState('')
   const [attendees, setAttendees] = useState<Attendee[]>([])
-  const [checkins, setCheckins] = useState<Record<number, CheckinRecord>>({})
+  const [checkins, setCheckins] = useState<Record<string, CheckinRecord>>({})
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [filter, setFilter] = useState<'all' | 'checked' | 'pending'>('all')
   const [search, setSearch] = useState('')
   // Rows the admin just checked in/out — kept visible regardless of the active
   // filter so a mistaken action can be undone in place (e.g. on the Pending tab).
-  const [stickyIds, setStickyIds] = useState<Set<number>>(new Set())
+  const [stickyIds, setStickyIds] = useState<Set<string>>(new Set())
 
   const scannerRef = useRef<{ stop: () => Promise<void>; clear?: () => void } | null>(null)
   const Html5QrcodeRef = useRef<typeof import('html5-qrcode').Html5Qrcode | null>(null)
@@ -171,7 +172,7 @@ export default function AdminPage() {
   }, [authed, selectedEvent, key, loadCheckins])
 
   // Manual check-in (admin button) — no QR needed, admin is already authed.
-  const manualCheckin = useCallback(async (userId: number) => {
+  const manualCheckin = useCallback(async (userId: string) => {
     const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
     const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
       method: 'POST',
@@ -187,7 +188,7 @@ export default function AdminPage() {
 
   // Manual check-out (admin button) — removes the check-in for this event.
   // Uses POST with action=checkout because some proxies reject the DELETE method.
-  const manualCheckout = useCallback(async (userId: number) => {
+  const manualCheckout = useCallback(async (userId: string) => {
     const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
     const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
       method: 'POST',
