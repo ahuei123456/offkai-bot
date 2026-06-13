@@ -14,8 +14,11 @@ from offkai_bot.errors import (
 )
 
 # Import functions and errors from the module under test
+# Import build_checkin_url for its own test section below
 from offkai_bot.util import (
     JST,
+    build_checkin_url,
+    generate_checkin_signature,
     parse_drinks,
     parse_event_datetime,
     validate_event_datetime,
@@ -294,3 +297,40 @@ def test_validate_event_deadline_past_error_takes_precedence(mock_dt):
     with pytest.raises(EventDeadlineInPastError):  # Expect the "past" error first
         validate_event_deadline(past_event_time, PAST_DEADLINE)
     mock_dt.now.assert_called_once_with(UTC)
+
+
+# --- Tests for build_checkin_url ---
+
+
+@patch("offkai_bot.util.get_config")
+def test_build_checkin_url_no_frontend_url(mock_get_config):
+    """Returns '' when FRONTEND_URL is not configured."""
+    mock_get_config.return_value = {"FRONTEND_URL": "", "ADMIN_KEY": "secret"}
+    assert build_checkin_url(42) == ""
+
+
+@patch("offkai_bot.util.get_config")
+def test_build_checkin_url_no_admin_key_uses_bare_user_id(mock_get_config):
+    """Without ADMIN_KEY the token is just the bare user_id."""
+    mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example", "ADMIN_KEY": ""}
+    result = build_checkin_url(99)
+    assert result == "https://offkai.example/?token=99"
+
+
+@patch("offkai_bot.util.get_config")
+def test_build_checkin_url_with_admin_key_produces_signed_token(mock_get_config):
+    """With ADMIN_KEY the token is <user_id>.<16-char HMAC> — same as generate_checkin_signature."""
+    mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example", "ADMIN_KEY": "mykey"}
+    result = build_checkin_url(4242)
+
+    expected_sig = generate_checkin_signature(4242, "mykey")
+    assert result == f"https://offkai.example/?token=4242.{expected_sig}"
+
+
+@patch("offkai_bot.util.get_config")
+def test_build_checkin_url_missing_keys_default_to_empty(mock_get_config):
+    """Keys absent from config dict are treated as empty strings — no KeyError."""
+    mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example"}
+    result = build_checkin_url(7)
+    # No ADMIN_KEY → bare user_id token.
+    assert result == "https://offkai.example/?token=7"

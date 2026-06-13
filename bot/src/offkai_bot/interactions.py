@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import discord
 from discord import ui
 
-from offkai_bot.config import get_config
 from offkai_bot.data.event import Event
 from offkai_bot.data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from offkai_bot.data.response import (
@@ -25,7 +24,7 @@ from offkai_bot.errors import (
 )
 from offkai_bot.messages import MILESTONE_MESSAGES
 from offkai_bot.role_management import assign_event_role, remove_event_role
-from offkai_bot.util import generate_checkin_signature
+from offkai_bot.util import build_checkin_url
 
 _log = logging.getLogger(__name__)
 
@@ -179,18 +178,9 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
 
         # Notify the promoted user
         try:
-            settings = get_config()
-            admin_key = settings.get("ADMIN_KEY", "")
-            frontend_url = settings.get("FRONTEND_URL", "")
-
-            token = str(promoted_entry.user_id)
-            if admin_key:
-                sig = generate_checkin_signature(promoted_entry.user_id, admin_key)
-                if sig:
-                    token = f"{promoted_entry.user_id}.{sig}"
-
-            rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {frontend_url}/?token={token}" if frontend_url else ""
-            rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {frontend_url}/?token={token}" if frontend_url else ""
+            rsvp_url = build_checkin_url(promoted_entry.user_id)
+            rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
+            rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
 
             promoted_user = await client.fetch_user(promoted_entry.user_id)
             await promoted_user.send(
@@ -380,18 +370,9 @@ class GatheringModal(ui.Modal):
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
-        settings = get_config()
-        admin_key = settings.get("ADMIN_KEY", "")
-        frontend_url = settings.get("FRONTEND_URL", "")
-
-        token = str(response.user_id)
-        if admin_key:
-            sig = generate_checkin_signature(response.user_id, admin_key)
-            if sig:
-                token = f"{response.user_id}.{sig}"
-
-        rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {frontend_url}/?token={token}" if frontend_url else ""
-        rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {frontend_url}/?token={token}" if frontend_url else ""
+        rsvp_url = build_checkin_url(response.user_id)
+        rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
+        rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
 
         # 1. Create the confirmation message string
         drinks_msg = f"\n🍺 Drinks: {', '.join(response.drinks)}" if response.drinks else ""

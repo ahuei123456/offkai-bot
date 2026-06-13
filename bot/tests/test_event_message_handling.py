@@ -522,3 +522,40 @@ async def test_load_and_update_events_no_events(mock_log, mock_load_data, mock_u
     mock_load_data.assert_called_once()
     mock_update.assert_not_awaited()  # Update should not be called
     mock_log.info.assert_any_call("No events found to load.")
+
+
+@patch("offkai_bot.main.register_checkin_reminder")
+@patch("offkai_bot.main.register_deadline_reminders")
+@patch("offkai_bot.main.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.main.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.main.load_event_data")
+@patch("offkai_bot.main._log")
+async def test_load_and_update_events_continues_after_fetch_thread_error(
+    mock_log,
+    mock_load_data,
+    mock_update_event_message,
+    mock_fetch_thread,
+    mock_register_deadline_reminders,
+    mock_register_checkin_reminder,
+    mock_client,
+    mock_event_open,
+    mock_event_closed,
+):
+    """A fetch_thread_for_event failure for one event must not abort the loop for remaining events."""
+    mock_events = [mock_event_open, mock_event_closed]
+    mock_load_data.return_value = mock_events
+
+    recovered_thread = MagicMock()
+    mock_fetch_thread.side_effect = [Exception("Discord API error"), recovered_thread]
+
+    await load_and_update_events(mock_client)
+
+    # Both events still had update_event_message and register_checkin_reminder attempted
+    assert mock_update_event_message.await_count == 2
+    assert mock_register_checkin_reminder.call_count == 2
+
+    # Deadline reminders only registered for the second event (first raised before reaching it)
+    mock_register_deadline_reminders.assert_called_once_with(mock_client, mock_event_closed, recovered_thread)
+
+    # The exception was logged
+    mock_log.exception.assert_called_once()

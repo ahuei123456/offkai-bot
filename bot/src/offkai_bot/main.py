@@ -11,7 +11,7 @@ from discord.ext import commands
 # --- Updated Imports ---
 from offkai_bot import config
 from offkai_bot.alerts.alerts import alert_loop
-from offkai_bot.alerts.reminders import register_deadline_reminders
+from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 
 # Import only necessary data loaders for initial cache population
 from offkai_bot.data.event import load_event_data
@@ -45,12 +45,19 @@ async def load_and_update_events(client: discord.Client):
 
     for event in events:
         if not event.archived:
-            # Pass only the client and event
-            await update_event_message(client, event)
+            try:
+                # Pass only the client and event
+                await update_event_message(client, event)
 
-            # Register deadline close alerts
-            thread = await fetch_thread_for_event(client, event)
-            register_deadline_reminders(client, event, thread)
+                # Register check-in reminder first — it needs no thread, so a
+                # fetch_thread_for_event failure below cannot prevent it from running.
+                register_checkin_reminder(client, event)
+
+                # Register deadline close alerts (requires thread).
+                thread = await fetch_thread_for_event(client, event)
+                register_deadline_reminders(client, event, thread)
+            except Exception:
+                _log.exception("Failed to process event %r at startup; skipping.", event.event_name)
 
     _log.info("Finished loading and updating event messages.")
 

@@ -1,5 +1,6 @@
 # src/offkai_bot/alerts/alerts.py
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 from discord.ext import tasks  # type: ignore[attr-defined]
@@ -64,6 +65,25 @@ def clear_alerts():
 
     _scheduled_tasks.clear()
     _log.info("Cleared all scheduled alerts.")
+
+
+def remove_alerts(predicate: Callable[[Task], bool]) -> int:
+    """Removes every scheduled task matching ``predicate`` and drops any now-empty
+    time buckets. Returns the number of tasks removed."""
+    global _scheduled_tasks
+
+    removed = 0
+    for key in list(_scheduled_tasks.keys()):
+        kept = [task for task in _scheduled_tasks[key] if not predicate(task)]
+        removed += len(_scheduled_tasks[key]) - len(kept)
+        if kept:
+            _scheduled_tasks[key] = kept
+        else:
+            del _scheduled_tasks[key]
+
+    if removed:
+        _log.info("Removed %s scheduled task(s) matching predicate.", removed)
+    return removed
 
 
 # --- NEW: Helper function processes tasks based on a given time ---
