@@ -5,9 +5,6 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import mock_open, patch
 
 import pytest
-
-# Import the module we are testing
-from offkai_bot.data import event as event_data
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
 from offkai_bot.data.event import JST, OFFKAI_MESSAGE, Event, create_event_message
 from offkai_bot.errors import (
@@ -22,6 +19,9 @@ from offkai_bot.errors import (
     InvalidDateTimeFormatError,
     NoChangesProvidedError,
 )  # Import the dataclass too
+
+# Import the module we are testing
+from offkai_bot.data import event as event_data
 
 # --- Test Data ---
 # Use explicit future dates for reliability

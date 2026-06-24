@@ -33,6 +33,8 @@ class Response:
     drinks: list[str] = field(default_factory=list)
     extras_names: list[str] = field(default_factory=list)
     display_name: str | None = None
+    attendee_number: int | None = None
+    extras_attendee_numbers: list[int] = field(default_factory=list)
 
 
 # --- Waitlist Entry Dataclass ---
@@ -56,9 +58,94 @@ class EventData(TypedDict):
     waitlist: list[WaitlistEntry]
 
 
+class NumberedAttendeeName(str):
+    attendee_number: int | None
+
+    def __new__(cls, value: str, attendee_number: int | None = None):
+        obj = str.__new__(cls, value)
+        obj.attendee_number = attendee_number
+        return obj
+
+
 # --- Response Data Handling ---
 
 RESPONSE_DATA_CACHE: dict[str, EventData] | None = None
+
+
+def _parse_optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int | str | bytes | bytearray):
+        raise TypeError(f"Expected int-compatible attendee number, got {type(value).__name__}")
+    return int(value)
+
+
+def _parse_int_list(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    return [int(item) for item in value]
+
+
+def _group_attendee_numbers(response: Response) -> list[int]:
+    numbers = []
+    if response.attendee_number is not None:
+        numbers.append(response.attendee_number)
+    numbers.extend(response.extras_attendee_numbers)
+    return numbers
+
+
+def _event_has_attendee_numbers(event_data: EventData) -> bool:
+    return any(_group_attendee_numbers(response) for response in event_data["attendees"])
+
+
+def _next_attendee_number(event_data: EventData) -> int:
+    assigned_numbers = [
+        number
+        for response in event_data["attendees"]
+        for number in _group_attendee_numbers(response)
+    ]
+    return max(assigned_numbers, default=0) + 1
+
+
+def _assign_group_numbers(response: Response, start_number: int) -> int:
+    response.attendee_number = start_number
+    response.extras_attendee_numbers = list(range(start_number + 1, start_number + 1 + response.extra_people))
+    return start_number + 1 + response.extra_people
+
+
+def _clear_group_numbers(response: Response) -> None:
+    response.attendee_number = None
+    response.extras_attendee_numbers = []
+
+
+def _compact_numbers_after_removal(attendees: list[Response], removed_numbers: list[int]) -> None:
+    if not removed_numbers:
+        return
+
+    sorted_removed = sorted(removed_numbers)
+
+    def compact(number: int | None) -> int | None:
+        if number is None:
+            return None
+        decrement = sum(1 for removed_number in sorted_removed if removed_number < number)
+        return number - decrement
+
+    for response in attendees:
+        response.attendee_number = compact(response.attendee_number)
+        compacted_extras = [compact(number) for number in response.extras_attendee_numbers]
+        response.extras_attendee_numbers = [number for number in compacted_extras if number is not None]
+
+
+def _number_for_extra(response: Response, index: int) -> int | None:
+    if index < len(response.extras_attendee_numbers):
+        return response.extras_attendee_numbers[index]
+    return None
+
+
+def _has_complete_attendee_numbers(responses: list[Response]) -> bool:
+    expected_count = sum(1 + response.extra_people for response in responses)
+    actual_numbers = [number for response in responses for number in _group_attendee_numbers(response)]
+    return sorted(actual_numbers) == list(range(1, expected_count + 1))
 
 
 def _migrate_old_format_to_new(
@@ -115,6 +202,8 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
         arrival_confirmed = str(arrival_confirmed_raw).lower() == "yes" or arrival_confirmed_raw is True
         extras_names = resp_dict.get("extras_names", [])
         display_name = resp_dict.get("display_name")
+        attendee_number = _parse_optional_int(resp_dict.get("attendee_number"))
+        extras_attendee_numbers = _parse_int_list(resp_dict.get("extras_attendee_numbers", []))
 
         return Response(
             user_id=int(resp_dict.get("user_id", 0)),
@@ -127,6 +216,8 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
+            attendee_number=attendee_number,
+            extras_attendee_numbers=extras_attendee_numbers,
         )
     except (TypeError, ValueError) as e:
         _log.error("Error creating Response object for event %s from dict %s: %s", event_name, resp_dict, e)
@@ -386,7 +477,32 @@ def get_waitlist(event_name: str) -> list[WaitlistEntry]:
     return event_data["waitlist"]
 
 
-def add_response(event_name: str, response: Response) -> None:
+def assign_attendee_numbers(event_name: str) -> None:
+    """Assign close-time attendee numbers for confirmed attendees in the response cache."""
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    next_number = 1
+    for response in sorted(event_data["attendees"], key=lambda r: (r.username.casefold(), r.user_id)):
+        next_number = _assign_group_numbers(response, next_number)
+
+    all_data[event_name] = event_data
+    _log.info("Assigned attendee numbers for event %s.", event_name)
+
+
+def clear_attendee_numbers(event_name: str) -> None:
+    """Clear attendee numbers for an event so the next close can assign them from scratch."""
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    for response in event_data["attendees"]:
+        _clear_group_numbers(response)
+
+    all_data[event_name] = event_data
+    _log.info("Cleared attendee numbers for event %s.", event_name)
+
+
+def add_response(event_name: str, response: Response, *, force_attendee_number: bool = False) -> None:
     """Adds a response to the specified event's attendees.
 
     Raises:
@@ -406,6 +522,9 @@ def add_response(event_name: str, response: Response) -> None:
         raise DuplicateResponseError(event_name, response.user_id)
 
     # If no duplicate, proceed with adding
+    if force_attendee_number or _event_has_attendee_numbers(event_data):
+        _assign_group_numbers(response, _next_attendee_number(event_data))
+
     event_data["attendees"].append(response)
     all_data[event_name] = event_data
     save_responses()
@@ -421,17 +540,18 @@ def remove_response(event_name: str, user_id: int) -> None:
     all_data = load_responses()
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
 
-    initial_count = len(event_data["attendees"])
-    # Filter out the response matching the user_id
-    event_data["attendees"] = [r for r in event_data["attendees"] if r.user_id != user_id]
+    removed_response = next((r for r in event_data["attendees"] if r.user_id == user_id), None)
 
     # Check if any response was actually removed
-    if len(event_data["attendees"]) == initial_count:
+    if removed_response is None:
         # No response found for the user, raise error
         _log.warning("No response found for user %s in event %s to remove. Raising error.", user_id, event_name)
         raise ResponseNotFoundError(event_name, user_id)
     else:
         # Response found and removed, update the cache and save
+        removed_numbers = _group_attendee_numbers(removed_response)
+        event_data["attendees"] = [r for r in event_data["attendees"] if r.user_id != user_id]
+        _compact_numbers_after_removal(event_data["attendees"], removed_numbers)
         all_data[event_name] = event_data
         save_responses()
         _log.info("Removed response from user %s for event %s.", user_id, event_name)
@@ -550,10 +670,11 @@ def calculate_attendance(
     if not responses:
         raise NoResponsesFoundError(event_name)
 
-    if sort:
+    has_complete_attendee_numbers = _has_complete_attendee_numbers(responses)
+    if sort and not has_complete_attendee_numbers:
         responses = sorted(responses, key=lambda r: r.username.lower())
 
-    attendee_names = []
+    attendee_names: list[str] = []
     total_count = 0
     for response in responses:
         # Add the main person
@@ -563,7 +684,7 @@ def calculate_attendance(
         if drinks:
             drink = response.drinks[0] if response.drinks else "N/A"
             name = f"{name} - {drink}"
-        attendee_names.append(name)
+        attendee_names.append(NumberedAttendeeName(name, response.attendee_number))
         total_count += 1
 
         # Add extra people
@@ -576,8 +697,11 @@ def calculate_attendance(
                 drink_index = i + 1
                 drink = response.drinks[drink_index] if drink_index < len(response.drinks) else "N/A"
                 name = f"{name} - {drink}"
-            attendee_names.append(name)
+            attendee_names.append(NumberedAttendeeName(name, _number_for_extra(response, i)))
             total_count += 1
+
+    if has_complete_attendee_numbers:
+        attendee_names = sorted(attendee_names, key=lambda name: getattr(name, "attendee_number"))
 
     _log.info("Calculated attendance for '%s': %s attendees.", event_name, total_count)
     return total_count, attendee_names

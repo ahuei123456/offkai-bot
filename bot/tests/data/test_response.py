@@ -4,12 +4,12 @@ from datetime import UTC, datetime
 from unittest.mock import mock_open, patch
 
 import pytest
-
-# Import the module we are testing
-from offkai_bot.data import response as response_data
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
 from offkai_bot.data.response import EventData, Response, WaitlistEntry
 from offkai_bot.errors import DuplicateResponseError, NoWaitlistEntriesFoundError, ResponseNotFoundError
+
+# Import the module we are testing
+from offkai_bot.data import response as response_data
 
 # --- Test Data ---
 NOW = datetime.now(UTC)
@@ -453,6 +453,33 @@ def test_save_responses_os_error(mock_paths):
         mock_log.error.assert_called_once()
         assert "Error writing response data" in mock_log.error.call_args[0][0]
         assert "Permission denied" in str(mock_log.error.call_args)
+
+
+def test_save_responses_includes_attendee_numbers(mock_paths):
+    """Test saving numbered response fields."""
+    numbered_response = Response(
+        user_id=111,
+        username="NumberedUser",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event A",
+        timestamp=NOW,
+        drinks=[],
+        extras_names=["Guest A", "Guest B"],
+        attendee_number=4,
+        extras_attendee_numbers=[5, 6],
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event A": make_event_data([numbered_response])}
+
+    response_data.save_responses()
+
+    with open(mock_paths["responses"], encoding="utf-8") as file:
+        saved_data = json.load(file)
+
+    saved_response = saved_data["Event A"]["attendees"][0]
+    assert saved_response["attendee_number"] == 4
+    assert saved_response["extras_attendee_numbers"] == [5, 6]
 
 
 # == get_responses Tests ==
@@ -1223,6 +1250,37 @@ def test_parse_response_without_display_name_field(mock_paths):
         assert loaded_resp.display_name is None
 
 
+def test_parse_response_without_attendee_number_fields(mock_paths):
+    """Test parsing Response from old JSON without attendee number fields."""
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=json.dumps({"Event A": [RESP_1_DICT]}))),
+        patch("offkai_bot.data.response.save_responses"),
+    ):
+        responses = response_data._load_responses()
+
+        loaded_resp = responses["Event A"]["attendees"][0]
+        assert loaded_resp.attendee_number is None
+        assert loaded_resp.extras_attendee_numbers == []
+
+
+def test_parse_response_with_attendee_number_fields(mock_paths):
+    """Test parsing Response with persisted attendee number fields."""
+    numbered_dict = RESP_4_DICT | {"attendee_number": 7, "extras_attendee_numbers": [8, 9]}
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=json.dumps({"Event A": [numbered_dict]}))),
+        patch("offkai_bot.data.response.save_responses"),
+    ):
+        responses = response_data._load_responses()
+
+        loaded_resp = responses["Event A"]["attendees"][0]
+        assert loaded_resp.attendee_number == 7
+        assert loaded_resp.extras_attendee_numbers == [8, 9]
+
+
 # --- Tests for calculate_attendance with nicknames ---
 
 
@@ -1543,3 +1601,193 @@ def test_calculate_waitlist_sorting_bundles_extras_after_main_user(mock_paths):
         "AB (B +2)",
         "C",
     ]
+
+
+# --- Tests for persistent attendee numbering ---
+
+
+def test_assign_attendee_numbers_sorts_by_username_and_user_id_with_extras(mock_paths):
+    """Test close-time numbering sorts primaries and keeps extras after inviter."""
+    bob = Response(
+        user_id=2,
+        username="bob",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+    )
+    alice_with_guests = Response(
+        user_id=3,
+        username="Alice",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        extras_names=["Guest 1", "Guest 2"],
+    )
+    alice_tie = Response(
+        user_id=1,
+        username="alice",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([bob, alice_with_guests, alice_tie])}
+
+    response_data.assign_attendee_numbers("Event N")
+
+    assert alice_tie.attendee_number == 1
+    assert alice_with_guests.attendee_number == 2
+    assert alice_with_guests.extras_attendee_numbers == [3, 4]
+    assert bob.attendee_number == 5
+
+
+def test_add_response_appends_attendee_numbers_for_numbered_event(mock_paths):
+    """Test adding after close appends numbers after the current max."""
+    existing = Response(
+        user_id=1,
+        username="Existing",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=1,
+        extras_attendee_numbers=[2],
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([existing])}
+    added = Response(
+        user_id=2,
+        username="Added",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+    )
+
+    response_data.add_response("Event N", added)
+
+    assert added.attendee_number == 3
+    assert added.extras_attendee_numbers == [4, 5]
+
+
+def test_add_response_can_force_attendee_numbers_for_empty_closed_event(mock_paths):
+    """Test promoting into a closed event with no existing numbers starts at one."""
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([])}
+    added = Response(
+        user_id=2,
+        username="Added",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+    )
+
+    response_data.add_response("Event N", added, force_attendee_number=True)
+
+    assert added.attendee_number == 1
+    assert added.extras_attendee_numbers == [2]
+
+
+def test_remove_response_compacts_later_attendee_numbers_by_group_size(mock_paths):
+    """Test removing a numbered response with guests compacts later numbers."""
+    first = Response(
+        user_id=1,
+        username="First",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=1,
+    )
+    removed = Response(
+        user_id=2,
+        username="Removed",
+        extra_people=2,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=2,
+        extras_attendee_numbers=[3, 4],
+    )
+    later = Response(
+        user_id=3,
+        username="Later",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=5,
+        extras_attendee_numbers=[6],
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([first, removed, later])}
+
+    response_data.remove_response("Event N", removed.user_id)
+
+    assert response_data.get_responses("Event N") == [first, later]
+    assert first.attendee_number == 1
+    assert later.attendee_number == 2
+    assert later.extras_attendee_numbers == [3]
+
+
+def test_clear_attendee_numbers_removes_all_numbers(mock_paths):
+    """Test reopen clearing removes all attendee numbers for an event."""
+    response = Response(
+        user_id=1,
+        username="User",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=1,
+        extras_attendee_numbers=[2],
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([response])}
+
+    response_data.clear_attendee_numbers("Event N")
+
+    assert response.attendee_number is None
+    assert response.extras_attendee_numbers == []
+
+
+def test_calculate_attendance_uses_stored_number_order(mock_paths):
+    """Test numbered closed events are listed by persisted attendee number."""
+    later = Response(
+        user_id=2,
+        username="Later",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=2,
+    )
+    first = Response(
+        user_id=1,
+        username="First",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        extras_names=["Guest"],
+        attendee_number=1,
+        extras_attendee_numbers=[3],
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([later, first])}
+
+    total_count, attendee_names = response_data.calculate_attendance("Event N")
+
+    assert total_count == 3
+    assert attendee_names == ["First", "Later", "Guest (First +1)"]
+    assert [getattr(name, "attendee_number") for name in attendee_names] == [1, 2, 3]

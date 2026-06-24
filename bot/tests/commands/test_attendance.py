@@ -8,7 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
-from offkai_bot.cogs.events import EventsCog
+from offkai_bot.cogs.events import EventsCog, _format_attendance_output
+from offkai_bot.data.response import NumberedAttendeeName
 from offkai_bot.errors import (
     EventNotFoundError,
     NoResponsesFoundError,
@@ -61,6 +62,17 @@ def mock_event_obj(sample_event_list):
 
 
 # --- Test Cases ---
+
+
+async def test_format_attendance_output_uses_persisted_attendee_numbers():
+    attendee_list = [
+        NumberedAttendeeName("Alice", 4),
+        NumberedAttendeeName("Bob", 5),
+    ]
+
+    output = _format_attendance_output("Summer Bash", 2, attendee_list)
+
+    assert output == "**Attendance for Summer Bash**\n\nTotal Attendees: **2**\n\n4. Alice\n5. Bob"
 
 
 @patch("offkai_bot.cogs.events.calculate_attendance")
