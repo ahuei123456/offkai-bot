@@ -26,17 +26,17 @@ type EventOption = {
   open: boolean
 }
 
-// Scanner result is keyed by a stable `kind` (not display wording) so the icon
+// Scanner result is keyed by a stable `kind` (not display wording) so the badge
 // and styling stay correct even if the copy changes.
 type ScanResultKind = 'checked_in' | 'already_checked_in' | 'wrong_event' | 'invalid_qr' | 'error'
 type ScanResult = { kind: ScanResultKind; name: string }
 
-const SCAN_RESULT_META: Record<ScanResultKind, { ok: boolean; icon: string; title: string }> = {
-  checked_in:         { ok: true,  icon: '✅', title: 'Checked In!' },
-  already_checked_in: { ok: true,  icon: '🔄', title: 'Already Checked In' },
-  wrong_event:        { ok: false, icon: '⛔', title: 'Wrong Event' },
-  invalid_qr:         { ok: false, icon: '❌', title: 'Invalid QR' },
-  error:              { ok: false, icon: '❌', title: 'Camera Error' },
+const SCAN_RESULT_META: Record<ScanResultKind, { ok: boolean; badge: string; title: string }> = {
+  checked_in:         { ok: true,  badge: 'OK',    title: 'Checked In!' },
+  already_checked_in: { ok: true,  badge: 'Again', title: 'Already Checked In' },
+  wrong_event:        { ok: false, badge: 'Stop',  title: 'Wrong Event' },
+  invalid_qr:         { ok: false, badge: 'NG',    title: 'Invalid QR' },
+  error:              { ok: false, badge: 'NG',    title: 'Camera Error' },
 }
 
 function drinkDot(name: string) {
@@ -62,10 +62,42 @@ function formatEventLabel(ev: EventOption) {
   return `${ev.event_name}${when}${ev.open ? '' : ' (closed)'}`
 }
 
+function SmileyMark({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
+      <circle cx="20" cy="20" r="18" fill="#E51F1F" stroke="#17120F" strokeWidth="2.5" />
+      <circle cx="13" cy="16.5" r="2.6" fill="#17120F" />
+      <circle cx="27" cy="16.5" r="2.6" fill="#17120F" />
+      <path d="M11 22 q9 11 18 0" fill="none" stroke="#17120F" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function BrandSign({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="inline-flex items-center gap-1.5">
+        <SmileyMark className="h-7 w-7 shrink-0 -rotate-6" />
+        <span className="brand-wordmark text-2xl leading-none">Offkai Bot</span>
+      </div>
+    )
+  }
+  return (
+    <div className="inline-flex flex-col items-start">
+      <span className="brand-banner inline-block rounded-lg px-2.5 py-0.5 text-[10px] tracking-[0.3em]">大衆酒場</span>
+      <div className="mt-1.5 flex items-end gap-1">
+        <span className="brand-wordmark text-4xl leading-[0.9]">Offkai Bot</span>
+        <SmileyMark className="mb-1 h-7 w-7 shrink-0 -rotate-6 drop-shadow-[2px_2px_0_#17120F]" />
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const [key, setKey] = useState('')
   const [authed, setAuthed] = useState(false)
   const [keyInput, setKeyInput] = useState('')
+  const [loginError, setLoginError] = useState('')
   const [eventName, setEventName] = useState('')
   const [events, setEvents] = useState<EventOption[]>([])
   const [selectedEvent, setSelectedEvent] = useState('')
@@ -135,8 +167,8 @@ export default function AdminPage() {
 
   const handleLogin = async () => {
     const ok = await initialLoad(keyInput)
-    if (ok) { setKey(keyInput); setAuthed(true) }
-    else alert('Invalid key')
+    if (ok) { setKey(keyInput); setAuthed(true); setLoginError('') }
+    else setLoginError('Invalid key. Check with the event host.')
   }
 
   // Refresh attendee list + check-ins whenever the selected event changes.
@@ -317,6 +349,8 @@ export default function AdminPage() {
   const checkedInCount = attendees
     .filter(a => a.status === 'attending' && checkins[a.user_id])
     .reduce((total, a) => total + groupSize(a), 0)
+  const pendingCount = attendingCount - checkedInCount
+  const waitlistCount = attendees.filter(a => a.status === 'waitlist').length
 
   const filtered = attendees
     .filter(a => a.status === 'attending')
@@ -328,27 +362,39 @@ export default function AdminPage() {
     })
     .filter(a => {
       if (!search) return true
-      const name = (a.display_name || a.username).toLowerCase()
-      return name.includes(search.toLowerCase())
+      const q = search.toLowerCase().replace(/^[@#]/, '')
+      return [a.display_name || '', a.username, a.user_id, ...a.drinks, ...a.extras_names]
+        .some(v => v.toLowerCase().includes(q))
     })
 
   if (!authed) {
     return (
-      <main className="min-h-screen bg-[#E1D9BC] flex items-center justify-center p-6">
-        <div className="bg-[#F0F0DB] p-8 rounded-3xl border border-[#ACBAC4] shadow-xl w-full max-w-sm">
-          <p className="text-[10px] font-black uppercase tracking-widest text-[#30364F] opacity-60 mb-2">Staff Access</p>
-          <h1 className="text-xl font-black uppercase text-[#30364F] mb-6">Check-In Admin</h1>
+      <main className="brand-rays min-h-dvh flex items-center justify-center p-6">
+        <div className="brand-card w-full max-w-sm rounded-3xl p-7">
+          <BrandSign />
+          <p className="mt-7 text-[10px] font-black uppercase tracking-[0.22em] text-[#8B2D1F]">Staff Access</p>
+          <h1 className="mt-2 font-display text-2xl uppercase text-[#17120F] tracking-tight">Check-In Admin</h1>
+          <label htmlFor="admin-key" className="block text-[10px] font-black uppercase tracking-widest text-[#8B2D1F] mt-6 mb-2">
+            Admin key
+          </label>
           <input
+            id="admin-key"
             type="password"
             placeholder="Admin key"
             value={keyInput}
             onChange={e => setKeyInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            className="w-full border-2 border-[#ACBAC4] rounded-xl px-4 py-3 text-[#30364F] font-bold bg-white mb-4 outline-none focus:border-[#30364F]"
+            onKeyDown={e => e.key === 'Enter' && !!keyInput.trim() && handleLogin()}
+            aria-invalid={!!loginError}
+            aria-describedby={loginError ? 'admin-login-error' : undefined}
+            className="w-full border-2 border-[#17120F] rounded-xl px-4 py-3 text-[#17120F] font-bold bg-white mb-2 outline-none focus:border-[#E51F1F]"
           />
+          {loginError && (
+            <p id="admin-login-error" role="alert" className="text-sm font-bold text-red-700 mb-3">{loginError}</p>
+          )}
           <button
             onClick={handleLogin}
-            className="w-full bg-[#30364F] text-white font-black uppercase tracking-widest py-3 rounded-xl"
+            disabled={!keyInput.trim()}
+            className="brand-action w-full font-black uppercase tracking-widest py-3 rounded-xl mt-2 disabled:opacity-50 disabled:shadow-none"
           >
             Enter
           </button>
@@ -358,63 +404,84 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#E1D9BC] text-[#30364F] pb-12">
-      {/* Header */}
-      <div className="bg-[#30364F] text-white p-6 rounded-b-3xl shadow-xl">
-        <p className="text-[10px] font-black tracking-[0.2em] uppercase opacity-60 mb-1">Staff — Check-In</p>
-        <h1 className="text-xl font-black uppercase tracking-tight leading-tight">{eventName}</h1>
+    <main className="brand-bg min-h-dvh w-full max-w-6xl mx-auto text-[#23110D] pb-12">
+      <div className="sticky top-0 z-20 brand-sunburst text-white p-4 md:p-6 rounded-b-[1.5rem] md:rounded-b-[2rem] border-b-4 border-[#17120F] shadow-[0_6px_0_#17120F] md:shadow-[0_8px_0_#17120F]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black tracking-[0.22em] uppercase text-white/80 mb-1">Staff Check-In</p>
+            <h1 className="font-display text-xl md:text-2xl uppercase tracking-tight leading-tight drop-shadow-[2px_2px_0_#17120F] truncate">{eventName}</h1>
+            <span className="brand-stamp font-brush mt-2 inline-block -rotate-2 rounded-xl px-3 py-0.5 text-sm tracking-[0.12em]">受付中</span>
+          </div>
+          <div className="hidden sm:block shrink-0">
+            <BrandSign compact />
+          </div>
+        </div>
 
         {/* Event selector (issue #77) */}
         {events.length > 0 && (
           <select
             value={selectedEvent}
             onChange={e => changeEvent(e.target.value)}
-            className="mt-3 w-full bg-white/10 border border-white/30 text-white text-xs font-bold rounded-xl px-3 py-2 outline-none appearance-none"
+            aria-label="Select event"
+            className="mt-3 w-full bg-white border-2 border-[#17120F] text-[#17120F] text-xs font-black rounded-xl px-3 py-2.5 outline-none appearance-none shadow-[3px_3px_0_#17120F]"
           >
             {events.map(ev => (
-              <option key={ev.event_name} value={ev.event_name} className="text-[#30364F]">
+              <option key={ev.event_name} value={ev.event_name}>
                 {formatEventLabel(ev)}
               </option>
             ))}
           </select>
         )}
 
-        <div className="flex gap-4 mt-3 items-center">
-          <div className="text-center">
-            <p className="text-2xl font-black">{checkedInCount}</p>
-            <p className="text-[9px] uppercase opacity-60 tracking-widest">Checked In</p>
+        <div className="grid grid-cols-3 gap-2 mt-3 md:mt-4 text-[#17120F]">
+          <div className="rounded-xl md:rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] p-2 md:p-3 shadow-[3px_3px_0_#17120F]">
+            <p className="text-xl md:text-2xl font-black">{pendingCount}</p>
+            <p className="text-[9px] uppercase opacity-70 tracking-widest font-black">Pending</p>
           </div>
-          <div className="text-white/30 font-thin text-2xl">/</div>
-          <div className="text-center">
-            <p className="text-2xl font-black">{attendingCount}</p>
-            <p className="text-[9px] uppercase opacity-60 tracking-widest">Total</p>
+          <div className="rounded-xl md:rounded-2xl border-2 border-[#17120F] bg-white p-2 md:p-3 shadow-[3px_3px_0_#17120F]">
+            <p className="text-xl md:text-2xl font-black">{checkedInCount}</p>
+            <p className="text-[9px] uppercase opacity-70 tracking-widest font-black">In</p>
           </div>
+          <div className="rounded-xl md:rounded-2xl border-2 border-[#17120F] bg-[#17120F] p-2 md:p-3 text-white shadow-[3px_3px_0_#FFD51B]">
+            <p className="text-xl md:text-2xl font-black">{attendingCount}</p>
+            <p className="text-[9px] uppercase opacity-70 tracking-widest font-black">People</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 mt-3 md:mt-4">
+          <p className="text-xs font-black text-white drop-shadow-[1px_1px_0_#17120F]">{checkedInCount} / {attendingCount} in · {waitlistCount} waitlist</p>
           <div className="flex-1" />
           <button
             onClick={scanning ? stopScanner : startScanner}
-            className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest ${scanning ? 'bg-red-500 text-white' : 'bg-[#E1D9BC] text-[#30364F]'}`}
+            className={`min-h-[44px] px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest cursor-pointer ${scanning ? 'brand-action text-white' : 'brand-action-alt'}`}
           >
-            {scanning ? 'Stop' : '📷 Scan'}
+            {scanning ? 'Stop' : 'Scan'}
           </button>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-4 lg:p-6">
         {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
-        <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${!scanning && !scanResult ? 'hidden' : ''}`}>
+        <div className={`brand-card rounded-2xl overflow-hidden ${!scanning && !scanResult ? 'hidden' : ''}`}>
           <div id={scannerDivId} className={`w-full ${scanning ? '' : 'hidden'}`} />
           {!scanning && scanResult && (() => {
             const meta = SCAN_RESULT_META[scanResult.kind]
             return (
-              <div className={`p-6 text-center ${meta.ok ? 'bg-green-50' : 'bg-red-50'}`}>
-                <div className="text-4xl mb-2">{meta.icon}</div>
-                <p className={`font-black text-lg uppercase ${meta.ok ? 'text-green-700' : 'text-red-700'}`}>
+              <div
+                role={meta.ok ? 'status' : 'alert'}
+                aria-live={meta.ok ? 'polite' : 'assertive'}
+                className={`p-6 text-center ${meta.ok ? 'bg-green-50' : 'bg-red-50'}`}
+              >
+                <p className={`mx-auto mb-3 inline-flex h-12 min-w-12 items-center justify-center rounded-full border-2 border-[#17120F] px-4 text-sm font-black uppercase tracking-widest ${meta.ok ? 'bg-[#FFD51B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
+                  {meta.badge}
+                </p>
+                <p className={`font-black text-lg uppercase ${meta.ok ? 'text-green-800' : 'text-red-800'}`}>
                   {meta.title}
                 </p>
-                <p className="font-bold text-sm mt-1 text-gray-600">{scanResult.name}</p>
+                <p className="font-bold text-sm mt-1 text-[#5B3428]">{scanResult.name}</p>
                 <button
                   onClick={startScanner}
-                  className="mt-4 bg-[#30364F] text-white font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
+                  className="brand-action mt-4 font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
                 >
                   Scan Next
                 </button>
@@ -423,25 +490,34 @@ export default function AdminPage() {
           })()}
         </div>
 
-        {/* Filters + Search */}
+        {/* Filters */}
         <div className="flex gap-2">
           {(['all', 'pending', 'checked'] as const).map(f => (
             <button
               key={f}
               onClick={() => changeFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${filter === f ? 'bg-[#30364F] text-white' : 'bg-[#F0F0DB] text-[#30364F] border border-[#ACBAC4]'}`}
+              aria-pressed={filter === f}
+              className={`min-h-[44px] px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest cursor-pointer border-2 border-[#17120F] ${filter === f ? 'bg-[#17120F] text-white shadow-[3px_3px_0_#FFD51B]' : 'bg-[#FFF8D8] text-[#17120F] shadow-[3px_3px_0_rgba(23,18,15,0.25)]'}`}
             >
               {f}
             </button>
           ))}
         </div>
-        <input
-          type="search"
-          placeholder="Search name..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full border-2 border-[#ACBAC4] rounded-xl px-4 py-2.5 text-sm font-bold bg-white text-[#30364F] outline-none focus:border-[#30364F]"
-        />
+
+        {/* Search */}
+        <div>
+          <label htmlFor="attendee-search" className="block text-[10px] font-black uppercase tracking-widest text-[#8B2D1F] mb-2">
+            Search attendee
+          </label>
+          <input
+            id="attendee-search"
+            type="search"
+            placeholder="Search name, drink, guest, #id, @handle..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full border-2 border-[#17120F] rounded-xl px-4 py-3 text-sm font-bold bg-white text-[#17120F] outline-none focus:border-[#E51F1F] shadow-[3px_3px_0_rgba(23,18,15,0.25)]"
+          />
+        </div>
 
         {/* Attendee list */}
         <div className="space-y-2">
@@ -450,34 +526,35 @@ export default function AdminPage() {
             const isIn = !!checkins[a.user_id]
             const checkinTime = isIn ? new Date(checkins[a.user_id].checked_in_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : null
             return (
-              <div key={a.user_id} className={`bg-white rounded-2xl border-2 overflow-hidden ${isIn ? 'border-green-300' : 'border-gray-200'}`}>
+              <div key={a.user_id} className={`rounded-2xl border-2 border-[#17120F] overflow-hidden shadow-[4px_4px_0_rgba(23,18,15,0.25)] ${isIn ? 'bg-green-50' : 'bg-white'}`}>
                 <div className="p-4 flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg shrink-0 ${isIn ? 'bg-green-100 text-green-700' : 'bg-[#E1D9BC] text-[#30364F]'}`}>
+                  <div className={`w-10 h-10 rounded-full border-2 border-[#17120F] flex items-center justify-center font-black text-lg shrink-0 ${isIn ? 'bg-green-100 text-green-800' : 'bg-[#FFD51B] text-[#17120F]'}`}>
                     {isIn ? '✓' : name[0].toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-black text-[#30364F] truncate">{name}</p>
+                    <p className="font-black text-[#17120F] truncate">{name}</p>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {a.drinks.map((d, i) => (
-                        <span key={i} className="flex items-center gap-1 text-[9px] font-bold text-gray-500 uppercase tracking-wide">
+                        <span key={i} className="flex items-center gap-1 text-[9px] font-bold text-[#5B3428] uppercase tracking-wide">
                           <span className={`w-2 h-2 rounded-full shrink-0 ${drinkDot(d)}`} />
                           {d}
                         </span>
                       ))}
                     </div>
                     {a.extra_people > 0 && (
-                      <p className="text-[9px] text-gray-400 mt-0.5">+{a.extra_people} guest{a.extra_people > 1 ? 's' : ''}{a.extras_names.length > 0 ? `: ${a.extras_names.join(', ')}` : ''}</p>
+                      <p className="text-[9px] text-[#8B2D1F] mt-0.5">+{a.extra_people} guest{a.extra_people > 1 ? 's' : ''}{a.extras_names.length > 0 ? `: ${a.extras_names.join(', ')}` : ''}</p>
                     )}
+                    <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-[#8B2D1F]/60">@{a.username}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="text-right min-w-[34px]">
                       {isIn ? (
                         <div>
-                          <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">In</span>
-                          <p className="text-[9px] text-gray-400">{checkinTime}</p>
+                          <span className="text-[9px] font-black text-green-700 uppercase tracking-widest">In</span>
+                          <p className="text-[9px] text-[#8B2D1F]">{checkinTime}</p>
                         </div>
                       ) : (
-                        <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Pending</span>
+                        <span className="text-[9px] font-black text-[#8B2D1F]/60 uppercase tracking-widest">Pending</span>
                       )}
                     </div>
                     {/* Manual check-in — always tappable; emphasised when active */}
@@ -485,7 +562,7 @@ export default function AdminPage() {
                       onClick={() => manualCheckin(a.user_id)}
                       aria-label={`Check in ${name}`}
                       title="Check in"
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 active:scale-95 transition ${isIn ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700 active:bg-green-200'}`}
+                      className={`w-11 h-11 rounded-xl border-2 border-[#17120F] flex items-center justify-center shrink-0 active:translate-x-[1px] active:translate-y-[1px] transition ${isIn ? 'bg-green-600 text-white' : 'bg-[#FFD51B] text-[#17120F]'}`}
                     >
                       <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M20 6 9 17l-5-5" />
@@ -496,7 +573,7 @@ export default function AdminPage() {
                       onClick={() => manualCheckout(a.user_id)}
                       aria-label={`Check out ${name}`}
                       title="Check out"
-                      className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-red-100 text-red-700 active:bg-red-200 active:scale-95 transition"
+                      className="w-11 h-11 rounded-xl border-2 border-[#17120F] flex items-center justify-center shrink-0 bg-white text-[#E51F1F] active:translate-x-[1px] active:translate-y-[1px] transition"
                     >
                       <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M18 6 6 18M6 6l12 12" />
@@ -508,21 +585,21 @@ export default function AdminPage() {
             )
           })}
           {filtered.length === 0 && (
-            <p className="text-center text-sm text-gray-400 py-8">No attendees found</p>
+            <p className="text-center text-sm font-black text-[#8B2D1F] py-8">No attendees found</p>
           )}
         </div>
 
         {/* Waitlist section */}
         {attendees.some(a => a.status === 'waitlist') && filter === 'all' && !search && (
           <div className="mt-6">
-            <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-2">Waitlist</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F] mb-2">Waitlist</p>
             <div className="space-y-2">
               {attendees.filter(a => a.status === 'waitlist').map(a => (
-                <div key={a.user_id} className="bg-amber-50 rounded-2xl border border-amber-200 p-4 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center font-black text-amber-700 shrink-0">
+                <div key={a.user_id} className="bg-[#FFD51B] rounded-2xl border-2 border-[#17120F] p-4 flex items-center gap-3 shadow-[4px_4px_0_rgba(23,18,15,0.25)]">
+                  <div className="w-8 h-8 rounded-full border-2 border-[#17120F] bg-white flex items-center justify-center font-black text-[#17120F] shrink-0">
                     {(a.display_name || a.username)[0].toUpperCase()}
                   </div>
-                  <p className="font-bold text-amber-800 text-sm">{a.display_name || a.username}</p>
+                  <p className="font-bold text-[#17120F] text-sm">{a.display_name || a.username}</p>
                 </div>
               ))}
             </div>

@@ -1,13 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #E1D9BC;
-  --foreground: #30364F;
-  --card: #F0F0DB;
-  --accent: #ACBAC4;
+  --background: #FFF1C2;
+  --foreground: #23110D;
+  --card: #FFF8D8;
+  --accent: #E51F1F;
+  --brand-red: #E51F1F;
+  --brand-yellow: #FFD51B;
+  --brand-gold: #FFC400;
+  --brand-ink: #17120F;
+  --brand-cream: #FFF8D8;
 }
 
-theme inline {
+@theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -19,6 +24,134 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button, a, input {
+  touch-action: manipulation;
+}
+
+.font-display {
+  font-family: var(--font-display), "Hiragino Kaku Gothic ProN", "Yu Gothic", var(--font-noto-sans), sans-serif;
+}
+
+.font-brush {
+  font-family: var(--font-brush), var(--font-display), "Hiragino Kaku Gothic ProN", "Yu Gothic", var(--font-noto-sans), sans-serif;
+}
+
+.brand-bg {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255, 213, 27, 0.28), rgba(255, 241, 194, 0) 42%),
+    radial-gradient(rgba(229, 31, 31, 0.1) 2px, transparent 2.5px),
+    radial-gradient(rgba(229, 31, 31, 0.1) 2px, transparent 2.5px);
+  background-size: 100% 460px, 26px 26px, 26px 26px;
+  background-position: 50% 0, 0 0, 13px 13px;
+  background-repeat: no-repeat, repeat, repeat;
+}
+
+.brand-rays {
+  background:
+    radial-gradient(circle at 50% 120%, rgba(255, 248, 216, 0.2) 0 18%, transparent 19%),
+    repeating-conic-gradient(from -18deg at 50% 115%, var(--brand-yellow) 0deg 7deg, var(--brand-red) 7deg 14deg);
+}
+
+.brand-sunburst {
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255, 248, 216, 0.55) 0 5%, rgba(255, 213, 27, 0) 16%),
+    repeating-conic-gradient(from 7.5deg at 50% 40%, var(--brand-red) 0deg 15deg, var(--brand-yellow) 15deg 30deg);
+}
+
+.brand-wordmark {
+  font-family: var(--font-brush), var(--font-display), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  color: var(--brand-ink);
+  -webkit-text-stroke: 5px var(--brand-gold);
+  paint-order: stroke fill;
+  filter: drop-shadow(3px 3px 0 var(--brand-ink));
+  line-height: 1;
+}
+
+.brand-banner {
+  font-family: var(--font-brush), var(--font-display), "Hiragino Kaku Gothic ProN", sans-serif;
+  background: var(--brand-ink);
+  color: var(--brand-cream);
+  border: 2px solid var(--brand-ink);
+  box-shadow: 0 3px 0 rgba(23, 18, 15, 0.4);
+}
+
+.brand-hanko {
+  font-family: var(--font-brush), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  color: var(--brand-red);
+  border: 3px solid var(--brand-red);
+  background: rgba(255, 248, 216, 0.9);
+  border-radius: 9999px;
+  box-shadow: 2px 2px 0 rgba(23, 18, 15, 0.3);
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+}
+
+.paper-grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.brand-card {
+  background: var(--brand-cream);
+  border: 2px solid var(--brand-ink);
+  box-shadow: 5px 5px 0 var(--brand-ink);
+}
+
+.brand-ticket {
+  background:
+    linear-gradient(135deg, rgba(255, 213, 27, 0.26), rgba(255, 248, 216, 0.92) 36%, rgba(255, 255, 255, 0.95)),
+    var(--brand-cream);
+  border: 2px solid var(--brand-ink);
+  box-shadow: inset 0 0 0 2px rgba(229, 31, 31, 0.08);
+}
+
+.brand-seal {
+  background: var(--brand-ink);
+  border: 2px solid #fff;
+  box-shadow: 4px 4px 0 var(--brand-yellow);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", var(--font-noto-sans), sans-serif;
+}
+
+.brand-stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--brand-red);
+  color: var(--brand-red);
+  background: rgba(255, 248, 216, 0.92);
+  box-shadow: 3px 3px 0 var(--brand-ink);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", var(--font-noto-sans), sans-serif;
+  font-weight: 900;
+}
+
+.brand-action {
+  background: var(--brand-red);
+  color: #fff;
+  border: 2px solid var(--brand-ink);
+  box-shadow: 3px 3px 0 var(--brand-yellow);
+}
+
+.brand-action-alt {
+  background: var(--brand-yellow);
+  color: var(--brand-ink);
+  border: 2px solid var(--brand-ink);
+  box-shadow: 3px 3px 0 rgba(23, 18, 15, 0.35);
+}
+
+.brand-action:active,
+.brand-action-alt:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--brand-ink);
 }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -30,8 +163,20 @@ body {
 }
 .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
 
+@keyframes lanternSway {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
 input:focus, select:focus {
   outline: none;
-  border-color: #30364F;
-  box-shadow: 0 0 0 1px #30364F;
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 2px var(--brand-red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

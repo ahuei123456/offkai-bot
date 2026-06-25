@@ -2,13 +2,13 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'chibachan',
-    short_name: 'chibachan',
-    description: 'Offkai RSVP frontend',
+    name: 'Offkai Bot',
+    short_name: 'Offkai',
+    description: 'Offkai RSVP & door check-in',
     start_url: '/',
     display: 'standalone',
-    background_color: '#E1D9BC',
-    theme_color: '#30364F',
+    background_color: '#FFF1C2',
+    theme_color: '#E51F1F',
     icons: [
       {
         src: '/icon.svg',
