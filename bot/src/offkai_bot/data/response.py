@@ -83,7 +83,13 @@ def _parse_optional_int(value: object) -> int | None:
 def _parse_int_list(value: object) -> list[int]:
     if not isinstance(value, list):
         return []
-    return [int(item) for item in value]
+    return [_parse_required_int(item) for item in value]
+
+
+def _parse_required_int(value: object) -> int:
+    if not isinstance(value, int | str | bytes | bytearray):
+        raise TypeError(f"Expected int-compatible attendee number, got {type(value).__name__}")
+    return int(value)
 
 
 def _group_attendee_numbers(response: Response) -> list[int]:
