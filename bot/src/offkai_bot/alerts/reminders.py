@@ -189,7 +189,7 @@ class SendCheckinReminderTask(Task):
         sent = 0
         for index, response in enumerate(attendees):
             # Per-attendee private URL using the shared token helper.
-            rsvp_url = build_checkin_url(response.user_id)
+            rsvp_url = build_checkin_url(response.user_id, self.event_name)
             message = build_checkin_reminder_message(event, response, rsvp_url)
             try:
                 # DM the individual user. fetch_user + user.send opens a private
