@@ -71,7 +71,9 @@ DISCORD_MESSAGE_SOFT_LIMIT = 1900
 def _format_attendance_output(event_name: str, total_count: int, attendee_list: list[str]) -> str:
     output = f"**Attendance for {event_name}**\n\n"
     output += f"Total Attendees: **{total_count}**\n\n"
-    lines = [f"{getattr(name, 'attendee_number', None) or i + 1}. {name}" for i, name in enumerate(attendee_list)]
+    attendee_numbers = [getattr(name, "attendee_number", None) for name in attendee_list]
+    use_stored_numbers = all(number is not None for number in attendee_numbers)
+    lines = [f"{attendee_numbers[i] if use_stored_numbers else i + 1}. {name}" for i, name in enumerate(attendee_list)]
     output += "\n".join(lines)
     return output
 

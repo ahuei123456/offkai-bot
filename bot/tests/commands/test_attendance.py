@@ -75,6 +75,17 @@ async def test_format_attendance_output_uses_persisted_attendee_numbers():
     assert output == "**Attendance for Summer Bash**\n\nTotal Attendees: **2**\n\n4. Alice\n5. Bob"
 
 
+async def test_format_attendance_output_uses_dynamic_numbers_for_partial_numbering():
+    attendee_list = [
+        NumberedAttendeeName("Alice", 4),
+        "Bob",
+    ]
+
+    output = _format_attendance_output("Summer Bash", 2, attendee_list)
+
+    assert output == "**Attendance for Summer Bash**\n\nTotal Attendees: **2**\n\n1. Alice\n2. Bob"
+
+
 @patch("offkai_bot.cogs.events.calculate_attendance")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")

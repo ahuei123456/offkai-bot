@@ -75,9 +75,7 @@ RESPONSE_DATA_CACHE: dict[str, EventData] | None = None
 def _parse_optional_int(value: object) -> int | None:
     if value is None:
         return None
-    if not isinstance(value, int | str | bytes | bytearray):
-        raise TypeError(f"Expected int-compatible attendee number, got {type(value).__name__}")
-    return int(value)
+    return _parse_required_int(value)
 
 
 def _parse_int_list(value: object) -> list[int]:
@@ -87,7 +85,7 @@ def _parse_int_list(value: object) -> list[int]:
 
 
 def _parse_required_int(value: object) -> int:
-    if not isinstance(value, int | str | bytes | bytearray):
+    if not isinstance(value, int | str):
         raise TypeError(f"Expected int-compatible attendee number, got {type(value).__name__}")
     return int(value)
 
@@ -105,11 +103,7 @@ def _event_has_attendee_numbers(event_data: EventData) -> bool:
 
 
 def _next_attendee_number(event_data: EventData) -> int:
-    assigned_numbers = [
-        number
-        for response in event_data["attendees"]
-        for number in _group_attendee_numbers(response)
-    ]
+    assigned_numbers = [number for response in event_data["attendees"] for number in _group_attendee_numbers(response)]
     return max(assigned_numbers, default=0) + 1
 
 
@@ -663,6 +657,7 @@ def calculate_attendance(
         nicknames: If True, show display names alongside usernames when they differ.
         drinks: If True, append each attendee's drink choice.
         sort: If True, sort based on the main user and bundle extras after them.
+            Ignored for completely numbered events so stored numbers display in sequence.
 
     Returns:
         A tuple containing:
