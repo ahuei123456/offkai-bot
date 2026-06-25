@@ -547,7 +547,7 @@ class EventsCog(commands.Cog):
 
         output = _format_attendance_output(event_name, total_count, attendee_list)
 
-        if total_count > ATTENDANCE_FILE_THRESHOLD:
+        if total_count > ATTENDANCE_FILE_THRESHOLD or len(output) > DISCORD_MESSAGE_SOFT_LIMIT:
             try:
                 await interaction.user.send(
                     f"Attendance for **{event_name}** is attached as a text file.",
@@ -570,9 +570,6 @@ class EventsCog(commands.Cog):
                     ephemeral=True,
                 )
             return
-
-        if len(output) > DISCORD_MESSAGE_SOFT_LIMIT:
-            output = output[:DISCORD_MESSAGE_SOFT_LIMIT] + "\n... (list truncated)"
 
         await interaction.response.send_message(output, ephemeral=True)
 

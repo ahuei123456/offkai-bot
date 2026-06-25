@@ -205,37 +205,37 @@ async def test_attendance_sort_success(
     mock_log.warning.assert_not_called()
 
 
+@patch("offkai_bot.cogs.events.discord.File")
 @patch("offkai_bot.cogs.events.calculate_attendance")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
-async def test_attendance_success_truncation(
+async def test_attendance_long_output_under_100_sends_file_by_dm(
     mock_log,
     mock_get_event,
     mock_calculate_attendance,
+    mock_discord_file,
     mock_interaction,
     mock_event_obj,
     prepopulated_event_cache,
     mock_cog,
 ):
-    """Test attendance output truncation when the list is very long."""
+    """Test attendance sends a full DM text file when output is too long."""
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
+    mock_interaction.user.send = AsyncMock()
+    mock_file = MagicMock()
+    mock_discord_file.return_value = mock_file
 
-    # Create a very long list of attendees
     long_attendee_list = [f"User{i:03d}" for i in range(1000)]
     mock_total_count = 100
     mock_calculate_attendance.return_value = (mock_total_count, long_attendee_list)
 
-    # Construct the expected *full* output first to check length
     full_output_list = "\n".join(f"{i + 1}. {name}" for i, name in enumerate(long_attendee_list))
     full_output = (
         f"**Attendance for {event_name_target}**\n\nTotal Attendees: **{mock_total_count}**\n\n{full_output_list}"
     )
     assert len(full_output) > 1900  # Verify our test data causes truncation
-
-    # Construct the expected truncated output
-    expected_truncated_output = full_output[:1900] + "\n... (list truncated)"
 
     # Act
     await EventsCog.attendance.callback(
@@ -247,7 +247,18 @@ async def test_attendance_success_truncation(
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
+    mock_discord_file.assert_called_once()
+    assert mock_discord_file.call_args.kwargs["filename"] == "attendance_Summer_Bash.txt"
+    assert mock_discord_file.call_args.kwargs["fp"].getvalue() == full_output.encode("utf-8")
+    mock_interaction.user.send.assert_awaited_once_with(
+        f"Attendance for **{event_name_target}** is attached as a text file.",
+        file=mock_file,
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"Attendance list for '{event_name_target}' has been sent to you by DM.",
+        ephemeral=True,
+    )
+    mock_log.warning.assert_not_called()
 
 
 @patch("offkai_bot.cogs.events.discord.File")
