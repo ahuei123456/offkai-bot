@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from offkai_bot.alerts.task import Task  # Import base Task for type hinting
+from offkai_bot.util import JST  # Import the JST timezone object
 
 # Import the module and functions to test
 from offkai_bot.alerts import alerts
-from offkai_bot.alerts.task import Task  # Import base Task for type hinting
-from offkai_bot.util import JST  # Import the JST timezone object
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
