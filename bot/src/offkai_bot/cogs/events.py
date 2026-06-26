@@ -27,6 +27,7 @@ from offkai_bot.data.response import (
     calculate_attendance,
     calculate_drinks,
     calculate_waitlist,
+    clear_attendee_numbers,
     get_waitlist,
     promote_specific_from_waitlist,
     remove_response,
@@ -70,7 +71,9 @@ DISCORD_MESSAGE_SOFT_LIMIT = 1900
 def _format_attendance_output(event_name: str, total_count: int, attendee_list: list[str]) -> str:
     output = f"**Attendance for {event_name}**\n\n"
     output += f"Total Attendees: **{total_count}**\n\n"
-    lines = [f"{i + 1}. {name}" for i, name in enumerate(attendee_list)]
+    attendee_numbers = [getattr(name, "attendee_number", None) for name in attendee_list]
+    use_stored_numbers = all(number is not None for number in attendee_numbers)
+    lines = [f"{attendee_numbers[i] if use_stored_numbers else i + 1}. {name}" for i, name in enumerate(attendee_list)]
     output += "\n".join(lines)
     return output
 
@@ -340,6 +343,8 @@ class EventsCog(commands.Cog):
     @log_command_usage
     async def reopen_offkai(self, interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
         reopened_event = set_event_open_status(event_name, target_open_status=True)
+        clear_attendee_numbers(event_name)
+        save_responses()
         save_event_data()
         await update_event_message(self.bot, reopened_event)
 
@@ -492,7 +497,7 @@ class EventsCog(commands.Cog):
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response(event_name, promoted_response)
+        add_response(event_name, promoted_response, force_attendee_number=not event.open)
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)

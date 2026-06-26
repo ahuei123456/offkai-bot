@@ -168,7 +168,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response(event.event_name, promoted_response)
+        add_response(event.event_name, promoted_response, force_attendee_number=not event.open)
         promoted_count += 1
         promoted_user_ids.append(promoted_entry.user_id)
 
