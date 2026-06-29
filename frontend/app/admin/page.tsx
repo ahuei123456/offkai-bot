@@ -29,7 +29,21 @@ type EventOption = {
 // Scanner result is keyed by a stable `kind` (not display wording) so the badge
 // and styling stay correct even if the copy changes.
 type ScanResultKind = 'checked_in' | 'already_checked_in' | 'wrong_event' | 'invalid_qr' | 'error'
-type ScanResult = { kind: ScanResultKind; name: string }
+type ScanResult = {
+  kind: ScanResultKind
+  name: string
+  // True when produced by a live camera decode, so the popup auto-dismisses and
+  // the scanner resumes (manual/setup errors stay until dismissed).
+  fromScan: boolean
+  extraPeople?: number
+  extrasNames?: string[]
+  time?: string
+}
+
+// How long the scan popup stays up before auto-dismissing and resuming scanning.
+const POPUP_MS: Record<ScanResultKind, number> = {
+  checked_in: 3500, already_checked_in: 3500, wrong_event: 4500, invalid_qr: 4500, error: 6000,
+}
 
 const SCAN_RESULT_META: Record<ScanResultKind, { ok: boolean; badge: string; title: string }> = {
   checked_in:         { ok: true,  badge: 'OK',    title: 'Checked In!' },
@@ -105,6 +119,7 @@ export default function AdminPage() {
   const [checkins, setCheckins] = useState<Record<string, CheckinRecord>>({})
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
+  const [popupMsLeft, setPopupMsLeft] = useState(0)
   const [filter, setFilter] = useState<'all' | 'checked' | 'pending'>('all')
   const [search, setSearch] = useState('')
   // Rows the admin just checked in/out — kept visible regardless of the active
@@ -115,11 +130,13 @@ export default function AdminPage() {
   const Html5QrcodeRef = useRef<typeof import('html5-qrcode').Html5Qrcode | null>(null)
   const selectedEventRef = useRef('')
   const keyRef = useRef('')
+  const attendeesRef = useRef<Attendee[]>([])
   const scannerDivId = 'qr-scanner-container'
 
   // Keep refs in sync so the scan callback always reads current values.
   useEffect(() => { selectedEventRef.current = selectedEvent }, [selectedEvent])
   useEffect(() => { keyRef.current = key }, [key])
+  useEffect(() => { attendeesRef.current = attendees }, [attendees])
 
   // Pre-load the QR library on mount. Importing it inside the click handler is a
   // network fetch that crosses a task boundary and revokes the browser's
@@ -237,6 +254,13 @@ export default function AdminPage() {
     }
   }, [key, selectedEvent])
 
+  // Show a scan result and seed its countdown here (event-handler context) so
+  // the lifecycle effect only has to tick the timer down, never seed it.
+  const presentScan = useCallback((r: ScanResult) => {
+    setScanResult(r)
+    setPopupMsLeft(r.fromScan && r.kind !== 'error' ? POPUP_MS[r.kind] : 0)
+  }, [])
+
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
       try { await scannerRef.current.stop() } catch { /* ignore */ }
@@ -249,7 +273,7 @@ export default function AdminPage() {
   const startScanner = useCallback(async () => {
     const QrScanner = Html5QrcodeRef.current
     if (!QrScanner) {
-      setScanResult({ kind: 'error', name: 'Scanner not ready — reload the page and try again' })
+      presentScan({ kind: 'error', name: 'Scanner not ready — reload the page and try again', fromScan: false })
       return
     }
 
@@ -282,7 +306,7 @@ export default function AdminPage() {
           try {
             const url = new URL(decodedText)
             if (url.origin !== window.location.origin) {
-              setScanResult({ kind: 'invalid_qr', name: 'This code is not from this site' })
+              presentScan({ kind: 'invalid_qr', name: 'This code is not from this site', fromScan: true })
               return
             }
             token = url.searchParams.get('token')
@@ -292,7 +316,7 @@ export default function AdminPage() {
           }
 
           if (!token) {
-            setScanResult({ kind: 'invalid_qr', name: 'No check-in token found' })
+            presentScan({ kind: 'invalid_qr', name: 'No check-in token found', fromScan: true })
             return
           }
 
@@ -306,17 +330,22 @@ export default function AdminPage() {
           const data = await res.json().catch(() => ({}))
 
           if (res.ok && data.record) {
-            setScanResult({
+            const att = attendeesRef.current.find(a => a.user_id === data.record.user_id)
+            presentScan({
               kind: data.already_checked_in ? 'already_checked_in' : 'checked_in',
               name: data.record.name || 'Guest',
+              fromScan: true,
+              extraPeople: att?.extra_people ?? 0,
+              extrasNames: att?.extras_names ?? [],
+              time: new Date(data.record.checked_in_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
             })
             setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
           } else if (data.error === 'wrong_event') {
-            setScanResult({ kind: 'wrong_event', name: `QR is for "${data.token_event}", not the selected event` })
+            presentScan({ kind: 'wrong_event', name: `QR is for "${data.token_event}", not the selected event`, fromScan: true })
           } else if (data.error === 'attendee_not_in_event') {
-            setScanResult({ kind: 'wrong_event', name: 'Not registered for this event' })
+            presentScan({ kind: 'wrong_event', name: 'Not registered for this event', fromScan: true })
           } else {
-            setScanResult({ kind: 'invalid_qr', name: 'QR code not recognised' })
+            presentScan({ kind: 'invalid_qr', name: 'QR code not recognised', fromScan: true })
           }
         },
         () => { /* per-frame decode misses — ignore */ }
@@ -328,8 +357,9 @@ export default function AdminPage() {
       const noCamera = lower.includes('notfound') || lower.includes('no camera') || lower.includes('overconstrained')
       setScanning(false)
       scannerRef.current = null
-      setScanResult({
+      presentScan({
         kind: 'error',
+        fromScan: false,
         name: isPermission
           ? 'Camera blocked. Allow camera access in your browser settings, then reload.'
           : noCamera
@@ -337,7 +367,34 @@ export default function AdminPage() {
             : msg,
       })
     }
-  }, [stopScanner])
+  }, [stopScanner, presentScan])
+
+  // Scan popup lifecycle: a live decode shows a full-screen confirmation with a
+  // millisecond countdown, then auto-dismisses and resumes scanning so staff can
+  // keep waving QRs through. Setup/camera errors (fromScan=false) wait for a tap.
+  useEffect(() => {
+    if (!scanResult || !scanResult.fromScan) return
+    const total = POPUP_MS[scanResult.kind]
+    const start = Date.now()
+    const id = setInterval(() => {
+      const left = total - (Date.now() - start)
+      if (left <= 0) {
+        clearInterval(id)
+        setPopupMsLeft(0)
+        setScanResult(null)
+        if (scanResult.kind !== 'error') startScanner()
+      } else {
+        setPopupMsLeft(left)
+      }
+    }, 47)
+    return () => clearInterval(id)
+  }, [scanResult, startScanner])
+
+  const dismissPopup = useCallback(() => {
+    const wasScan = scanResult?.fromScan && scanResult.kind !== 'error'
+    setScanResult(null)
+    if (wasScan) startScanner()
+  }, [scanResult, startScanner])
 
   // Header counters reflect physical people, not RSVP records: each attending
   // record is the primary attendee plus their extra_people guests, who check in
@@ -462,32 +519,8 @@ export default function AdminPage() {
 
       <div className="p-4 space-y-4 lg:p-6">
         {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
-        <div className={`brand-card rounded-2xl overflow-hidden ${!scanning && !scanResult ? 'hidden' : ''}`}>
-          <div id={scannerDivId} className={`w-full ${scanning ? '' : 'hidden'}`} />
-          {!scanning && scanResult && (() => {
-            const meta = SCAN_RESULT_META[scanResult.kind]
-            return (
-              <div
-                role={meta.ok ? 'status' : 'alert'}
-                aria-live={meta.ok ? 'polite' : 'assertive'}
-                className={`p-6 text-center ${meta.ok ? 'bg-green-50' : 'bg-red-50'}`}
-              >
-                <p className={`mx-auto mb-3 inline-flex h-12 min-w-12 items-center justify-center rounded-full border-2 border-[#17120F] px-4 text-sm font-black uppercase tracking-widest ${meta.ok ? 'bg-[#FFD51B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
-                  {meta.badge}
-                </p>
-                <p className={`font-black text-lg uppercase ${meta.ok ? 'text-green-800' : 'text-red-800'}`}>
-                  {meta.title}
-                </p>
-                <p className="font-bold text-sm mt-1 text-[#5B3428]">{scanResult.name}</p>
-                <button
-                  onClick={startScanner}
-                  className="brand-action mt-4 font-black uppercase text-xs tracking-widest px-6 py-2 rounded-xl"
-                >
-                  Scan Next
-                </button>
-              </div>
-            )
-          })()}
+        <div className={`brand-card rounded-2xl overflow-hidden ${scanning ? '' : 'hidden'}`}>
+          <div id={scannerDivId} className="w-full" />
         </div>
 
         {/* Filters */}
@@ -606,6 +639,55 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Scan confirmation popup — full-screen so staff instantly see who just
+          checked in (and how big their party is), then it auto-dismisses. */}
+      {scanResult && (() => {
+        const meta = SCAN_RESULT_META[scanResult.kind]
+        const party = 1 + (scanResult.extraPeople ?? 0)
+        return (
+          <div
+            role={meta.ok ? 'status' : 'alert'}
+            aria-live={meta.ok ? 'polite' : 'assertive'}
+            onClick={dismissPopup}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[#17120F]/70 backdrop-blur-sm cursor-pointer"
+          >
+            <div className={`brand-card w-full max-w-sm rounded-3xl border-4 border-[#17120F] p-8 text-center ${meta.ok ? 'bg-green-50' : 'bg-red-50'}`}>
+              <span className={`mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#17120F] text-2xl font-black ${meta.ok ? 'bg-[#FFD51B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
+                {meta.ok ? '✓' : '✕'}
+              </span>
+              <p className={`font-display text-lg uppercase tracking-tight ${meta.ok ? 'text-green-800' : 'text-red-800'}`}>
+                {meta.title}
+              </p>
+              <p className="mt-2 font-black text-3xl leading-tight text-[#17120F] break-words">{scanResult.name}</p>
+              {meta.ok && party > 1 && (
+                <p className="mt-2 text-sm font-black uppercase tracking-widest text-[#8B2D1F]">Party of {party}</p>
+              )}
+              {meta.ok && scanResult.extrasNames && scanResult.extrasNames.length > 0 && (
+                <p className="mt-1 text-sm font-bold text-[#5B3428]">+{scanResult.extrasNames.join(', ')}</p>
+              )}
+              {meta.ok && scanResult.time && (
+                <p className="mt-3 text-xs font-bold uppercase tracking-widest text-[#8B2D1F]/70">{scanResult.time}</p>
+              )}
+              {scanResult.fromScan && scanResult.kind !== 'error' ? (
+                <div className="mt-5">
+                  <div className="h-2 w-full overflow-hidden rounded-full border-2 border-[#17120F] bg-white">
+                    <div
+                      className={`h-full ${meta.ok ? 'bg-[#FFD51B]' : 'bg-[#E51F1F]'}`}
+                      style={{ width: `${(popupMsLeft / POPUP_MS[scanResult.kind]) * 100}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 font-mono text-[11px] font-black tabular-nums text-[#8B2D1F]">
+                    {Math.ceil(popupMsLeft)} ms · tap to scan next
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-5 text-[10px] font-black uppercase tracking-widest text-[#8B2D1F]/50">Tap to dismiss</p>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </main>
   )
 }

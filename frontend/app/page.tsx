@@ -1,10 +1,167 @@
 'use client'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useCallback, useSyncExternalStore, Suspense, createContext, useContext } from 'react'
 import { useSearchParams } from 'next/navigation'
 import QRCode from 'react-qr-code'
 
 type ViewState = 'loading' | 'no_token' | 'invalid' | 'not_found' | 'unavailable' | 'ready'
 type AttendeeData = { attendee: Record<string, unknown>; event: Record<string, unknown> }
+
+type Lang = 'en' | 'ja'
+
+const STRINGS = {
+  en: {
+    locale: 'en-GB',
+    rsvpPass: 'RSVP Pass',
+    loading: 'Loading...',
+    checkDms: 'Check Your DMs',
+    checkDmsBody: 'Your personal event link was sent to you via Discord DM. Open that message and tap the link to view your RSVP details.',
+    linkInvalid: 'Link Invalid',
+    rsvpNotFound: 'RSVP Not Found',
+    rsvpUnavailable: 'RSVP Unavailable',
+    notFoundBody: "We couldn't find your RSVP for this event. Check with the event host if you believe this is an error.",
+    unavailableBody: "We couldn't load your RSVP right now. Check your connection and try again.",
+    invalidBody: 'This link has expired or is invalid. Check your Discord DMs for an updated link.',
+    retry: 'Retry',
+    offkaiPass: 'Offkai Pass',
+    today: 'Today',
+    arrival: 'Arrival',
+    entryPass: 'Entry Pass',
+    waitlist: 'Waitlist',
+    confirmed: 'Confirmed',
+    name: 'Name',
+    showAtCheckin: 'Show at check-in',
+    standbyMode: 'Standby Mode',
+    standbyBody: "You're on the waitlist — we'll DM you on Discord if a spot opens up.",
+    venue: 'Venue',
+    maps: 'Maps',
+    drinkTickets: 'Drink Tickets',
+    firstDrinkTicket: 'First Drink Ticket',
+    readyCheck: 'Ready Check',
+    chkEntry: 'Entry pass',
+    chkRules: 'Rules',
+    chkArrival: 'Arrival',
+    offkaiDetails: 'Offkai Details',
+    capacity: 'Capacity',
+    rsvp: 'RSVP',
+    deadline: 'Deadline',
+    personalLink: "This link is personal — please don't share it.",
+    open: 'Open',
+    closed: 'Closed',
+    tbd: 'TBD',
+    tba: 'TBA',
+    solo: 'Solo',
+    partyOf: (n: number) => `Party of ${n}`,
+    guests: (n: number) => `+${n} guest${n > 1 ? 's' : ''}`,
+    datePending: 'Date pending',
+    startsOn: (d: string) => `Starts ${d}`,
+    startsIn: (m: number) => `Starts in ${m} min`,
+    happeningNow: 'Happening now',
+    eventEnded: 'Event ended',
+  },
+  ja: {
+    locale: 'ja-JP',
+    rsvpPass: '参加パス',
+    loading: '読み込み中...',
+    checkDms: 'DMをご確認ください',
+    checkDmsBody: '個別の参加リンクをDiscordのDMでお送りしました。そのメッセージを開き、リンクをタップして参加情報をご確認ください。',
+    linkInvalid: 'リンクが無効です',
+    rsvpNotFound: '参加情報が見つかりません',
+    rsvpUnavailable: '参加情報を取得できません',
+    notFoundBody: 'このイベントの参加情報が見つかりませんでした。お心当たりがない場合は主催者にお問い合わせください。',
+    unavailableBody: '現在、参加情報を読み込めませんでした。接続を確認して再度お試しください。',
+    invalidBody: 'このリンクは期限切れか無効です。最新のリンクはDiscordのDMをご確認ください。',
+    retry: '再試行',
+    offkaiPass: 'オフ会パス',
+    today: '本日',
+    arrival: '到着',
+    entryPass: '入場パス',
+    waitlist: 'キャンセル待ち',
+    confirmed: '確定',
+    name: 'お名前',
+    showAtCheckin: '受付でご提示ください',
+    standbyMode: 'キャンセル待ち',
+    standbyBody: 'キャンセル待ちです。空きが出たらDiscordのDMでお知らせします。',
+    venue: '会場',
+    maps: '地図',
+    drinkTickets: 'ドリンクチケット',
+    firstDrinkTicket: '1杯目ドリンクチケット',
+    readyCheck: '準備確認',
+    chkEntry: '入場',
+    chkRules: 'ルール',
+    chkArrival: '到着',
+    offkaiDetails: 'オフ会詳細',
+    capacity: '定員',
+    rsvp: '受付',
+    deadline: '締切',
+    personalLink: 'このリンクは個人用です。共有しないでください。',
+    open: '受付中',
+    closed: '締切',
+    tbd: '未定',
+    tba: '未定',
+    solo: '1名',
+    partyOf: (n: number) => `${n}名`,
+    guests: (n: number) => `同伴${n}名`,
+    datePending: '日程未定',
+    startsOn: (d: string) => `${d} 開始`,
+    startsIn: (m: number) => `あと${m}分`,
+    happeningNow: '開催中',
+    eventEnded: '終了',
+  },
+}
+
+type Strings = typeof STRINGS['en']
+
+const LangContext = createContext<{ lang: Lang; t: Strings; setLang: (l: Lang) => void }>({
+  lang: 'en', t: STRINGS.en, setLang: () => {},
+})
+const useT = () => useContext(LangContext)
+
+const LANG_EVENT = 'offkai-lang-change'
+
+function subscribeLang(cb: () => void) {
+  window.addEventListener(LANG_EVENT, cb)
+  window.addEventListener('storage', cb)
+  return () => {
+    window.removeEventListener(LANG_EVENT, cb)
+    window.removeEventListener('storage', cb)
+  }
+}
+
+// Reads the saved choice, else falls back to the browser locale. Used as the
+// useSyncExternalStore client snapshot so language resolves on the client
+// without a hydration mismatch (server always snapshots 'en').
+function readLang(): Lang {
+  const saved = localStorage.getItem('lang')
+  if (saved === 'en' || saved === 'ja') return saved
+  return navigator.language?.toLowerCase().startsWith('ja') ? 'ja' : 'en'
+}
+
+function useLang(): [Lang, (l: Lang) => void] {
+  const lang = useSyncExternalStore(subscribeLang, readLang, () => 'en' as Lang)
+  const setLang = useCallback((l: Lang) => {
+    localStorage.setItem('lang', l)
+    window.dispatchEvent(new Event(LANG_EVENT))
+  }, [])
+  return [lang, setLang]
+}
+
+function LangToggle({ className = '' }: { className?: string }) {
+  const { lang, setLang } = useT()
+  return (
+    <div className={`inline-flex shrink-0 overflow-hidden rounded-lg border-2 border-[#17120F] text-[10px] font-black uppercase tracking-widest shadow-[2px_2px_0_#17120F] ${className}`}>
+      {(['en', 'ja'] as const).map(l => (
+        <button
+          key={l}
+          onClick={() => setLang(l)}
+          aria-pressed={lang === l}
+          className={`px-2.5 py-1 ${lang === l ? 'bg-[#17120F] text-white' : 'bg-white text-[#17120F]'}`}
+        >
+          {l === 'en' ? 'EN' : '日本語'}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function getDrinkColors(name: string) {
   const n = name.toLowerCase()
@@ -17,24 +174,24 @@ function getDrinkColors(name: string) {
   return { bg: 'bg-white', border: 'border-[#17120F]', strip: 'bg-[#17120F]' }
 }
 
-function formatArrivalTime(iso: string) {
-  if (!iso) return 'TBD'
+function formatArrivalTime(iso: string, t: Strings) {
+  if (!iso) return t.tbd
   try {
     return new Date(iso).toLocaleTimeString('en-GB', {
       timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit',
     }) + ' JST'
-  } catch { return 'TBD' }
+  } catch { return t.tbd }
 }
 
-function getEventPhase(iso: string) {
-  if (!iso) return 'Date pending'
+function getEventPhase(iso: string, t: Strings) {
+  if (!iso) return t.datePending
   const eventTime = new Date(iso).getTime()
-  if (Number.isNaN(eventTime)) return 'Date pending'
+  if (Number.isNaN(eventTime)) return t.datePending
   const diffMinutes = Math.round((eventTime - Date.now()) / 60000)
-  if (diffMinutes > 90) return `Starts ${new Date(iso).toLocaleDateString('en-GB', { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric' })}`
-  if (diffMinutes > 0) return `Starts in ${diffMinutes} min`
-  if (diffMinutes > -180) return 'Happening now'
-  return 'Event ended'
+  if (diffMinutes > 90) return t.startsOn(new Date(iso).toLocaleDateString(t.locale, { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric' }))
+  if (diffMinutes > 0) return t.startsIn(diffMinutes)
+  if (diffMinutes > -180) return t.happeningNow
+  return t.eventEnded
 }
 
 function DrinkCard({ name }: { name: string }) {
@@ -161,6 +318,7 @@ function SmileyMark({ className = '' }: { className?: string }) {
 }
 
 function BrandSign({ compact = false }: { compact?: boolean }) {
+  const { t } = useT()
   if (compact) {
     return (
       <div className="inline-flex items-center gap-1.5">
@@ -176,14 +334,17 @@ function BrandSign({ compact = false }: { compact?: boolean }) {
         <span className="brand-wordmark text-[2.4rem] leading-[0.95]">Offkai Bot</span>
         <SmileyMark className="h-8 w-8 shrink-0 -rotate-6 drop-shadow-[2px_2px_0_#17120F]" />
       </div>
-      <span className="mt-2 font-display text-[10px] uppercase tracking-[0.42em] text-white drop-shadow-[1.5px_1.5px_0_#17120F]">RSVP Pass</span>
+      <span className="mt-2 font-display text-[10px] uppercase tracking-[0.42em] text-white drop-shadow-[1.5px_1.5px_0_#17120F]">{t.rsvpPass}</span>
     </div>
   )
 }
 
 function CenterCard({ children }: { children: React.ReactNode }) {
   return (
-    <main className="brand-rays min-h-dvh flex items-center justify-center p-6 text-[#23110D]">
+    <main className="brand-rays min-h-dvh flex flex-col items-center justify-center p-6 text-[#23110D]">
+      <div className="mb-4 w-full max-w-sm flex justify-end">
+        <LangToggle />
+      </div>
       <div className="brand-card w-full max-w-sm rounded-3xl p-7 text-center">
         {children}
       </div>
@@ -192,26 +353,24 @@ function CenterCard({ children }: { children: React.ReactNode }) {
 }
 
 function NoToken() {
+  const { t } = useT()
   return (
     <CenterCard>
       <BrandSign compact />
-      <h1 className="mt-7 font-display text-2xl uppercase tracking-tight">Check Your DMs</h1>
-      <p className="mt-3 text-sm font-bold leading-relaxed text-[#5B3428]">
-        Your personal event link was sent to you via Discord DM. Open that message and tap the link to view your RSVP details.
-      </p>
+      <h1 className="mt-7 font-display text-2xl uppercase tracking-tight">{t.checkDms}</h1>
+      <p className="mt-3 text-sm font-bold leading-relaxed text-[#5B3428]">{t.checkDmsBody}</p>
     </CenterCard>
   )
 }
 
 function InvalidToken({ reason }: { reason: 'invalid' | 'not_found' | 'unavailable' }) {
-  const title = reason === 'not_found' ? 'RSVP Not Found' : reason === 'unavailable' ? 'RSVP Unavailable' : 'Link Invalid'
+  const { t } = useT()
+  const title = reason === 'not_found' ? t.rsvpNotFound : reason === 'unavailable' ? t.rsvpUnavailable : t.linkInvalid
   const badge = reason === 'not_found' ? '404' : reason === 'unavailable' ? '503' : 'NG'
   const message =
-    reason === 'not_found'
-      ? "We couldn't find your RSVP for this event. Check with the event host if you believe this is an error."
-      : reason === 'unavailable'
-        ? "We couldn't load your RSVP right now. Check your connection and try again."
-        : 'This link has expired or is invalid. Check your Discord DMs for an updated link.'
+    reason === 'not_found' ? t.notFoundBody
+      : reason === 'unavailable' ? t.unavailableBody
+        : t.invalidBody
   return (
     <CenterCard>
       <BrandSign compact />
@@ -225,7 +384,7 @@ function InvalidToken({ reason }: { reason: 'invalid' | 'not_found' | 'unavailab
           onClick={() => window.location.reload()}
           className="brand-action mt-5 min-h-[44px] rounded-xl px-6 font-black uppercase tracking-widest text-sm"
         >
-          Retry
+          {t.retry}
         </button>
       )}
     </CenterCard>
@@ -233,6 +392,7 @@ function InvalidToken({ reason }: { reason: 'invalid' | 'not_found' | 'unavailab
 }
 
 function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
+  const { t } = useT()
   const { attendee, event } = data
   const name = (attendee.display_name || attendee.username) as string
   const status = attendee.status as string
@@ -242,7 +402,7 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
   const behaviorConfirmed = !!attendee.behavior_confirmed
   const arrivalConfirmed = !!attendee.arrival_confirmed
   const eventName = event.event_name as string
-  const venue = (event.venue as string) || 'TBA'
+  const venue = (event.venue as string) || t.tba
   const address = (event.address as string) || ''
   const mapsLink = (event.google_maps_link as string) || ''
   const datetime = (event.event_datetime as string) || ''
@@ -251,12 +411,12 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
   const eventDeadline = event.event_deadline as string | undefined
   const isWaitlist = status === 'waitlist'
   const partySize = 1 + extraPeople
-  const companions = extrasNames.length > 0 ? extrasNames.join(', ') : extraPeople > 0 ? `+${extraPeople} guest${extraPeople > 1 ? 's' : ''}` : 'Solo'
-  const rsvpStatus = typeof eventOpen === 'boolean' ? (eventOpen ? 'Open' : 'Closed') : 'TBD'
+  const companions = extrasNames.length > 0 ? extrasNames.join(', ') : extraPeople > 0 ? t.guests(extraPeople) : t.solo
+  const rsvpStatus = typeof eventOpen === 'boolean' ? (eventOpen ? t.open : t.closed) : t.tbd
   const checks = [
-    { label: 'Entry pass', done: !isWaitlist },
-    { label: 'Rules', done: behaviorConfirmed },
-    { label: 'Arrival', done: arrivalConfirmed },
+    { label: t.chkEntry, done: !isWaitlist },
+    { label: t.chkRules, done: behaviorConfirmed },
+    { label: t.chkArrival, done: arrivalConfirmed },
   ]
   const qrValue = typeof window !== 'undefined'
     ? `${window.location.origin}/?token=${token}`
@@ -266,6 +426,10 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
     <main className="brand-bg min-h-dvh w-full max-w-md mx-auto text-[#23110D] pb-12 font-sans md:my-8 md:min-h-0 md:rounded-[2rem] md:shadow-2xl md:overflow-hidden">
       <div className="brand-sunburst relative overflow-hidden px-5 pb-5 pt-16 text-white rounded-b-[2rem] border-b-4 border-[#17120F] shadow-[0_8px_0_#17120F]">
         <LanternGarland />
+
+        <div className="absolute right-4 top-4 z-10">
+          <LangToggle />
+        </div>
 
         <div className="flex justify-center">
           <BrandSign />
@@ -280,17 +444,17 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
           <div className="brand-banner inline-block rounded-xl px-4 py-1.5">
             <h1 className="font-display text-lg sm:text-xl uppercase tracking-tight leading-tight text-[#FFF8D8]">{eventName}</h1>
           </div>
-          <span className="mt-2 inline-block rounded-xl border-2 border-[#17120F] bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-[#17120F] shadow-[3px_3px_0_#FFD51B]">Offkai Pass</span>
+          <span className="mt-2 inline-block rounded-xl border-2 border-[#17120F] bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-[#17120F] shadow-[3px_3px_0_#FFD51B]">{t.offkaiPass}</span>
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2 text-[#23110D]">
           <div className="rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] p-3 shadow-[3px_3px_0_#17120F]">
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Today</p>
-            <p className="text-sm font-black">{getEventPhase(datetime)}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">{t.today}</p>
+            <p className="text-sm font-black">{getEventPhase(datetime, t)}</p>
           </div>
           <div className="rounded-2xl border-2 border-[#17120F] bg-white p-3 shadow-[3px_3px_0_#17120F]">
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Arrival</p>
-            <p className="text-sm font-black">{formatArrivalTime(datetime)}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">{t.arrival}</p>
+            <p className="text-sm font-black">{formatArrivalTime(datetime, t)}</p>
           </div>
         </div>
       </div>
@@ -298,16 +462,16 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
       <div className="p-6 space-y-4">
         <div className="brand-card rounded-2xl overflow-hidden">
           <div className={`${isWaitlist ? 'bg-[#F59E0B]' : 'bg-[#17120F]'} p-3 flex justify-between items-center`}>
-            <span className="text-[10px] font-black text-white tracking-[0.22em] uppercase">Entry Pass · 乾杯</span>
+            <span className="text-[10px] font-black text-white tracking-[0.22em] uppercase">{t.entryPass}</span>
             <span className={`text-[9px] font-black px-3 py-1 rounded border-2 uppercase tracking-widest ${isWaitlist ? 'bg-white text-[#17120F] border-[#17120F]' : 'bg-[#FFD51B] text-[#17120F] border-white'}`}>
-              {isWaitlist ? 'Waitlist' : 'Confirmed'}
+              {isWaitlist ? t.waitlist : t.confirmed}
             </span>
           </div>
           <div className="p-6 space-y-5">
             <div>
-              <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-[0.2em] mb-1">Name</p>
+              <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-[0.2em] mb-1">{t.name}</p>
               <h2 className="text-4xl font-black text-[#17120F] uppercase tracking-tight leading-none">{name}</h2>
-              <p className="mt-2 text-xs font-black text-[#8B2D1F]">Party of {partySize} · {companions}</p>
+              <p className="mt-2 text-xs font-black text-[#8B2D1F]">{t.partyOf(partySize)} · {companions}</p>
             </div>
 
             {!isWaitlist ? (
@@ -316,12 +480,12 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
                 <div className="p-3 bg-white rounded-xl border-2 border-[#17120F] shadow-[4px_4px_0_#E51F1F]">
                   <QRCode value={qrValue} size={188} fgColor="#17120F" role="img" aria-label={`Entry QR code for ${name}`} />
                 </div>
-                <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[#8B2D1F]">Show at check-in</p>
+                <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[#8B2D1F]">{t.showAtCheckin}</p>
               </div>
             ) : (
               <div className="rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] p-4 shadow-[4px_4px_0_#17120F]">
-                <p className="font-black uppercase tracking-widest text-[#17120F] text-sm">Standby Mode</p>
-                <p className="mt-1 text-xs font-bold text-[#5B3428]">You&apos;re on the waitlist — we&apos;ll DM you on Discord if a spot opens up.</p>
+                <p className="font-black uppercase tracking-widest text-[#17120F] text-sm">{t.standbyMode}</p>
+                <p className="mt-1 text-xs font-bold text-[#5B3428]">{t.standbyBody}</p>
               </div>
             )}
           </div>
@@ -330,14 +494,14 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
         <div className="brand-card rounded-2xl p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">Venue</p>
+              <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">{t.venue}</p>
               <p className="font-black text-[#17120F] text-lg leading-tight">{venue}</p>
               {address && <p className="text-xs font-bold text-[#5B3428] mt-1">{address}</p>}
             </div>
             {mapsLink && (
               <a href={mapsLink} target="_blank" rel="noopener noreferrer"
                 className="brand-action min-h-[44px] shrink-0 inline-flex items-center gap-1 text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-wider">
-                Maps
+                {t.maps}
               </a>
             )}
           </div>
@@ -347,9 +511,9 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
           <div className="brand-card rounded-2xl p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest">
-                {drinks.length > 1 ? 'Drink Tickets' : 'First Drink Ticket'}
+                {drinks.length > 1 ? t.drinkTickets : t.firstDrinkTicket}
               </p>
-              <span className="brand-stamp font-brush rotate-2 rounded-lg px-2 py-0.5 text-[10px] tracking-[0.12em]">乾杯</span>
+              <span className="brand-stamp font-brush rotate-2 rounded-lg px-2 py-0.5 text-[10px] tracking-[0.12em]" aria-hidden="true">乾杯</span>
             </div>
             <div className="space-y-2">
               {drinks.map((d, i) => <DrinkCard key={i} name={d} />)}
@@ -358,7 +522,7 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
         )}
 
         <div className="brand-card rounded-2xl p-5">
-          <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">Ready Check</p>
+          <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">{t.readyCheck}</p>
           <div className="grid grid-cols-3 gap-2">
             {checks.map(check => (
               <div key={check.label} className={`rounded-xl border-2 p-3 text-center ${check.done ? 'bg-white border-[#17120F]' : 'bg-[#FFD51B] border-[#17120F]'}`}>
@@ -370,25 +534,25 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
         </div>
 
         <div className="brand-card rounded-2xl p-5">
-          <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">Offkai Details</p>
+          <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">{t.offkaiDetails}</p>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-lg font-black text-[#17120F]">{maxCapacity || 'TBD'}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F]">Capacity</p>
+              <p className="text-lg font-black text-[#17120F]">{maxCapacity || t.tbd}</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F]">{t.capacity}</p>
             </div>
             <div>
               <p className="text-lg font-black text-[#17120F]">{rsvpStatus}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F]">RSVP</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F]">{t.rsvp}</p>
             </div>
             <div>
-              <p className="text-lg font-black text-[#17120F]">{eventDeadline ? formatArrivalTime(eventDeadline) : 'TBD'}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F]">Deadline</p>
+              <p className="text-lg font-black text-[#17120F]">{eventDeadline ? formatArrivalTime(eventDeadline, t) : t.tbd}</p>
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#8B2D1F]">{t.deadline}</p>
             </div>
           </div>
         </div>
 
         <p className="text-center text-[10px] font-black text-[#8B2D1F] uppercase tracking-widest pt-2">
-          This link is personal — please don&apos;t share it.
+          {t.personalLink}
         </p>
       </div>
     </main>
@@ -400,6 +564,7 @@ function AttendeeView() {
   const token = searchParams.get('token')
   const [view, setView] = useState<ViewState>('loading')
   const [data, setData] = useState<AttendeeData | null>(null)
+  const [lang, setLang] = useLang()
 
   useEffect(() => {
     if (!token) {
@@ -418,17 +583,25 @@ function AttendeeView() {
       .catch(() => setView('unavailable'))
   }, [token])
 
-  if (view === 'loading') return (
+  const t = STRINGS[lang]
+
+  let content: React.ReactNode = null
+  if (view === 'loading') content = (
     <div className="brand-rays min-h-dvh flex items-center justify-center">
-      <div className="brand-seal px-5 py-3 text-sm font-black uppercase tracking-widest text-white animate-pulse">Loading...</div>
+      <div className="brand-seal px-5 py-3 text-sm font-black uppercase tracking-widest text-white animate-pulse">{t.loading}</div>
     </div>
   )
-  if (view === 'no_token') return <NoToken />
-  if (view === 'invalid') return <InvalidToken reason="invalid" />
-  if (view === 'not_found') return <InvalidToken reason="not_found" />
-  if (view === 'unavailable') return <InvalidToken reason="unavailable" />
-  if (view === 'ready' && data) return <RSVPCard data={data} token={token!} />
-  return null
+  else if (view === 'no_token') content = <NoToken />
+  else if (view === 'invalid') content = <InvalidToken reason="invalid" />
+  else if (view === 'not_found') content = <InvalidToken reason="not_found" />
+  else if (view === 'unavailable') content = <InvalidToken reason="unavailable" />
+  else if (view === 'ready' && data) content = <RSVPCard data={data} token={token!} />
+
+  return (
+    <LangContext.Provider value={{ lang, t, setLang }}>
+      {content}
+    </LangContext.Provider>
+  )
 }
 
 export default function Page() {
