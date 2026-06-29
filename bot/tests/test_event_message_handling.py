@@ -3,9 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-
-# Import module and functions under test
-from offkai_bot import event_actions, interactions
 from offkai_bot.data.event import Event
 from offkai_bot.errors import (
     MissingChannelIDError,
@@ -13,6 +10,9 @@ from offkai_bot.errors import (
     ThreadNotFoundError,
 )
 from offkai_bot.main import load_and_update_events
+
+# Import module and functions under test
+from offkai_bot import event_actions, interactions
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio

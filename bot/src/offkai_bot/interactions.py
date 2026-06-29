@@ -168,7 +168,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response(event.event_name, promoted_response)
+        add_response(event.event_name, promoted_response, force_attendee_number=not event.open)
         promoted_count += 1
         promoted_user_ids.append(promoted_entry.user_id)
 
@@ -178,7 +178,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
 
         # Notify the promoted user
         try:
-            rsvp_url = build_checkin_url(promoted_entry.user_id)
+            rsvp_url = build_checkin_url(promoted_entry.user_id, event.event_name)
             rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
             rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
 
@@ -370,7 +370,7 @@ class GatheringModal(ui.Modal):
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
-        rsvp_url = build_checkin_url(response.user_id)
+        rsvp_url = build_checkin_url(response.user_id, response.event_name)
         rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
         rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
 

@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from offkai_bot.data.event import Event
+
 from offkai_bot.data import event as event_data
 from offkai_bot.data import ranking as ranking_data
 from offkai_bot.data import response as response_data
-from offkai_bot.data.event import Event
 
 
 @pytest.fixture(scope="module")  # Change scope to "module"
