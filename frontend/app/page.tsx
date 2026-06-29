@@ -32,6 +32,7 @@ const STRINGS = {
     entryNo: 'Entry No.',
     guestNos: 'Guest no.',
     showAtCheckin: 'Show at check-in',
+    live: 'Live',
     standbyMode: 'Standby Mode',
     standbyBody: "You're on the waitlist — we'll DM you on Discord if a spot opens up.",
     venue: 'Venue',
@@ -83,6 +84,7 @@ const STRINGS = {
     entryNo: '受付番号',
     guestNos: '同伴番号',
     showAtCheckin: '受付でご提示ください',
+    live: 'ライブ',
     standbyMode: 'キャンセル待ち',
     standbyBody: 'キャンセル待ちです。空きが出たらDiscordのDMでお知らせします。',
     venue: '会場',
@@ -395,6 +397,31 @@ function InvalidToken({ reason }: { reason: 'invalid' | 'not_found' | 'unavailab
   )
 }
 
+// Live JST clock with milliseconds under the QR — it visibly ticks, so staff
+// can tell a real pass from a screenshot at a glance.
+function LiveClock() {
+  const { t } = useT()
+  const [now, setNow] = useState('')
+  useEffect(() => {
+    let raf = 0
+    const tick = () => {
+      const d = new Date()
+      const hms = d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Tokyo', hour12: false })
+      setNow(`${hms}.${String(d.getMilliseconds()).padStart(3, '0')}`)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-xl border-2 border-[#17120F] bg-[#17120F] px-3 py-1.5 shadow-[3px_3px_0_#E51F1F]">
+      <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#3CCB5A]" aria-hidden="true" />
+      <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#FFD51B]">{t.live}</span>
+      <span className="font-mono text-sm font-black tabular-nums text-white" suppressHydrationWarning>{now || '--:--:--.---'} JST</span>
+    </div>
+  )
+}
+
 function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
   const { t } = useT()
   const { attendee, event } = data
@@ -497,6 +524,7 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
                 <div className="p-3 bg-white rounded-xl border-2 border-[#17120F] shadow-[4px_4px_0_#E51F1F]">
                   <QRCode value={qrValue} size={188} fgColor="#17120F" role="img" aria-label={`Entry QR code for ${name}`} />
                 </div>
+                <LiveClock />
                 <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[#8B2D1F]">{t.showAtCheckin}</p>
               </div>
             ) : (

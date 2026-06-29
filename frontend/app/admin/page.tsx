@@ -473,7 +473,7 @@ export default function AdminPage() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[10px] font-black tracking-[0.22em] uppercase text-white/80 mb-1">Staff Check-In</p>
-            <h1 className="font-display text-xl md:text-2xl uppercase tracking-tight leading-tight drop-shadow-[2px_2px_0_#17120F] truncate">{eventName}</h1>
+            <h1 className="font-display text-xl md:text-2xl uppercase tracking-tight leading-tight drop-shadow-[2px_2px_0_#17120F] break-words">{eventName}</h1>
             <span className="brand-stamp font-brush mt-2 inline-block -rotate-2 rounded-xl px-3 py-0.5 text-sm tracking-[0.12em]">受付中</span>
           </div>
           <div className="hidden sm:block shrink-0">
@@ -572,7 +572,7 @@ export default function AdminPage() {
                     {isIn ? '✓' : name[0].toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-black text-[#17120F] truncate">
+                    <p className="font-black text-[#17120F] break-words">
                       {a.attendee_number != null && (
                         <span className="mr-1.5 inline-block rounded-md border-2 border-[#17120F] bg-[#FFD51B] px-1.5 text-[11px] tabular-nums align-middle">#{a.attendee_number}</span>
                       )}
