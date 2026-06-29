@@ -1,7 +1,7 @@
 'use client'
 import QRCode from 'react-qr-code'
 import { useT, LangToggle } from '../../lib/i18n'
-import { formatArrivalTime, getEventPhase } from '../../lib/format'
+import { buildGoogleMapsDirectionsUrl, buildGoogleMapsEmbedUrl, formatArrivalTime, getEventPhase } from '../../lib/format'
 import type { AttendeeData } from '../../lib/types'
 import { BrandSign } from '../BrandSign'
 import { LiveClock } from '../LiveClock'
@@ -24,6 +24,8 @@ export function RSVPCard({ data, token }: { data: AttendeeData; token: string })
   const venue = (event.venue as string) || t.tba
   const address = (event.address as string) || ''
   const mapsLink = (event.google_maps_link as string) || ''
+  const mapEmbedUrl = buildGoogleMapsEmbedUrl(mapsLink, venue, address)
+  const routeLink = buildGoogleMapsDirectionsUrl(mapsLink, venue, address)
   const datetime = (event.event_datetime as string) || ''
   const maxCapacity = event.max_capacity as number | undefined
   const eventOpen = event.open as boolean | undefined
@@ -123,15 +125,35 @@ export function RSVPCard({ data, token }: { data: AttendeeData; token: string })
         </div>
 
         <div className="brand-card rounded-2xl p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">{t.venue}</p>
-              <p className="font-black text-[#17120F] text-lg leading-tight">{venue}</p>
-              {address && <p className="text-xs font-bold text-[#5B3428] mt-1">{address}</p>}
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-widest mb-3">{t.venue}</p>
+                <p className="font-black text-[#17120F] text-lg leading-tight">{venue}</p>
+                {address && <p className="text-xs font-bold text-[#5B3428] mt-1">{address}</p>}
+              </div>
+              {routeLink && (
+                <a href={routeLink} target="_blank" rel="noopener noreferrer"
+                  className="brand-action min-h-[44px] shrink-0 inline-flex items-center gap-1 text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-wider">
+                  {t.route}
+                </a>
+              )}
             </div>
+            {mapEmbedUrl && (
+              <div className="overflow-hidden rounded-xl border-2 border-[#17120F] bg-white shadow-[3px_3px_0_#17120F]">
+                <iframe
+                  src={mapEmbedUrl}
+                  title={`${venue} map`}
+                  className="h-48 w-full"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  allowFullScreen
+                />
+              </div>
+            )}
             {mapsLink && (
               <a href={mapsLink} target="_blank" rel="noopener noreferrer"
-                className="brand-action min-h-[44px] shrink-0 inline-flex items-center gap-1 text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-wider">
+                className="brand-action-alt min-h-[44px] w-full inline-flex items-center justify-center gap-1 text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-wider">
                 {t.maps}
               </a>
             )}

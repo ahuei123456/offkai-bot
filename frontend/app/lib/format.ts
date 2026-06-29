@@ -39,15 +39,43 @@ export function formatArrivalTime(iso: string, t: Strings) {
   } catch { return t.tbd }
 }
 
-export function getEventPhase(iso: string, t: Strings) {
+export function getEventPhase(iso: string, t: Strings, now = Date.now()) {
   if (!iso) return t.datePending
   const eventTime = new Date(iso).getTime()
   if (Number.isNaN(eventTime)) return t.datePending
-  const diffMinutes = Math.round((eventTime - Date.now()) / 60000)
-  if (diffMinutes > 90) return t.startsOn(new Date(iso).toLocaleDateString(t.locale, { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric' }))
+  const diffMinutes = Math.round((eventTime - now) / 60000)
+  if (diffMinutes >= 1440) return t.startsInDays(Math.max(1, Math.round(diffMinutes / 1440)))
+  if (diffMinutes > 90) return t.startsInHours(Math.floor(diffMinutes / 60), diffMinutes % 60)
   if (diffMinutes > 0) return t.startsIn(diffMinutes)
   if (diffMinutes > -180) return t.happeningNow
   return t.eventEnded
+}
+
+function getMapDestination(googleMapsLink: string, venue: string, address: string) {
+  const labeledLocation = [venue, address].filter(Boolean).join(', ')
+  if (labeledLocation) return labeledLocation
+
+  try {
+    const url = new URL(googleMapsLink)
+    const query = url.searchParams.get('q') || url.searchParams.get('query')
+    if (query) return query
+    const place = url.pathname.match(/\/place\/([^/]+)/)?.[1]
+    if (place) return decodeURIComponent(place.replace(/\+/g, ' '))
+  } catch {}
+
+  return googleMapsLink
+}
+
+export function buildGoogleMapsEmbedUrl(googleMapsLink: string, venue: string, address: string) {
+  const destination = getMapDestination(googleMapsLink, venue, address)
+  if (!destination) return ''
+  return `https://www.google.com/maps?${new URLSearchParams({ q: destination, output: 'embed' })}`
+}
+
+export function buildGoogleMapsDirectionsUrl(googleMapsLink: string, venue: string, address: string) {
+  const destination = getMapDestination(googleMapsLink, venue, address)
+  if (!destination) return googleMapsLink
+  return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', destination })}`
 }
 
 export function formatEventLabel(ev: EventOption) {
