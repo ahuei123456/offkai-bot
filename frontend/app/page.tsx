@@ -158,7 +158,7 @@ function LangToggle({ className = '' }: { className?: string }) {
           key={l}
           onClick={() => setLang(l)}
           aria-pressed={lang === l}
-          className={`px-2.5 py-1 ${lang === l ? 'bg-[#17120F] text-white' : 'bg-white text-[#17120F]'}`}
+          className={`inline-flex min-h-[44px] items-center justify-center px-4 ${lang === l ? 'bg-[#17120F] text-white' : 'bg-white text-[#17120F]'}`}
         >
           {l === 'en' ? 'EN' : '日本語'}
         </button>
