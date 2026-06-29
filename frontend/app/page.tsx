@@ -29,6 +29,8 @@ const STRINGS = {
     waitlist: 'Waitlist',
     confirmed: 'Confirmed',
     name: 'Name',
+    entryNo: 'Entry No.',
+    guestNos: 'Guest no.',
     showAtCheckin: 'Show at check-in',
     standbyMode: 'Standby Mode',
     standbyBody: "You're on the waitlist — we'll DM you on Discord if a spot opens up.",
@@ -78,6 +80,8 @@ const STRINGS = {
     waitlist: 'キャンセル待ち',
     confirmed: '確定',
     name: 'お名前',
+    entryNo: '受付番号',
+    guestNos: '同伴番号',
     showAtCheckin: '受付でご提示ください',
     standbyMode: 'キャンセル待ち',
     standbyBody: 'キャンセル待ちです。空きが出たらDiscordのDMでお知らせします。',
@@ -399,6 +403,8 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
   const drinks = (attendee.drinks as string[]) ?? []
   const extraPeople = (attendee.extra_people as number) ?? 0
   const extrasNames = (attendee.extras_names as string[]) ?? []
+  const attendeeNumber = (attendee.attendee_number as number | null) ?? null
+  const extrasNumbers = (attendee.extras_attendee_numbers as number[]) ?? []
   const behaviorConfirmed = !!attendee.behavior_confirmed
   const arrivalConfirmed = !!attendee.arrival_confirmed
   const eventName = event.event_name as string
@@ -468,10 +474,21 @@ function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
             </span>
           </div>
           <div className="p-6 space-y-5">
-            <div>
-              <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-[0.2em] mb-1">{t.name}</p>
-              <h2 className="text-4xl font-black text-[#17120F] uppercase tracking-tight leading-none">{name}</h2>
-              <p className="mt-2 text-xs font-black text-[#8B2D1F]">{t.partyOf(partySize)} · {companions}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[9px] uppercase font-black text-[#8B2D1F] tracking-[0.2em] mb-1">{t.name}</p>
+                <h2 className="text-4xl font-black text-[#17120F] uppercase tracking-tight leading-none break-words">{name}</h2>
+                <p className="mt-2 text-xs font-black text-[#8B2D1F]">{t.partyOf(partySize)} · {companions}</p>
+                {extrasNumbers.length > 0 && (
+                  <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-[#8B2D1F]/70">{t.guestNos} {extrasNumbers.map(n => `#${n}`).join(' · ')}</p>
+                )}
+              </div>
+              {attendeeNumber !== null && (
+                <div className="shrink-0 rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] px-3 py-2 text-center shadow-[3px_3px_0_#17120F]">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-[#8B2D1F] leading-none">{t.entryNo}</p>
+                  <p className="font-display text-3xl font-black leading-none text-[#17120F] tabular-nums mt-1">{attendeeNumber}</p>
+                </div>
+              )}
             </div>
 
             {!isWaitlist ? (

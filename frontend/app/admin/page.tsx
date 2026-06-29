@@ -10,6 +10,8 @@ type Attendee = {
   drinks: string[]
   extra_people: number
   extras_names: string[]
+  attendee_number: number | null
+  extras_attendee_numbers: number[]
   status: 'attending' | 'waitlist'
 }
 
@@ -37,6 +39,8 @@ type ScanResult = {
   fromScan: boolean
   extraPeople?: number
   extrasNames?: string[]
+  attendeeNumber?: number | null
+  extrasNumbers?: number[]
   time?: string
 }
 
@@ -337,6 +341,8 @@ export default function AdminPage() {
               fromScan: true,
               extraPeople: att?.extra_people ?? 0,
               extrasNames: att?.extras_names ?? [],
+              attendeeNumber: att?.attendee_number ?? null,
+              extrasNumbers: att?.extras_attendee_numbers ?? [],
               time: new Date(data.record.checked_in_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
             })
             setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
@@ -420,7 +426,8 @@ export default function AdminPage() {
     .filter(a => {
       if (!search) return true
       const q = search.toLowerCase().replace(/^[@#]/, '')
-      return [a.display_name || '', a.username, a.user_id, ...a.drinks, ...a.extras_names]
+      const numbers = [a.attendee_number, ...(a.extras_attendee_numbers ?? [])].filter(n => n != null).map(String)
+      return [a.display_name || '', a.username, a.user_id, ...a.drinks, ...a.extras_names, ...numbers]
         .some(v => v.toLowerCase().includes(q))
     })
 
@@ -565,7 +572,12 @@ export default function AdminPage() {
                     {isIn ? '✓' : name[0].toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-black text-[#17120F] truncate">{name}</p>
+                    <p className="font-black text-[#17120F] truncate">
+                      {a.attendee_number != null && (
+                        <span className="mr-1.5 inline-block rounded-md border-2 border-[#17120F] bg-[#FFD51B] px-1.5 text-[11px] tabular-nums align-middle">#{a.attendee_number}</span>
+                      )}
+                      {name}
+                    </p>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {a.drinks.map((d, i) => (
                         <span key={i} className="flex items-center gap-1 text-[9px] font-bold text-[#5B3428] uppercase tracking-wide">
@@ -659,9 +671,17 @@ export default function AdminPage() {
               <p className={`font-display text-lg uppercase tracking-tight ${meta.ok ? 'text-green-800' : 'text-red-800'}`}>
                 {meta.title}
               </p>
+              {meta.ok && scanResult.attendeeNumber != null && (
+                <span className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-xl border-2 border-[#17120F] bg-[#FFD51B] px-3 py-1 text-[#17120F] shadow-[2px_2px_0_#17120F]">
+                  <span className="text-[9px] font-black uppercase tracking-widest">No.</span>
+                  <span className="font-display text-2xl font-black leading-none tabular-nums">{scanResult.attendeeNumber}</span>
+                </span>
+              )}
               <p className="mt-2 font-black text-3xl leading-tight text-[#17120F] break-words">{scanResult.name}</p>
               {meta.ok && party > 1 && (
-                <p className="mt-2 text-sm font-black uppercase tracking-widest text-[#8B2D1F]">Party of {party}</p>
+                <p className="mt-2 text-sm font-black uppercase tracking-widest text-[#8B2D1F]">
+                  Party of {party}{scanResult.extrasNumbers && scanResult.extrasNumbers.length > 0 ? ` · guest no. ${scanResult.extrasNumbers.map(n => `#${n}`).join(' · ')}` : ''}
+                </p>
               )}
               {meta.ok && scanResult.extrasNames && scanResult.extrasNames.length > 0 && (
                 <p className="mt-1 text-sm font-bold text-[#5B3428]">+{scanResult.extrasNames.join(', ')}</p>
