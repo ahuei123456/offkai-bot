@@ -499,7 +499,7 @@ export default function AdminPage() {
 
   return (
     <main className="brand-bg min-h-dvh w-full max-w-6xl mx-auto text-[#23110D] pb-12">
-      <div className="sticky top-0 z-20 brand-sunburst text-white p-4 md:p-6 rounded-b-[1.5rem] md:rounded-b-[2rem] border-b-4 border-[#17120F] shadow-[0_6px_0_#17120F] md:shadow-[0_8px_0_#17120F]">
+      <div className="brand-sunburst text-white p-4 md:p-6 rounded-b-[1.5rem] md:rounded-b-[2rem] border-b-4 border-[#17120F] shadow-[0_6px_0_#17120F] md:shadow-[0_8px_0_#17120F]">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[10px] font-black tracking-[0.22em] uppercase text-white/80 mb-1">Staff Check-In</p>
@@ -554,13 +554,9 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="p-4 space-y-4 lg:p-6">
-        {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
-        <div className={`brand-card rounded-2xl overflow-hidden ${scanning ? '' : 'hidden'}`}>
-          <div id={scannerDivId} className="w-full" />
-        </div>
-
-        {/* Filters */}
+      {/* Filters + search pin to the top so they stay reachable while scrolling a
+          long attendee list (the header above scrolls away to free up space). */}
+      <div className="sticky top-0 z-20 bg-[#FFF1C2] border-b-2 border-[#17120F]/15 px-4 py-3 space-y-2.5 shadow-[0_6px_10px_-6px_rgba(23,18,15,0.4)] lg:px-6">
         <div className="flex gap-2">
           {(['all', 'pending', 'checked'] as const).map(f => (
             <button
@@ -573,20 +569,21 @@ export default function AdminPage() {
             </button>
           ))}
         </div>
+        <input
+          id="attendee-search"
+          type="search"
+          aria-label="Search attendee"
+          placeholder="Search name, drink, guest, #id, @handle..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full border-2 border-[#17120F] rounded-xl px-4 py-3 text-sm font-bold bg-white text-[#17120F] outline-none focus:border-[#E51F1F] shadow-[3px_3px_0_rgba(23,18,15,0.25)]"
+        />
+      </div>
 
-        {/* Search */}
-        <div>
-          <label htmlFor="attendee-search" className="block text-[10px] font-black uppercase tracking-widest text-[#8B2D1F] mb-2">
-            Search attendee
-          </label>
-          <input
-            id="attendee-search"
-            type="search"
-            placeholder="Search name, drink, guest, #id, @handle..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full border-2 border-[#17120F] rounded-xl px-4 py-3 text-sm font-bold bg-white text-[#17120F] outline-none focus:border-[#E51F1F] shadow-[3px_3px_0_rgba(23,18,15,0.25)]"
-          />
+      <div className="p-4 space-y-4 lg:p-6">
+        {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
+        <div className={`brand-card rounded-2xl overflow-hidden ${scanning ? '' : 'hidden'}`}>
+          <div id={scannerDivId} className="w-full" />
         </div>
 
         {/* Attendee list */}
