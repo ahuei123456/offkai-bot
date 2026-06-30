@@ -22,6 +22,31 @@ _DM_THROTTLE_SECONDS = 0.5
 _log = logging.getLogger(__name__)
 
 
+def _format_attendee_numbers_en(response: Response) -> str | None:
+    if response.attendee_number is None:
+        return None
+
+    parts = [f"{response.attendee_number} (you)"]
+    for index, number in enumerate(response.extras_attendee_numbers):
+        guest_name = response.extras_names[index] if index < len(response.extras_names) else f"guest {index + 1}"
+        parts.append(f"{number} ({guest_name})")
+
+    label = "Attendee Number" if len(parts) == 1 else "Attendee Numbers"
+    return f"🔢 **{label}:** {', '.join(parts)}"
+
+
+def _format_attendee_numbers_jp(response: Response) -> str | None:
+    if response.attendee_number is None:
+        return None
+
+    parts = [f"{response.attendee_number}（本人）"]
+    for index, number in enumerate(response.extras_attendee_numbers):
+        guest_name = response.extras_names[index] if index < len(response.extras_names) else f"同伴者{index + 1}"
+        parts.append(f"{number}（{guest_name}）")
+
+    return f"🔢 **受付番号:** {', '.join(parts)}"
+
+
 def register_deadline_reminders(client: discord.Client, event: Event, thread: discord.Thread):
     _log.info("Registering deadline reminders for event '%s'.", event.event_name)
 
@@ -98,6 +123,8 @@ def build_checkin_reminder_message(event: Event, response: Response, rsvp_url: s
     extra_people = response.extra_people or 0
     extras_names = response.extras_names or []
     drinks = response.drinks or []
+    attendee_numbers_en = _format_attendee_numbers_en(response)
+    attendee_numbers_jp = _format_attendee_numbers_jp(response)
 
     # --- English ---
     en = [
@@ -108,6 +135,8 @@ def build_checkin_reminder_message(event: Event, response: Response, rsvp_url: s
         f"🕑 **Date and Time:** {dt_str}",
         f"👥 **Bringing:** {extra_people} extra guest{'s' if extra_people != 1 else ''}",
     ]
+    if attendee_numbers_en:
+        en.append(attendee_numbers_en)
     if extras_names:
         en.append(f"👥 Guest names: {', '.join(extras_names)}")
     if drinks:
@@ -129,6 +158,8 @@ def build_checkin_reminder_message(event: Event, response: Response, rsvp_url: s
         f"🕑 **日時:** {dt_str}",
         f"👥 **同伴者:** {extra_people}名",
     ]
+    if attendee_numbers_jp:
+        jp.append(attendee_numbers_jp)
     if extras_names:
         jp.append(f"👥 同伴者名: {', '.join(extras_names)}")
     if drinks:
