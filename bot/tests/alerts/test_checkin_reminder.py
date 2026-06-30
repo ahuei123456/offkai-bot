@@ -51,7 +51,15 @@ def _event(event_dt: datetime | None = None, archived: bool = False) -> Event:
     )
 
 
-def _response(user_id: int, *, extra_people: int = 0, extras_names=None, drinks=None) -> Response:
+def _response(
+    user_id: int,
+    *,
+    extra_people: int = 0,
+    extras_names=None,
+    drinks=None,
+    attendee_number: int | None = None,
+    extras_attendee_numbers=None,
+) -> Response:
     return Response(
         user_id=user_id,
         username=f"user{user_id}",
@@ -63,6 +71,8 @@ def _response(user_id: int, *, extra_people: int = 0, extras_names=None, drinks=
         drinks=drinks or [],
         extras_names=extras_names or [],
         display_name=f"User {user_id}",
+        attendee_number=attendee_number,
+        extras_attendee_numbers=extras_attendee_numbers or [],
     )
 
 
@@ -181,7 +191,35 @@ def test_message_omits_optional_lines_when_empty():
     assert "同伴者名:" not in msg
     assert "Drinks:" not in msg
     assert "飲み物:" not in msg
+    assert "Attendee Number" not in msg
+    assert "受付番号" not in msg
     assert "**Bringing:** 0 extra guests" in msg
+
+
+def test_message_includes_attendee_number_lines():
+    resp = _response(
+        123,
+        extra_people=2,
+        extras_names=["Senpai", "Kouhai"],
+        attendee_number=7,
+        extras_attendee_numbers=[8, 9],
+    )
+
+    msg = build_checkin_reminder_message(_event(), resp, "https://offkai.example/?token=123.abc")
+
+    assert "**Attendee Numbers:** 7 (you), 8 (Senpai), 9 (Kouhai)" in msg
+    assert "**受付番号:** 7（本人）, 8（Senpai）, 9（Kouhai）" in msg
+
+
+def test_message_includes_single_attendee_number_line():
+    msg = build_checkin_reminder_message(
+        _event(),
+        _response(123, attendee_number=7),
+        "https://offkai.example/?token=123.abc",
+    )
+
+    assert "**Attendee Number:** 7 (you)" in msg
+    assert "**受付番号:** 7（本人）" in msg
 
 
 def test_message_omits_qr_lines_when_no_frontend_url():
