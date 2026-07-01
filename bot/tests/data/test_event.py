@@ -7,8 +7,10 @@ from unittest.mock import mock_open, patch
 import pytest
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
 from offkai_bot.data.event import JST, OFFKAI_MESSAGE, Event, create_event_message
-from offkai_bot.data.response import EventData, Response
+from offkai_bot.data.response import EventData, Response, WaitlistEntry
 from offkai_bot.errors import (
+    CapacityReductionError,
+    CapacityReductionWithWaitlistError,
     EventAlreadyArchivedError,
     EventAlreadyClosedError,
     EventAlreadyOpenError,
@@ -61,6 +63,31 @@ EVENT_ARCHIVED = copy.deepcopy(BASE_EVENT_OBJ)
 EVENT_ARCHIVED.open = False
 EVENT_ARCHIVED.archived = True
 EVENT_ARCHIVED.event_name = "Archived Event"
+
+
+def _make_response(user_id: int, extra_people: int = 0) -> Response:
+    return Response(
+        user_id=user_id,
+        username=f"user{user_id}",
+        extra_people=extra_people,
+        behavior_confirmed=True,
+        arrival_confirmed=False,
+        event_name=BASE_EVENT_OBJ.event_name,
+        timestamp=TEST_NOW_UTC,
+    )
+
+
+def _make_waitlist_entry(user_id: int, extra_people: int = 0) -> WaitlistEntry:
+    return WaitlistEntry(
+        user_id=user_id,
+        username=f"user{user_id}",
+        extra_people=extra_people,
+        behavior_confirmed=True,
+        arrival_confirmed=False,
+        event_name=BASE_EVENT_OBJ.event_name,
+        timestamp=TEST_NOW_UTC,
+    )
+
 
 # --- Tests ---
 
@@ -1000,6 +1027,45 @@ def test_update_event_details_fails_deadline_after_new_event_time(mock_log, mock
             deadline_str="original-deadline-time",  # This deadline is now *after* the new event time
         )
     assert mock_parse_dt.call_count == 2
+    mock_save.assert_not_called()
+
+
+@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # max_capacity=None
+@patch("offkai_bot.data.event.get_waitlist", return_value=[])
+@patch("offkai_bot.data.event.get_responses")
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_update_event_details_fails_unlimited_to_limited_below_current_count(
+    mock_log, mock_save, mock_get_responses, mock_get_waitlist, mock_get_event
+):
+    """Setting a finite max_capacity below the current count on a previously
+    unlimited event must still raise CapacityReductionError."""
+    mock_get_responses.return_value = [_make_response(user_id=i, extra_people=0) for i in range(10)]
+
+    with pytest.raises(CapacityReductionError) as exc_info:
+        event_data.update_event_details(event_name=BASE_EVENT_OBJ.event_name, max_capacity=5)
+
+    assert exc_info.value.new_capacity == 5
+    assert exc_info.value.current_count == 10
+    mock_save.assert_not_called()
+
+
+@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # max_capacity=None
+@patch("offkai_bot.data.event.get_waitlist")
+@patch("offkai_bot.data.event.get_responses", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_update_event_details_fails_unlimited_to_limited_with_waitlist(
+    mock_log, mock_save, mock_get_responses, mock_get_waitlist, mock_get_event
+):
+    """Setting a finite max_capacity on a previously unlimited event with an
+    existing waitlist must still raise CapacityReductionWithWaitlistError."""
+    mock_get_waitlist.return_value = [_make_waitlist_entry(user_id=1, extra_people=0)]
+
+    with pytest.raises(CapacityReductionWithWaitlistError) as exc_info:
+        event_data.update_event_details(event_name=BASE_EVENT_OBJ.event_name, max_capacity=20)
+
+    assert exc_info.value.event_name == BASE_EVENT_OBJ.event_name
     mock_save.assert_not_called()
 
 
