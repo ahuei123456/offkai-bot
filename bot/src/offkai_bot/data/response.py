@@ -9,6 +9,7 @@ from typing import TypedDict
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
+from offkai_bot.data.atomic import atomic_write_json, backup_corrupted_file
 from offkai_bot.data.encoders import DataclassJSONEncoder
 from offkai_bot.errors import (
     DuplicateResponseError,
@@ -421,6 +422,7 @@ def _load_responses() -> dict[str, EventData]:
         _log.error(
             "Error decoding JSON from %s. File might be corrupted or invalid. Loading empty responses.", file_path
         )
+        backup_corrupted_file(file_path)
         RESPONSE_DATA_CACHE = {}
         return {}
     except Exception as e:
@@ -449,14 +451,13 @@ def save_responses():
         return
 
     try:
-        with open(settings["RESPONSES_FILE"], "w", encoding="utf-8") as file:
-            json.dump(
-                RESPONSE_DATA_CACHE,
-                file,
-                indent=4,
-                cls=DataclassJSONEncoder,
-                ensure_ascii=False,
-            )
+        atomic_write_json(
+            settings["RESPONSES_FILE"],
+            RESPONSE_DATA_CACHE,
+            indent=4,
+            cls=DataclassJSONEncoder,
+            ensure_ascii=False,
+        )
     except OSError as e:
         _log.error("Error writing response data to %s: %s", settings["RESPONSES_FILE"], e)
     except Exception as e:
