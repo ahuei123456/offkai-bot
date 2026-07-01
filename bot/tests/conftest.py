@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from offkai_bot.alerts.alerts import clear_alerts
 from offkai_bot.data.event import Event
 
 from offkai_bot.data import event as event_data
@@ -34,11 +35,13 @@ def clear_caches():
     event_data.EVENT_DATA_CACHE = None
     response_data.RESPONSE_DATA_CACHE = None
     ranking_data.RANKING_DATA_CACHE = None
+    clear_alerts()
     yield  # Test runs here
     # After test
     event_data.EVENT_DATA_CACHE = None
     response_data.RESPONSE_DATA_CACHE = None
     ranking_data.RANKING_DATA_CACHE = None
+    clear_alerts()
 
 
 @pytest.fixture
