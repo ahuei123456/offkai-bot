@@ -52,6 +52,18 @@ class WaitlistEntry:
     display_name: str | None = None
 
 
+@dataclass(frozen=True)
+class AttendeeReportRow:
+    attendee_number: int
+    name: str
+    type: str
+    registered_by_username: str
+    registered_by_display_name: str
+    registered_by_user_id: int
+    guest_index: int | None
+    drink: str
+
+
 # --- Type Definitions ---
 class EventData(TypedDict):
     attendees: list[Response]
@@ -107,6 +119,11 @@ def _next_attendee_number(event_data: EventData) -> int:
     return max(assigned_numbers, default=0) + 1
 
 
+def _max_attendee_number(event_data: EventData) -> int:
+    assigned_numbers = [number for response in event_data["attendees"] for number in _group_attendee_numbers(response)]
+    return max(assigned_numbers, default=0)
+
+
 def _assign_group_numbers(response: Response, start_number: int) -> int:
     response.attendee_number = start_number
     response.extras_attendee_numbers = list(range(start_number + 1, start_number + 1 + response.extra_people))
@@ -118,24 +135,6 @@ def _clear_group_numbers(response: Response) -> None:
     response.extras_attendee_numbers = []
 
 
-def _compact_numbers_after_removal(attendees: list[Response], removed_numbers: list[int]) -> None:
-    if not removed_numbers:
-        return
-
-    sorted_removed = sorted(removed_numbers)
-
-    def compact(number: int | None) -> int | None:
-        if number is None:
-            return None
-        decrement = sum(1 for removed_number in sorted_removed if removed_number < number)
-        return number - decrement
-
-    for response in attendees:
-        response.attendee_number = compact(response.attendee_number)
-        compacted_extras = [compact(number) for number in response.extras_attendee_numbers]
-        response.extras_attendee_numbers = [number for number in compacted_extras if number is not None]
-
-
 def _number_for_extra(response: Response, index: int) -> int | None:
     if index < len(response.extras_attendee_numbers):
         return response.extras_attendee_numbers[index]
@@ -145,7 +144,17 @@ def _number_for_extra(response: Response, index: int) -> int | None:
 def _has_complete_attendee_numbers(responses: list[Response]) -> bool:
     expected_count = sum(1 + response.extra_people for response in responses)
     actual_numbers = [number for response in responses for number in _group_attendee_numbers(response)]
-    return sorted(actual_numbers) == list(range(1, expected_count + 1))
+    return (
+        len(actual_numbers) == expected_count
+        and len(set(actual_numbers)) == expected_count
+        and all(number > 0 for number in actual_numbers)
+    )
+
+
+def _drink_for(response: Response, index: int) -> str:
+    if index < len(response.drinks):
+        return response.drinks[index]
+    return "N/A"
 
 
 def _migrate_old_format_to_new(
@@ -477,7 +486,62 @@ def get_waitlist(event_name: str) -> list[WaitlistEntry]:
     return event_data["waitlist"]
 
 
-def assign_attendee_numbers(event_name: str) -> None:
+def has_complete_attendee_numbers(event_name: str) -> bool:
+    """Return True when every current attendee slot has a unique stored number."""
+    return _has_complete_attendee_numbers(get_responses(event_name))
+
+
+def get_max_attendee_number(event_name: str) -> int:
+    """Return the highest currently stored attendee number for an event."""
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    return _max_attendee_number(event_data)
+
+
+def build_attendee_report_rows(event_name: str) -> list[AttendeeReportRow]:
+    """Build CSV-ready attendee report rows sorted by stored attendee number."""
+    responses = get_responses(event_name)
+    rows: list[AttendeeReportRow] = []
+
+    for response in responses:
+        if response.attendee_number is not None:
+            rows.append(
+                AttendeeReportRow(
+                    attendee_number=response.attendee_number,
+                    name=response.username,
+                    type="primary",
+                    registered_by_username=response.username,
+                    registered_by_display_name=response.display_name or "",
+                    registered_by_user_id=response.user_id,
+                    guest_index=None,
+                    drink=_drink_for(response, 0),
+                )
+            )
+
+        for index in range(response.extra_people):
+            attendee_number = _number_for_extra(response, index)
+            if attendee_number is None:
+                continue
+
+            raw_name = response.extras_names[index] if index < len(response.extras_names) else ""
+            guest_name = raw_name.strip() if isinstance(raw_name, str) else ""
+            rows.append(
+                AttendeeReportRow(
+                    attendee_number=attendee_number,
+                    name=guest_name or f"Guest {index + 1}",
+                    type="guest",
+                    registered_by_username=response.username,
+                    registered_by_display_name=response.display_name or "",
+                    registered_by_user_id=response.user_id,
+                    guest_index=index + 1,
+                    drink=_drink_for(response, index + 1),
+                )
+            )
+
+    return sorted(rows, key=lambda row: row.attendee_number)
+
+
+def assign_attendee_numbers(event_name: str) -> int:
     """Assign close-time attendee numbers for confirmed attendees in the response cache."""
     all_data = load_responses()
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
@@ -488,6 +552,7 @@ def assign_attendee_numbers(event_name: str) -> None:
 
     all_data[event_name] = event_data
     _log.info("Assigned attendee numbers for event %s.", event_name)
+    return next_number - 1
 
 
 def clear_attendee_numbers(event_name: str) -> None:
@@ -502,7 +567,13 @@ def clear_attendee_numbers(event_name: str) -> None:
     _log.info("Cleared attendee numbers for event %s.", event_name)
 
 
-def add_response(event_name: str, response: Response, *, force_attendee_number: bool = False) -> None:
+def add_response(
+    event_name: str,
+    response: Response,
+    *,
+    force_attendee_number: bool = False,
+    attendee_number_start: int | None = None,
+) -> int | None:
     """Adds a response to the specified event's attendees.
 
     Raises:
@@ -522,13 +593,16 @@ def add_response(event_name: str, response: Response, *, force_attendee_number: 
         raise DuplicateResponseError(event_name, response.user_id)
 
     # If no duplicate, proceed with adding
+    assigned_max_number = None
     if force_attendee_number or _event_has_attendee_numbers(event_data):
-        _assign_group_numbers(response, _next_attendee_number(event_data))
+        start_number = attendee_number_start if attendee_number_start is not None else _next_attendee_number(event_data)
+        assigned_max_number = _assign_group_numbers(response, start_number) - 1
 
     event_data["attendees"].append(response)
     all_data[event_name] = event_data
     save_responses()
     _log.info("Added response from user %s to event %s.", response.user_id, event_name)
+    return assigned_max_number
 
 
 def remove_response(event_name: str, user_id: int) -> None:
@@ -549,9 +623,7 @@ def remove_response(event_name: str, user_id: int) -> None:
         raise ResponseNotFoundError(event_name, user_id)
     else:
         # Response found and removed, update the cache and save
-        removed_numbers = _group_attendee_numbers(removed_response)
         event_data["attendees"] = [r for r in event_data["attendees"] if r.user_id != user_id]
-        _compact_numbers_after_removal(event_data["attendees"], removed_numbers)
         all_data[event_name] = event_data
         save_responses()
         _log.info("Removed response from user %s for event %s.", user_id, event_name)

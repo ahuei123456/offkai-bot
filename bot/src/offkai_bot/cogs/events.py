@@ -1,4 +1,5 @@
 import contextlib
+import csv
 import io
 import logging
 import re
@@ -14,6 +15,7 @@ from offkai_bot.alerts.reminders import (
 )
 from offkai_bot.data.event import (
     add_event,
+    add_response_for_event,
     archive_event,
     get_event,
     load_event_data,
@@ -22,13 +24,15 @@ from offkai_bot.data.event import (
     update_event_details,
 )
 from offkai_bot.data.response import (
+    AttendeeReportRow,
     Response,
-    add_response,
+    build_attendee_report_rows,
     calculate_attendance,
     calculate_drinks,
     calculate_waitlist,
     clear_attendee_numbers,
     get_waitlist,
+    has_complete_attendee_numbers,
     promote_specific_from_waitlist,
     remove_response,
     save_responses,
@@ -83,10 +87,48 @@ def _attendance_filename(event_name: str) -> str:
     return f"attendance_{safe_event_name or 'event'}.txt"
 
 
+def _attendance_report_filename(event_name: str) -> str:
+    safe_event_name = re.sub(r"[^A-Za-z0-9._-]+", "_", event_name).strip("._")
+    return f"attendance_report_{safe_event_name or 'event'}.csv"
+
+
 def _attendance_file(event_name: str, output: str) -> discord.File:
     return discord.File(
         fp=io.BytesIO(output.encode("utf-8")),
         filename=_attendance_filename(event_name),
+    )
+
+
+def _attendance_report_file(event_name: str, rows: list[AttendeeReportRow]) -> discord.File:
+    output = io.StringIO(newline="")
+    fieldnames = [
+        "attendee_number",
+        "name",
+        "type",
+        "registered_by_username",
+        "registered_by_display_name",
+        "registered_by_user_id",
+        "guest_index",
+        "drink",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            {
+                "attendee_number": row.attendee_number,
+                "name": row.name,
+                "type": row.type,
+                "registered_by_username": row.registered_by_username,
+                "registered_by_display_name": row.registered_by_display_name,
+                "registered_by_user_id": row.registered_by_user_id,
+                "guest_index": row.guest_index if row.guest_index is not None else "",
+                "drink": row.drink,
+            }
+        )
+    return discord.File(
+        fp=io.BytesIO(output.getvalue().encode("utf-8")),
+        filename=_attendance_report_filename(event_name),
     )
 
 
@@ -497,7 +539,7 @@ class EventsCog(commands.Cog):
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response(event_name, promoted_response, force_attendee_number=not event.open)
+        add_response_for_event(event, promoted_response)
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)
@@ -577,6 +619,45 @@ class EventsCog(commands.Cog):
             return
 
         await interaction.response.send_message(output, ephemeral=True)
+
+    @app_commands.command(
+        name="attendance_report",
+        description="Exports attendee numbers for an event as a CSV report.",
+    )
+    @app_commands.describe(event_name="The name of the event.")
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def attendance_report(self, interaction: discord.Interaction, event_name: str):
+        event = get_event(event_name)
+        if event.open or not has_complete_attendee_numbers(event_name):
+            await interaction.response.send_message(
+                "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
+                ephemeral=True,
+            )
+            return
+
+        report_rows = build_attendee_report_rows(event_name)
+        try:
+            await interaction.user.send(
+                f"Attendance report for **{event_name}** is attached as a CSV file.",
+                file=_attendance_report_file(event_name, report_rows),
+            )
+            await interaction.response.send_message(
+                f"Attendance report for '{event_name}' has been sent to you by DM.",
+                ephemeral=True,
+            )
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            _log.warning(
+                "Could not DM attendance report to user %s for event '%s': %s",
+                interaction.user.id,
+                event_name,
+                e,
+            )
+            await interaction.response.send_message(
+                "I couldn't send you a DM, so I've attached the attendance report here.",
+                file=_attendance_report_file(event_name, report_rows),
+                ephemeral=True,
+            )
 
     @app_commands.command(
         name="waitlist",
@@ -704,6 +785,7 @@ class EventsCog(commands.Cog):
     promote.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     promote.autocomplete("username")(waitlist_user_autocomplete)
     attendance.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
+    attendance_report.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     waitlist.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     drinks.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
 

@@ -139,12 +139,14 @@ def test_reopening_event_clears_closed_attendance_count(event_with_capacity):
     # Close the event
     closed_event = set_event_open_status(event_with_capacity.event_name, target_open_status=False)
     assert closed_event.closed_attendance_count == 30
+    closed_event.max_attendee_number = 30
 
     # Reopen the event
     reopened_event = set_event_open_status(event_with_capacity.event_name, target_open_status=True)
 
     # Verify closed_attendance_count is cleared
     assert reopened_event.closed_attendance_count is None
+    assert reopened_event.max_attendee_number is None
     assert reopened_event.open is True
 
 

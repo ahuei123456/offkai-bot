@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import discord
 from discord import ui
 
-from offkai_bot.data.event import Event
+from offkai_bot.data.event import Event, add_response_for_event
 from offkai_bot.data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from offkai_bot.data.response import (
     Response,
@@ -168,7 +168,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response(event.event_name, promoted_response, force_attendee_number=not event.open)
+        add_response_for_event(event, promoted_response)
         promoted_count += 1
         promoted_user_ids.append(promoted_entry.user_id)
 

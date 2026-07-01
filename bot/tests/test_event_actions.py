@@ -212,11 +212,13 @@ async def test_send_event_message_raises_on_pin_failure(
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_success_with_message(
     mock_log,
     mock_set_status,
+    mock_assign_attendee_numbers,
     mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
@@ -230,6 +232,7 @@ async def test_perform_close_event_success_with_message(
     event_name_to_close = "Summer Bash"
     close_text = "Responses are now closed!"
     mock_set_status.return_value = mock_closed_event
+    mock_assign_attendee_numbers.return_value = 42
     mock_fetch_thread.return_value = mock_thread
     mock_thread.id = mock_closed_event.thread_id
     mock_thread.mention = f"<#{mock_thread.id}>"
@@ -244,6 +247,8 @@ async def test_perform_close_event_success_with_message(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
+    mock_assign_attendee_numbers.assert_called_once_with(event_name_to_close)
+    assert mock_closed_event.max_attendee_number == 42
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
@@ -255,11 +260,13 @@ async def test_perform_close_event_success_with_message(
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_success_no_message(
     mock_log,
     mock_set_status,
+    mock_assign_attendee_numbers,
     mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
@@ -272,6 +279,7 @@ async def test_perform_close_event_success_no_message(
     # Arrange
     event_name_to_close = "Summer Bash"
     mock_set_status.return_value = mock_closed_event
+    mock_assign_attendee_numbers.return_value = 42
 
     # Act
     result = await perform_close_event(
@@ -283,6 +291,8 @@ async def test_perform_close_event_success_no_message(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
+    mock_assign_attendee_numbers.assert_called_once_with(event_name_to_close)
+    assert mock_closed_event.max_attendee_number == 42
     mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_fetch_thread.assert_not_awaited()
