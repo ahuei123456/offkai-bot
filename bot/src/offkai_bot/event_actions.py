@@ -51,7 +51,7 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 
     # 1. Update status in data store (raises EventNotFoundError if not found)
     closed_event = set_event_open_status(event_name, target_open_status=False)
-    assign_attendee_numbers(event_name)
+    closed_event.max_attendee_number = assign_attendee_numbers(event_name)
 
     # 2. Save the change
     save_responses()

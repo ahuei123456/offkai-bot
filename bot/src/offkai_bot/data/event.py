@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
 from offkai_bot.data.encoders import DataclassJSONEncoder
-from offkai_bot.data.response import get_responses, get_waitlist
+from offkai_bot.data.response import Response, add_response, get_responses, get_waitlist
 from offkai_bot.errors import (
     CapacityReductionError,
     CapacityReductionWithWaitlistError,
@@ -70,6 +70,7 @@ class Event:
     max_capacity: int | None = None  # None means unlimited capacity
     creator_id: int | None = None  # Discord user ID of the event creator
     closed_attendance_count: int | None = None  # Attendance count when event was closed
+    max_attendee_number: int | None = None  # Highest attendee number assigned after close
     ping_role_id: int | None = None  # Discord role ID to ping in deadline reminders
     role_id: int | None = None  # Discord role ID for event participants
 
@@ -257,6 +258,7 @@ def _load_event_data() -> list[Event]:
                         max_capacity=event_dict.get("max_capacity"),
                         creator_id=event_dict.get("creator_id"),
                         closed_attendance_count=event_dict.get("closed_attendance_count"),
+                        max_attendee_number=event_dict.get("max_attendee_number"),
                         ping_role_id=event_dict.get("ping_role_id"),
                         role_id=event_dict.get("role_id"),
                     )
@@ -279,6 +281,7 @@ def _load_event_data() -> list[Event]:
                         max_capacity=event_dict.get("max_capacity"),
                         creator_id=event_dict.get("creator_id"),
                         closed_attendance_count=event_dict.get("closed_attendance_count"),
+                        max_attendee_number=event_dict.get("max_attendee_number"),
                         ping_role_id=event_dict.get("ping_role_id"),
                         role_id=event_dict.get("role_id"),
                     )
@@ -342,6 +345,23 @@ def save_event_data():
         _log.error("Error writing event data to %s: %s", settings["EVENTS_FILE"], e)
     except Exception as e:
         _log.exception("An unexpected error occurred saving event data: %s", e)
+
+
+def add_response_for_event(event: Event, response: Response) -> int | None:
+    """Add a response using event state to maintain post-close attendee numbering."""
+    attendee_number_start = (
+        event.max_attendee_number + 1 if not event.open and event.max_attendee_number is not None else None
+    )
+    assigned_max_number = add_response(
+        event.event_name,
+        response,
+        force_attendee_number=not event.open,
+        attendee_number_start=attendee_number_start,
+    )
+    if assigned_max_number is not None:
+        event.max_attendee_number = assigned_max_number
+        save_event_data()
+    return assigned_max_number
 
 
 def get_event(event_name: str) -> Event:
@@ -549,6 +569,7 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
     if target_open_status:
         # Reopening the event - clear the closed attendance count
         event.closed_attendance_count = None
+        event.max_attendee_number = None
         _log.info("Event '%s' reopened, cleared closed_attendance_count.", event_name)
     else:
         # Closing the event - capture current attendance count

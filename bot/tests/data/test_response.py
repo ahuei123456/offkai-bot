@@ -1638,12 +1638,13 @@ def test_assign_attendee_numbers_sorts_by_username_and_user_id_with_extras(mock_
     )
     response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([bob, alice_with_guests, alice_tie])}
 
-    response_data.assign_attendee_numbers("Event N")
+    max_attendee_number = response_data.assign_attendee_numbers("Event N")
 
     assert alice_tie.attendee_number == 1
     assert alice_with_guests.attendee_number == 2
     assert alice_with_guests.extras_attendee_numbers == [3, 4]
     assert bob.attendee_number == 5
+    assert max_attendee_number == 5
 
 
 def test_add_response_appends_attendee_numbers_for_numbered_event(mock_paths):
@@ -1670,10 +1671,11 @@ def test_add_response_appends_attendee_numbers_for_numbered_event(mock_paths):
         timestamp=NOW,
     )
 
-    response_data.add_response("Event N", added)
+    assigned_max_number = response_data.add_response("Event N", added)
 
     assert added.attendee_number == 3
     assert added.extras_attendee_numbers == [4, 5]
+    assert assigned_max_number == 5
 
 
 def test_add_response_can_force_attendee_numbers_for_empty_closed_event(mock_paths):
@@ -1689,14 +1691,15 @@ def test_add_response_can_force_attendee_numbers_for_empty_closed_event(mock_pat
         timestamp=NOW,
     )
 
-    response_data.add_response("Event N", added, force_attendee_number=True)
+    assigned_max_number = response_data.add_response("Event N", added, force_attendee_number=True)
 
     assert added.attendee_number == 1
     assert added.extras_attendee_numbers == [2]
+    assert assigned_max_number == 2
 
 
-def test_remove_response_compacts_later_attendee_numbers_by_group_size(mock_paths):
-    """Test removing a numbered response with guests compacts later numbers."""
+def test_remove_response_preserves_later_attendee_numbers(mock_paths):
+    """Test removing a numbered response with guests leaves later numbers unchanged."""
     first = Response(
         user_id=1,
         username="First",
@@ -1735,8 +1738,38 @@ def test_remove_response_compacts_later_attendee_numbers_by_group_size(mock_path
 
     assert response_data.get_responses("Event N") == [first, later]
     assert first.attendee_number == 1
-    assert later.attendee_number == 2
-    assert later.extras_attendee_numbers == [3]
+    assert later.attendee_number == 5
+    assert later.extras_attendee_numbers == [6]
+
+
+def test_add_response_uses_explicit_attendee_number_start(mock_paths):
+    """Test post-close numbering can start after an event-level max with gaps."""
+    existing = Response(
+        user_id=1,
+        username="Existing",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=1,
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([existing])}
+    added = Response(
+        user_id=2,
+        username="Added",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+    )
+
+    assigned_max_number = response_data.add_response("Event N", added, attendee_number_start=8)
+
+    assert added.attendee_number == 8
+    assert added.extras_attendee_numbers == [9]
+    assert assigned_max_number == 9
 
 
 def test_clear_attendee_numbers_removes_all_numbers(mock_paths):
@@ -1791,3 +1824,81 @@ def test_calculate_attendance_uses_stored_number_order(mock_paths):
     assert total_count == 3
     assert attendee_names == ["First", "Later", "Guest (First +1)"]
     assert [getattr(name, "attendee_number") for name in attendee_names] == [1, 2, 3]
+
+
+def test_calculate_attendance_uses_stored_number_order_with_gaps(mock_paths):
+    """Test numbered closed events preserve gaps instead of falling back to dynamic numbering."""
+    later = Response(
+        user_id=2,
+        username="Later",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=5,
+        extras_attendee_numbers=[6],
+    )
+    first = Response(
+        user_id=1,
+        username="First",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        attendee_number=1,
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([later, first])}
+
+    total_count, attendee_names = response_data.calculate_attendance("Event N")
+
+    assert total_count == 3
+    assert attendee_names == ["First", "Later", "  (Later +1)"]
+    assert [getattr(name, "attendee_number") for name in attendee_names] == [1, 5, 6]
+
+
+def test_build_attendee_report_rows_sorts_by_attendee_number(mock_paths):
+    """Test CSV report rows include primary and guest audit fields with number gaps."""
+    later = Response(
+        user_id=2,
+        username="Later",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        drinks=["Tea", "Soda"],
+        extras_names=["Guest Later"],
+        display_name="LaterDisplay",
+        attendee_number=5,
+        extras_attendee_numbers=[6],
+    )
+    first = Response(
+        user_id=1,
+        username="First",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event N",
+        timestamp=NOW,
+        drinks=["Water"],
+        display_name="FirstDisplay",
+        attendee_number=1,
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([later, first])}
+
+    rows = response_data.build_attendee_report_rows("Event N")
+
+    assert [row.attendee_number for row in rows] == [1, 5, 6]
+    assert rows[0].name == "First"
+    assert rows[0].type == "primary"
+    assert rows[0].registered_by_display_name == "FirstDisplay"
+    assert rows[0].guest_index is None
+    assert rows[0].drink == "Water"
+    assert rows[2].name == "Guest Later"
+    assert rows[2].type == "guest"
+    assert rows[2].registered_by_username == "Later"
+    assert rows[2].registered_by_user_id == 2
+    assert rows[2].guest_index == 1
+    assert rows[2].drink == "Soda"

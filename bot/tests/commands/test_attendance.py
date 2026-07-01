@@ -9,7 +9,7 @@ from discord.ext import commands
 
 # Import the function to test and relevant errors/classes
 from offkai_bot.cogs.events import EventsCog, _format_attendance_output
-from offkai_bot.data.response import NumberedAttendeeName
+from offkai_bot.data.response import AttendeeReportRow, NumberedAttendeeName
 from offkai_bot.errors import (
     EventNotFoundError,
     NoResponsesFoundError,
@@ -75,6 +75,17 @@ async def test_format_attendance_output_uses_persisted_attendee_numbers():
     assert output == "**Attendance for Summer Bash**\n\nTotal Attendees: **2**\n\n4. Alice\n5. Bob"
 
 
+async def test_format_attendance_output_preserves_persisted_number_gaps():
+    attendee_list = [
+        NumberedAttendeeName("Alice", 1),
+        NumberedAttendeeName("Bob", 5),
+    ]
+
+    output = _format_attendance_output("Summer Bash", 2, attendee_list)
+
+    assert output == "**Attendance for Summer Bash**\n\nTotal Attendees: **2**\n\n1. Alice\n5. Bob"
+
+
 async def test_format_attendance_output_uses_dynamic_numbers_for_partial_numbering():
     attendee_list = [
         NumberedAttendeeName("Alice", 4),
@@ -133,6 +144,127 @@ async def test_attendance_success(
     mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
     # 4. Check logs (optional)
     mock_log.warning.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.discord.File")
+@patch("offkai_bot.cogs.events.build_attendee_report_rows")
+@patch("offkai_bot.cogs.events.has_complete_attendee_numbers")
+@patch("offkai_bot.cogs.events.get_event")
+async def test_attendance_report_sends_csv_by_dm(
+    mock_get_event,
+    mock_has_complete_numbers,
+    mock_build_rows,
+    mock_discord_file,
+    mock_interaction,
+    mock_event_obj,
+    mock_cog,
+):
+    """Test attendance_report sends a stable attendee-number CSV file by DM."""
+    event_name_target = "Summer Bash"
+    mock_event_obj.open = False
+    mock_get_event.return_value = mock_event_obj
+    mock_has_complete_numbers.return_value = True
+    mock_build_rows.return_value = [
+        AttendeeReportRow(
+            attendee_number=1,
+            name="Alice",
+            type="primary",
+            registered_by_username="Alice",
+            registered_by_display_name="Alice Display",
+            registered_by_user_id=111,
+            guest_index=None,
+            drink="Tea",
+        ),
+        AttendeeReportRow(
+            attendee_number=3,
+            name="Bob Guest",
+            type="guest",
+            registered_by_username="Bob",
+            registered_by_display_name="Bob Display",
+            registered_by_user_id=222,
+            guest_index=1,
+            drink="Soda",
+        ),
+    ]
+    mock_interaction.user.send = AsyncMock()
+    mock_file = MagicMock()
+    mock_discord_file.return_value = mock_file
+
+    await EventsCog.attendance_report.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+    )
+
+    mock_get_event.assert_called_once_with(event_name_target)
+    mock_has_complete_numbers.assert_called_once_with(event_name_target)
+    mock_build_rows.assert_called_once_with(event_name_target)
+    mock_discord_file.assert_called_once()
+    assert mock_discord_file.call_args.kwargs["filename"] == "attendance_report_Summer_Bash.csv"
+    assert mock_discord_file.call_args.kwargs["fp"].getvalue() == (
+        b"attendee_number,name,type,registered_by_username,registered_by_display_name,"
+        b"registered_by_user_id,guest_index,drink\n"
+        b"1,Alice,primary,Alice,Alice Display,111,,Tea\n"
+        b"3,Bob Guest,guest,Bob,Bob Display,222,1,Soda\n"
+    )
+    mock_interaction.user.send.assert_awaited_once_with(
+        f"Attendance report for **{event_name_target}** is attached as a CSV file.",
+        file=mock_file,
+    )
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        f"Attendance report for '{event_name_target}' has been sent to you by DM.",
+        ephemeral=True,
+    )
+
+
+@patch("offkai_bot.cogs.events.build_attendee_report_rows")
+@patch("offkai_bot.cogs.events.has_complete_attendee_numbers")
+@patch("offkai_bot.cogs.events.get_event")
+async def test_attendance_report_rejects_open_event(
+    mock_get_event,
+    mock_has_complete_numbers,
+    mock_build_rows,
+    mock_interaction,
+    mock_event_obj,
+    mock_cog,
+):
+    """Test attendance_report rejects events before close-time numbers exist."""
+    mock_event_obj.open = True
+    mock_get_event.return_value = mock_event_obj
+
+    await EventsCog.attendance_report.callback(mock_cog, mock_interaction, event_name="Summer Bash")
+
+    mock_has_complete_numbers.assert_not_called()
+    mock_build_rows.assert_not_called()
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
+        ephemeral=True,
+    )
+
+
+@patch("offkai_bot.cogs.events.build_attendee_report_rows")
+@patch("offkai_bot.cogs.events.has_complete_attendee_numbers")
+@patch("offkai_bot.cogs.events.get_event")
+async def test_attendance_report_rejects_incomplete_numbering(
+    mock_get_event,
+    mock_has_complete_numbers,
+    mock_build_rows,
+    mock_interaction,
+    mock_event_obj,
+    mock_cog,
+):
+    """Test attendance_report rejects closed events without full stored numbers."""
+    mock_event_obj.open = False
+    mock_get_event.return_value = mock_event_obj
+    mock_has_complete_numbers.return_value = False
+
+    await EventsCog.attendance_report.callback(mock_cog, mock_interaction, event_name="Summer Bash")
+
+    mock_build_rows.assert_not_called()
+    mock_interaction.response.send_message.assert_awaited_once_with(
+        "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
+        ephemeral=True,
+    )
 
 
 @patch("offkai_bot.cogs.events.calculate_attendance")

@@ -7,6 +7,7 @@ from unittest.mock import mock_open, patch
 import pytest
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
 from offkai_bot.data.event import JST, OFFKAI_MESSAGE, Event, create_event_message
+from offkai_bot.data.response import EventData, Response
 from offkai_bot.errors import (
     EventAlreadyArchivedError,
     EventAlreadyClosedError,
@@ -22,6 +23,7 @@ from offkai_bot.errors import (
 
 # Import the module we are testing
 from offkai_bot.data import event as event_data
+from offkai_bot.data import response as response_data
 
 # --- Test Data ---
 # Use explicit future dates for reliability
@@ -462,6 +464,37 @@ def test_load_event_data_loads_if_cache_none(sample_event_list):
         events = event_data.load_event_data()
         assert events == sample_event_list
         mock_internal_load.assert_called_once()
+
+
+def test_add_response_for_event_updates_max_attendee_number(mock_paths):
+    """Test closed-event additions advance the event-level attendee number counter."""
+    event = Event(
+        event_name="Numbered Event",
+        venue="Venue",
+        address="Address",
+        google_maps_link="Maps",
+        event_datetime=FUTURE_EVENT_DT,
+        open=False,
+        max_attendee_number=7,
+    )
+    event_data.EVENT_DATA_CACHE = [event]
+    response_data.RESPONSE_DATA_CACHE = {"Numbered Event": EventData(attendees=[], waitlist=[])}
+    response = Response(
+        user_id=123,
+        username="User",
+        extra_people=1,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Numbered Event",
+        timestamp=TEST_NOW_UTC,
+    )
+
+    assigned_max_number = event_data.add_response_for_event(event, response)
+
+    assert assigned_max_number == 9
+    assert event.max_attendee_number == 9
+    assert response.attendee_number == 8
+    assert response.extras_attendee_numbers == [9]
 
 
 # == save_event_data Tests ==

@@ -74,7 +74,7 @@ def mock_waitlist_entry():
 
 
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.add_response")
+@patch("offkai_bot.cogs.events.add_response_for_event")
 @patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -82,7 +82,7 @@ async def test_promote_success(
     mock_log,
     mock_get_event,
     mock_promote_specific,
-    mock_add_response,
+    mock_add_response_for_event,
     mock_update_event_msg,
     mock_interaction,
     mock_event_obj,
@@ -107,10 +107,10 @@ async def test_promote_success(
 
     mock_get_event.assert_called_once_with("Summer Bash")
     mock_promote_specific.assert_called_once_with("Summer Bash", 99999)
-    mock_add_response.assert_called_once()
+    mock_add_response_for_event.assert_called_once()
 
     # Verify the Response was created from the WaitlistEntry
-    added_response = mock_add_response.call_args[0][1]
+    added_response = mock_add_response_for_event.call_args[0][1]
     assert added_response.user_id == 99999
     assert added_response.username == "waitlistuser"
 
@@ -124,7 +124,7 @@ async def test_promote_success(
 
 
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.add_response")
+@patch("offkai_bot.cogs.events.add_response_for_event")
 @patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -132,7 +132,7 @@ async def test_promote_dm_failure(
     mock_log,
     mock_get_event,
     mock_promote_specific,
-    mock_add_response,
+    mock_add_response_for_event,
     mock_update_event_msg,
     mock_interaction,
     mock_event_obj,
@@ -157,7 +157,7 @@ async def test_promote_dm_failure(
 
     # Promotion should still succeed
     mock_promote_specific.assert_called_once()
-    mock_add_response.assert_called_once()
+    mock_add_response_for_event.assert_called_once()
     mock_interaction.response.send_message.assert_awaited_once()
     mock_update_event_msg.assert_awaited_once()
 
@@ -191,13 +191,13 @@ async def test_promote_event_not_found(
     mock_interaction.response.send_message.assert_not_awaited()
 
 
-@patch("offkai_bot.cogs.events.add_response")
+@patch("offkai_bot.cogs.events.add_response_for_event")
 @patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
 @patch("offkai_bot.cogs.events.get_event")
 async def test_promote_user_not_on_waitlist(
     mock_get_event,
     mock_promote_specific,
-    mock_add_response,
+    mock_add_response_for_event,
     mock_interaction,
     mock_event_obj,
     prepopulated_event_cache,
@@ -216,7 +216,7 @@ async def test_promote_user_not_on_waitlist(
         )
 
     mock_promote_specific.assert_called_once_with("Summer Bash", 99999)
-    mock_add_response.assert_not_called()
+    mock_add_response_for_event.assert_not_called()
     mock_interaction.response.send_message.assert_not_awaited()
 
 
