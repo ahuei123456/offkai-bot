@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
 from offkai_bot.data.encoders import DataclassJSONEncoder
-from offkai_bot.data.response import Response, add_response, get_responses, get_waitlist
+from offkai_bot.data.response import Response, add_response, get_max_attendee_number, get_responses, get_waitlist
 from offkai_bot.errors import (
     CapacityReductionError,
     CapacityReductionWithWaitlistError,
@@ -349,9 +349,15 @@ def save_event_data():
 
 def add_response_for_event(event: Event, response: Response) -> int | None:
     """Add a response using event state to maintain post-close attendee numbering."""
-    attendee_number_start = (
-        event.max_attendee_number + 1 if not event.open and event.max_attendee_number is not None else None
-    )
+    attendee_number_start = None
+    if not event.open:
+        max_known_attendee_number = max(
+            event.max_attendee_number or 0,
+            event.closed_attendance_count or 0,
+            get_max_attendee_number(event.event_name),
+        )
+        attendee_number_start = max_known_attendee_number + 1
+
     assigned_max_number = add_response(
         event.event_name,
         response,

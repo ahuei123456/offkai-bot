@@ -119,6 +119,11 @@ def _next_attendee_number(event_data: EventData) -> int:
     return max(assigned_numbers, default=0) + 1
 
 
+def _max_attendee_number(event_data: EventData) -> int:
+    assigned_numbers = [number for response in event_data["attendees"] for number in _group_attendee_numbers(response)]
+    return max(assigned_numbers, default=0)
+
+
 def _assign_group_numbers(response: Response, start_number: int) -> int:
     response.attendee_number = start_number
     response.extras_attendee_numbers = list(range(start_number + 1, start_number + 1 + response.extra_people))
@@ -484,6 +489,13 @@ def get_waitlist(event_name: str) -> list[WaitlistEntry]:
 def has_complete_attendee_numbers(event_name: str) -> bool:
     """Return True when every current attendee slot has a unique stored number."""
     return _has_complete_attendee_numbers(get_responses(event_name))
+
+
+def get_max_attendee_number(event_name: str) -> int:
+    """Return the highest currently stored attendee number for an event."""
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    return _max_attendee_number(event_data)
 
 
 def build_attendee_report_rows(event_name: str) -> list[AttendeeReportRow]:
