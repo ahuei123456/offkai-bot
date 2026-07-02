@@ -236,6 +236,7 @@ def test_load_rankings_json_decode_error(mock_paths):
         patch("os.path.getsize", return_value=100),
         patch("builtins.open", mock_open(read_data="invalid json")),
         patch("offkai_bot.data.ranking._log") as mock_log,
+        patch("offkai_bot.data.ranking.backup_corrupted_file") as mock_backup,
     ):
         rankings = ranking_data._load_rankings()
 
@@ -243,6 +244,7 @@ def test_load_rankings_json_decode_error(mock_paths):
         assert ranking_data.RANKING_DATA_CACHE == {}
         mock_log.error.assert_called_once()
         assert "Error decoding JSON" in mock_log.error.call_args[0][0]
+        mock_backup.assert_called_once_with(mock_paths["ranking"])
 
 
 def test_load_rankings_not_a_dict(mock_paths):
@@ -310,22 +312,17 @@ def test_save_rankings_success(mock_paths):
         "User2": RANK_5_OBJ,
     }
 
-    m_open = mock_open()
     with (
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("json.dump") as mock_json_dump,
+        patch("offkai_bot.data.ranking.atomic_write_json") as mock_atomic_write,
         patch("offkai_bot.data.ranking._log") as mock_log,
     ):
         ranking_data.save_rankings()
 
-        mock_file_constructor.assert_called_once_with(mock_paths["ranking"], "w", encoding="utf-8")
+        mock_atomic_write.assert_called_once()
+        args, kwargs = mock_atomic_write.call_args
 
-        mock_file_handle = m_open()
-        mock_json_dump.assert_called_once()
-        args, kwargs = mock_json_dump.call_args
-
-        assert args[0] == ranking_data.RANKING_DATA_CACHE
-        assert args[1] is mock_file_handle
+        assert args[0] == mock_paths["ranking"]
+        assert args[1] == ranking_data.RANKING_DATA_CACHE
         assert kwargs.get("indent") == 4
         assert kwargs.get("cls") == DataclassJSONEncoder
         assert kwargs.get("ensure_ascii") is False
@@ -336,9 +333,12 @@ def test_save_rankings_success(mock_paths):
 def test_save_rankings_cache_is_none(mock_paths):
     """Test saving when cache hasn't been loaded."""
     ranking_data.RANKING_DATA_CACHE = None
-    with patch("builtins.open") as mock_file_constructor, patch("offkai_bot.data.ranking._log") as mock_log:
+    with (
+        patch("offkai_bot.data.ranking.atomic_write_json") as mock_atomic_write,
+        patch("offkai_bot.data.ranking._log") as mock_log,
+    ):
         ranking_data.save_rankings()
-        mock_file_constructor.assert_not_called()
+        mock_atomic_write.assert_not_called()
         mock_log.error.assert_called_once()
         assert "Attempted to save response data before loading" in mock_log.error.call_args[0][0]
 
@@ -346,9 +346,10 @@ def test_save_rankings_cache_is_none(mock_paths):
 def test_save_rankings_os_error(mock_paths):
     """Test handling OS error during file writing."""
     ranking_data.RANKING_DATA_CACHE = {"User1": RANK_1_OBJ}
-    m_open = mock_open()
-    m_open.side_effect = OSError("Permission denied")
-    with patch("builtins.open", m_open), patch("offkai_bot.data.ranking._log") as mock_log:
+    with (
+        patch("offkai_bot.data.ranking.atomic_write_json", side_effect=OSError("Permission denied")),
+        patch("offkai_bot.data.ranking._log") as mock_log,
+    ):
         ranking_data.save_rankings()
         mock_log.error.assert_called_once()
         assert "Error writing response data" in mock_log.error.call_args[0][0]

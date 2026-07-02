@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
+from offkai_bot.data.atomic import atomic_write_json, backup_corrupted_file
 from offkai_bot.data.encoders import DataclassJSONEncoder
 from offkai_bot.data.response import Response, add_response, get_max_attendee_number, get_responses, get_waitlist
 from offkai_bot.errors import (
@@ -308,6 +309,7 @@ def _load_event_data() -> list[Event]:
         return []
     except json.JSONDecodeError:
         _log.error("Error decoding JSON from %s. File might be corrupted or invalid. Loading empty list.", file_path)
+        backup_corrupted_file(file_path)
         EVENT_DATA_CACHE = []
         return []
     except Exception as e:
@@ -336,14 +338,13 @@ def save_event_data():
         return
 
     try:
-        with open(settings["EVENTS_FILE"], "w", encoding="utf-8") as file:
-            json.dump(
-                EVENT_DATA_CACHE,
-                file,
-                indent=4,
-                cls=DataclassJSONEncoder,
-                ensure_ascii=False,
-            )
+        atomic_write_json(
+            settings["EVENTS_FILE"],
+            EVENT_DATA_CACHE,
+            indent=4,
+            cls=DataclassJSONEncoder,
+            ensure_ascii=False,
+        )
     except OSError as e:
         _log.error("Error writing event data to %s: %s", settings["EVENTS_FILE"], e)
     except Exception as e:

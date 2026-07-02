@@ -228,6 +228,7 @@ def test_load_responses_json_decode_error(mock_paths):
         patch("os.path.getsize", return_value=100),
         patch("builtins.open", mock_open(read_data="invalid json")),
         patch("offkai_bot.data.response._log") as mock_log,
+        patch("offkai_bot.data.response.backup_corrupted_file") as mock_backup,
     ):
         responses = response_data._load_responses()
 
@@ -235,6 +236,7 @@ def test_load_responses_json_decode_error(mock_paths):
         assert response_data.RESPONSE_DATA_CACHE == {}
         mock_log.error.assert_called_once()
         assert "Error decoding JSON" in mock_log.error.call_args[0][0]
+        mock_backup.assert_called_once_with(mock_paths["responses"])
 
 
 def test_load_responses_not_a_dict(mock_paths):
@@ -399,32 +401,19 @@ def test_save_responses_success(mock_paths):
         "Event B": make_event_data([RESP_3_OBJ]),
     }
 
-    m_open = mock_open()
-    # Patch both open and json.dump
     with (
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("json.dump") as mock_json_dump,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_atomic_write,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         response_data.save_responses()
 
-        # 1. Check file was opened correctly
-        mock_file_constructor.assert_called_once_with(mock_paths["responses"], "w", encoding="utf-8")
+        # Check atomic_write_json was called correctly
+        mock_atomic_write.assert_called_once()
+        args, kwargs = mock_atomic_write.call_args
 
-        # 2. Get the mock file handle that *should* have been passed to json.dump
-        mock_file_handle = m_open()
+        assert args[0] == mock_paths["responses"]
+        assert args[1] == response_data.RESPONSE_DATA_CACHE
 
-        # 3. Check json.dump was called correctly
-        mock_json_dump.assert_called_once()
-        args, kwargs = mock_json_dump.call_args
-
-        # Check the positional arguments passed to json.dump
-        # args[0] should be the data to dump
-        assert args[0] == response_data.RESPONSE_DATA_CACHE
-        # args[1] should be the file handle
-        assert args[1] is mock_file_handle  # Check it's the handle returned by mock_open
-
-        # Check the keyword arguments passed to json.dump
         assert kwargs.get("indent") == 4
         assert kwargs.get("cls") == DataclassJSONEncoder
         assert kwargs.get("ensure_ascii") is False  # Use 'is False' for explicit boolean check
@@ -436,9 +425,12 @@ def test_save_responses_success(mock_paths):
 def test_save_responses_cache_is_none(mock_paths):
     """Test saving when cache hasn't been loaded."""
     response_data.RESPONSE_DATA_CACHE = None
-    with patch("builtins.open") as mock_file_constructor, patch("offkai_bot.data.response._log") as mock_log:
+    with (
+        patch("offkai_bot.data.response.atomic_write_json") as mock_atomic_write,
+        patch("offkai_bot.data.response._log") as mock_log,
+    ):
         response_data.save_responses()
-        mock_file_constructor.assert_not_called()
+        mock_atomic_write.assert_not_called()
         mock_log.error.assert_called_once()
         assert "Attempted to save response data before loading" in mock_log.error.call_args[0][0]
 
@@ -446,9 +438,10 @@ def test_save_responses_cache_is_none(mock_paths):
 def test_save_responses_os_error(mock_paths):
     """Test handling OS error during file writing."""
     response_data.RESPONSE_DATA_CACHE = {"Event A": make_event_data([RESP_1_OBJ])}
-    m_open = mock_open()
-    m_open.side_effect = OSError("Permission denied")
-    with patch("builtins.open", m_open), patch("offkai_bot.data.response._log") as mock_log:
+    with (
+        patch("offkai_bot.data.response.atomic_write_json", side_effect=OSError("Permission denied")),
+        patch("offkai_bot.data.response._log") as mock_log,
+    ):
         response_data.save_responses()
         mock_log.error.assert_called_once()
         assert "Error writing response data" in mock_log.error.call_args[0][0]

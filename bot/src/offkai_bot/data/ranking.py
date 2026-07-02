@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 
 from offkai_bot.config import get_config
+from offkai_bot.data.atomic import atomic_write_json, backup_corrupted_file
 from offkai_bot.data.encoders import DataclassJSONEncoder
 
 _log = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ def _load_rankings() -> dict[str, UserRank]:
         _log.error(
             "Error decoding JSON from %s. File might be corrupted or invalid. Loading empty responses.", file_path
         )
+        backup_corrupted_file(file_path)
         RANKING_DATA_CACHE = {}
         return {}
     except Exception as e:
@@ -120,14 +122,13 @@ def save_rankings():
         return
 
     try:
-        with open(settings["RANKING_FILE"], "w", encoding="utf-8") as file:
-            json.dump(
-                RANKING_DATA_CACHE,
-                file,
-                indent=4,
-                cls=DataclassJSONEncoder,
-                ensure_ascii=False,
-            )
+        atomic_write_json(
+            settings["RANKING_FILE"],
+            RANKING_DATA_CACHE,
+            indent=4,
+            cls=DataclassJSONEncoder,
+            ensure_ascii=False,
+        )
     except OSError as e:
         _log.error("Error writing response data to %s: %s", settings["RANKING_FILE"], e)
     except Exception as e:
