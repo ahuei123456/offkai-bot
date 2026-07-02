@@ -27,6 +27,10 @@ export interface BotAttendee {
   arrival_confirmed: boolean
   event_name: string
   timestamp: string
+  // Sequential per-event entry numbers assigned by the bot: the primary's own
+  // number, then one per guest. Null/empty until the host numbers the event.
+  attendee_number: number | null
+  extras_attendee_numbers: number[]
 }
 
 export interface BotEventResponses {

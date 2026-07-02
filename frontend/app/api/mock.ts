@@ -24,6 +24,8 @@ export interface MockAttendee {
   drinks: string[]
   extra_people: number
   extras_names: string[]
+  attendee_number?: number | null
+  extras_attendee_numbers?: number[]
   status: 'attending' | 'waitlist'
 }
 
@@ -73,18 +75,18 @@ export const MOCK_EVENTS: MockEvent[] = [
 // Distinct attendees per event so cross-event scans can be rejected.
 export const MOCK_ATTENDEES: Record<string, MockAttendee[]> = {
   'Bandori 10th Offkai': [
-    { user_id: '123', username: 'fadekyun', display_name: 'Fadekyun', drinks: ['Highball (L)'], extra_people: 1, extras_names: ['Senpai'], status: 'attending' },
-    { user_id: '124', username: 'sakichan', display_name: 'Sakichan', drinks: ['Oolong Tea (L)', 'Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-    { user_id: '125', username: 'hoshino', display_name: 'Hoshino', drinks: ['Sapporo Beer (L)'], extra_people: 2, extras_names: ['Friend A', 'Friend B'], status: 'attending' },
+    { user_id: '123', username: 'fadekyun', display_name: 'Fadekyun', drinks: ['Highball (L)'], extra_people: 1, extras_names: ['Senpai'], attendee_number: 1, extras_attendee_numbers: [2], status: 'attending' },
+    { user_id: '124', username: 'sakichan', display_name: 'Sakichan', drinks: ['Oolong Tea (L)', 'Cream Soda (L)'], extra_people: 0, extras_names: [], attendee_number: 3, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '125', username: 'hoshino', display_name: 'Hoshino', drinks: ['Sapporo Beer (L)'], extra_people: 2, extras_names: ['Friend A', 'Friend B'], attendee_number: 4, extras_attendee_numbers: [5, 6], status: 'attending' },
     { user_id: '126', username: 'arisa', display_name: 'Arisa', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'waitlist' },
   ],
   'Roselia Live Offkai': [
-    { user_id: '200', username: 'yukina', display_name: 'Yukina', drinks: ['Oolong Tea (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-    { user_id: '201', username: 'lisa', display_name: 'Lisa', drinks: ['Sapporo Beer (L)'], extra_people: 1, extras_names: ['Ako'], status: 'attending' },
+    { user_id: '200', username: 'yukina', display_name: 'Yukina', drinks: ['Oolong Tea (L)'], extra_people: 0, extras_names: [], attendee_number: 1, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '201', username: 'lisa', display_name: 'Lisa', drinks: ['Sapporo Beer (L)'], extra_people: 1, extras_names: ['Ako'], attendee_number: 2, extras_attendee_numbers: [3], status: 'attending' },
   ],
   'MyGO!!!!! Offkai': [
-    { user_id: '300', username: 'tomori', display_name: 'Tomori', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'attending' },
-    { user_id: '301', username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'attending' },
+    { user_id: '300', username: 'tomori', display_name: 'Tomori', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], attendee_number: 1, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '301', username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], attendee_number: 2, extras_attendee_numbers: [], status: 'attending' },
   ],
 }
 

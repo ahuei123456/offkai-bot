@@ -16,6 +16,9 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Next.js frontend source dir — not the Python build `lib/` ignored above.
+!frontend/app/lib/
+!frontend/app/lib/**
 parts/
 sdist/
 var/
