@@ -47,8 +47,28 @@ def _format_attendee_numbers_jp(response: Response) -> str | None:
     return f"🔢 **受付番号:** {', '.join(parts)}"
 
 
+def unregister_deadline_reminders(event_name: str) -> None:
+    """Removes any pending auto-close, deadline reminder, and role-deletion tasks
+    for the given event."""
+    remove_alerts(
+        lambda task: (
+            isinstance(task, CloseOffkaiTask | SendMessageTask | DeleteRoleTask)
+            and getattr(task, "event_name", None) == event_name
+        )
+    )
+
+
 def register_deadline_reminders(client: discord.Client, event: Event, thread: discord.Thread):
+    """Schedules the auto-close task, deadline reminder pings, and role deletion
+    for an event. Replaces any existing deadline alerts for this event so editing
+    the deadline never leaves stale alerts. No-op for archived events."""
     _log.info("Registering deadline reminders for event '%s'.", event.event_name)
+
+    # Drop any previously scheduled deadline alerts for this event first.
+    unregister_deadline_reminders(event.event_name)
+
+    if event.archived:
+        return
 
     if event.event_deadline and not event.is_past_deadline:
         with contextlib.suppress(AlertTimeInPastError):
@@ -63,6 +83,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                     SendMessageTask(
                         client=client,
                         channel_id=event.channel_id,
+                        event_name=event.event_name,
                         message=f"{role_ping}24 hours until registration deadline for {event.event_name}! "
                         f"See {thread.mention} for details.\n"
                         f"{event.event_name}の登録締切まであと24時間です！"
@@ -76,6 +97,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                     SendMessageTask(
                         client=client,
                         channel_id=event.channel_id,
+                        event_name=event.event_name,
                         message=f"{role_ping}3 days until registration deadline for {event.event_name}! "
                         f"See {thread.mention} for details.\n"
                         f"{event.event_name}の登録締切まであと3日です！"
@@ -89,6 +111,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                     SendMessageTask(
                         client=client,
                         channel_id=event.channel_id,
+                        event_name=event.event_name,
                         message=f"{role_ping}1 week until registration deadline for {event.event_name}! "
                         f"See {thread.mention} for details.\n"
                         f"{event.event_name}の登録締切まであと1週間です！"

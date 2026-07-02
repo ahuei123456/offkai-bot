@@ -1,11 +1,12 @@
 # tests/alerts/test_alerts.py
 
+import copy
 from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-from offkai_bot.alerts.reminders import register_deadline_reminders
+from offkai_bot.alerts.reminders import register_deadline_reminders, unregister_deadline_reminders
 from offkai_bot.alerts.task import (  # Import base Task for type hinting
     CloseOffkaiTask,
     DeleteRoleTask,
@@ -254,6 +255,7 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
             client=mock_client,
             channel_id=event.channel_id,
             message=ANY,
+            event_name=event.event_name,
         ),
     )
     mock_log.info.assert_any_call("Registered 24 hour reminder for '%s'.", event.event_name)
@@ -265,6 +267,7 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
             client=mock_client,
             channel_id=event.channel_id,
             message=ANY,
+            event_name=event.event_name,
         ),
     )
     mock_log.info.assert_any_call("Registered 3 day reminder for '%s'.", event.event_name)
@@ -276,6 +279,7 @@ def test_register_deadline_reminders_success(mock_log, mock_register_alert, mock
             client=mock_client,
             channel_id=event.channel_id,
             message=ANY,
+            event_name=event.event_name,
         ),
     )
     mock_log.info.assert_any_call("Registered 1 week reminder for '%s'.", event.event_name)
@@ -427,6 +431,7 @@ def test_register_deadline_reminders_past_reminders_suppressed(
             client=mock_client,
             channel_id=event.channel_id,
             message=ANY,
+            event_name=event.event_name,
         ),
     )
     mock_log.info.assert_any_call("Registered 24 hour reminder for '%s'.", event.event_name)
@@ -496,3 +501,65 @@ def test_register_role_deletion_independent_of_deadline(
         expected_delete_time,
         DeleteRoleTask(client=mock_client, event_name=event.event_name, role_id=55555),
     )
+
+
+# --- Tests for unregister_deadline_reminders / re-registration ---
+# These use the real register_alert so alerts land in the (cleared) global registry.
+
+
+def _all_scheduled_tasks() -> list[Task]:
+    return [task for tasks in alerts._scheduled_tasks.values() for task in tasks]
+
+
+def test_unregister_deadline_reminders_removes_only_matching_event(mock_client, mock_thread, future_event):
+    """Test that unregistering removes all of one event's alerts but leaves other events' alerts."""
+    # Arrange
+    other_event = copy.deepcopy(future_event)
+    other_event.event_name = "Other Event"
+    future_event.role_id = 55555
+
+    register_deadline_reminders(mock_client, future_event, mock_thread)
+    register_deadline_reminders(mock_client, other_event, mock_thread)
+    # 5 tasks for future_event (close + 3 reminders + role deletion) + 4 for other_event
+    assert len(_all_scheduled_tasks()) == 9
+
+    # Act
+    unregister_deadline_reminders(future_event.event_name)
+
+    # Assert
+    remaining = _all_scheduled_tasks()
+    assert len(remaining) == 4
+    assert all(task.event_name == other_event.event_name for task in remaining)
+
+
+def test_register_deadline_reminders_replaces_existing_alerts(mock_client, mock_thread, future_event):
+    """Test that re-registering after a deadline change leaves no alerts at the old deadline."""
+    # Arrange
+    register_deadline_reminders(mock_client, future_event, mock_thread)
+    old_close_key = future_event.event_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    assert old_close_key in alerts._scheduled_tasks
+
+    # Act - extend the deadline and re-register
+    future_event.event_deadline = future_event.event_deadline + timedelta(days=2, hours=1)
+    future_event.event_datetime = future_event.event_deadline + timedelta(days=5)
+    register_deadline_reminders(mock_client, future_event, mock_thread)
+
+    # Assert - no alerts remain at the old deadline; close task is at the new deadline
+    new_close_key = future_event.event_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    assert old_close_key not in alerts._scheduled_tasks
+    assert any(isinstance(task, CloseOffkaiTask) for task in alerts._scheduled_tasks[new_close_key])
+    assert len(_all_scheduled_tasks()) == 4
+
+
+def test_register_deadline_reminders_archived_event_clears_alerts(mock_client, mock_thread, future_event):
+    """Test that registering an archived event removes existing alerts and adds none."""
+    # Arrange
+    register_deadline_reminders(mock_client, future_event, mock_thread)
+    assert _all_scheduled_tasks()
+
+    # Act
+    future_event.archived = True
+    register_deadline_reminders(mock_client, future_event, mock_thread)
+
+    # Assert
+    assert not _all_scheduled_tasks()

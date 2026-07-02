@@ -186,12 +186,14 @@ async def test_send_message_task_send_unexpected_error(mock_log, mock_client, mo
 
 # Patch the perform_close_event function *where it's looked up* by task.py
 @patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
 @patch("offkai_bot.alerts.task._log")
-async def test_close_offkai_task_success(mock_log, mock_perform_close, mock_client):
+async def test_close_offkai_task_success(mock_log, mock_get_event, mock_perform_close, mock_client):
     """Test CloseOffkaiTask successfully calls perform_close_event."""
     # Arrange
     event_name = "Event To Close"
     task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.return_value = MagicMock(archived=False, is_past_deadline=True)
     # Default close_msg is used
 
     # Act
@@ -211,12 +213,14 @@ async def test_close_offkai_task_success(mock_log, mock_perform_close, mock_clie
 
 
 @patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
 @patch("offkai_bot.alerts.task._log")
-async def test_close_offkai_task_handles_bot_command_error(mock_log, mock_perform_close, mock_client):
+async def test_close_offkai_task_handles_bot_command_error(mock_log, mock_get_event, mock_perform_close, mock_client):
     """Test CloseOffkaiTask handles BotCommandError from perform_close_event."""
     # Arrange
     event_name = "Missing Event"
     task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.return_value = MagicMock(archived=False, is_past_deadline=True)
     # Simulate EventNotFoundError (which inherits from BotCommandError)
     error_to_raise = EventNotFoundError(event_name)
     # Assign a specific log level to the error instance for testing
@@ -241,12 +245,14 @@ async def test_close_offkai_task_handles_bot_command_error(mock_log, mock_perfor
 
 
 @patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
 @patch("offkai_bot.alerts.task._log")
-async def test_close_offkai_task_handles_http_exception(mock_log, mock_perform_close, mock_client):
+async def test_close_offkai_task_handles_http_exception(mock_log, mock_get_event, mock_perform_close, mock_client):
     """Test CloseOffkaiTask handles discord.HTTPException from perform_close_event."""
     # Arrange
     event_name = "Event With API Error"
     task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.return_value = MagicMock(archived=False, is_past_deadline=True)
     error_to_raise = discord.HTTPException(MagicMock(), "Discord API failed")
     mock_perform_close.side_effect = error_to_raise
 
@@ -264,12 +270,16 @@ async def test_close_offkai_task_handles_http_exception(mock_log, mock_perform_c
 
 
 @patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
 @patch("offkai_bot.alerts.task._log")
-async def test_close_offkai_task_handles_unexpected_exception(mock_log, mock_perform_close, mock_client):
+async def test_close_offkai_task_handles_unexpected_exception(
+    mock_log, mock_get_event, mock_perform_close, mock_client
+):
     """Test CloseOffkaiTask handles generic Exception from perform_close_event."""
     # Arrange
     event_name = "Event With Unexpected Error"
     task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.return_value = MagicMock(archived=False, is_past_deadline=True)
     error_to_raise = ValueError("Something completely unexpected happened")
     mock_perform_close.side_effect = error_to_raise
 
@@ -284,6 +294,65 @@ async def test_close_offkai_task_handles_unexpected_exception(mock_log, mock_per
     )
     mock_log.log.assert_not_called()
     mock_log.error.assert_not_called()
+
+
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
+@patch("offkai_bot.alerts.task._log")
+async def test_close_offkai_task_skips_when_event_not_found(mock_log, mock_get_event, mock_perform_close, mock_client):
+    """Test CloseOffkaiTask skips closing when the event no longer exists."""
+    # Arrange
+    event_name = "Deleted Event"
+    task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.side_effect = EventNotFoundError(event_name)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_perform_close.assert_not_awaited()
+    mock_log.warning.assert_called_once_with("CloseOffkaiTask: event '%s' no longer exists. Skipping.", event_name)
+
+
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
+@patch("offkai_bot.alerts.task._log")
+async def test_close_offkai_task_skips_when_event_archived(mock_log, mock_get_event, mock_perform_close, mock_client):
+    """Test CloseOffkaiTask skips closing when the event has been archived."""
+    # Arrange
+    event_name = "Archived Event"
+    task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.return_value = MagicMock(archived=True)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_perform_close.assert_not_awaited()
+    mock_log.info.assert_any_call("CloseOffkaiTask: event '%s' is archived. Skipping.", event_name)
+
+
+@patch("offkai_bot.alerts.task.perform_close_event", new_callable=AsyncMock)
+@patch("offkai_bot.alerts.task.get_event")
+@patch("offkai_bot.alerts.task._log")
+async def test_close_offkai_task_skips_when_deadline_moved_to_future(
+    mock_log, mock_get_event, mock_perform_close, mock_client
+):
+    """Test CloseOffkaiTask skips closing when the deadline was moved into the future."""
+    # Arrange
+    event_name = "Extended Event"
+    task = CloseOffkaiTask(client=mock_client, event_name=event_name)
+    mock_get_event.return_value = MagicMock(archived=False, is_past_deadline=False)
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_perform_close.assert_not_awaited()
+    mock_log.info.assert_any_call(
+        "CloseOffkaiTask: deadline for event '%s' has moved into the future. Skipping.",
+        event_name,
+    )
 
 
 # --- Tests for DeleteRoleTask ---

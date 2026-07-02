@@ -9,6 +9,8 @@ import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
+from offkai_bot.alerts.alerts import register_alert
+from offkai_bot.alerts.task import CloseOffkaiTask
 
 # Import the function to test and relevant errors/classes
 from offkai_bot.cogs.events import EventsCog
@@ -28,6 +30,8 @@ from offkai_bot.errors import (
     ThreadNotFoundError,
 )
 from offkai_bot.util import JST
+
+from offkai_bot.alerts import alerts
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
@@ -169,6 +173,55 @@ async def test_modify_offkai_success(
     )
     mock_log.warning.assert_not_called()
     mock_log.error.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.update_event_details")
+@patch("offkai_bot.cogs.events._log")
+async def test_modify_offkai_reschedules_deadline_alerts(
+    mock_log,
+    mock_update_details,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_thread,
+    mock_modified_event,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that modifying an event replaces the auto-close alert keyed to the old deadline."""
+    # Arrange
+    event_name_to_modify = "Summer Bash"
+
+    # Simulate the auto-close alert registered at event creation for the old deadline.
+    old_deadline = datetime.now(UTC) + timedelta(days=3)
+    register_alert(old_deadline, CloseOffkaiTask(client=mock_cog.bot, event_name=event_name_to_modify))
+    old_key = old_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    assert old_key in alerts._scheduled_tasks
+
+    mock_update_details.return_value = mock_modified_event
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.id = mock_modified_event.thread_id
+    mock_thread.mention = f"<#{mock_thread.id}>"
+
+    # Act
+    await EventsCog.modify_offkai.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_to_modify,
+        update_msg="Deadline extended!",
+        deadline="2030-01-01 18:00",  # Parsing happens inside the mocked update_event_details
+    )
+
+    # Assert - the alert keyed to the old deadline is gone...
+    assert old_key not in alerts._scheduled_tasks
+    # ...and a new auto-close alert is scheduled at the new deadline.
+    new_key = mock_modified_event.event_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    close_tasks = [t for t in alerts._scheduled_tasks.get(new_key, []) if isinstance(t, CloseOffkaiTask)]
+    assert len(close_tasks) == 1
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)

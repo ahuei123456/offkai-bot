@@ -1,12 +1,15 @@
 # tests/commands/test_archive_offkai.py
 
 import logging
+from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
+from offkai_bot.alerts.alerts import register_alert
+from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
 
 # Import the function to test and relevant errors/classes
 from offkai_bot.cogs.events import EventsCog
@@ -18,6 +21,8 @@ from offkai_bot.errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
+
+from offkai_bot.alerts import alerts
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
@@ -129,6 +134,50 @@ async def test_archive_offkai_success(
     )
     mock_log.info.assert_called()
     mock_log.warning.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.archive_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_archive_offkai_unregisters_deadline_alerts(
+    mock_log,
+    mock_archive_event_func,
+    mock_save_data,
+    mock_update_msg_view,
+    mock_fetch_thread,
+    mock_interaction,
+    mock_thread,
+    mock_archived_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that archiving removes any pending auto-close and reminder alerts for the event."""
+    # Arrange
+    event_name_to_archive = "Summer Bash"
+    mock_archive_event_func.return_value = mock_archived_event_obj
+    mock_fetch_thread.return_value = mock_thread
+    mock_thread.archived = False
+
+    # Simulate alerts scheduled at event creation.
+    future_time = datetime.now(UTC) + timedelta(days=5)
+    register_alert(future_time, CloseOffkaiTask(client=mock_cog.bot, event_name=event_name_to_archive))
+    register_alert(
+        future_time - timedelta(days=1),
+        SendMessageTask(client=mock_cog.bot, channel_id=1001, message="reminder", event_name=event_name_to_archive),
+    )
+
+    # Act
+    await EventsCog.archive_offkai.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_to_archive,
+    )
+
+    # Assert - no alerts for the archived event remain scheduled
+    remaining = [task for tasks in alerts._scheduled_tasks.values() for task in tasks]
+    assert not any(getattr(task, "event_name", None) == event_name_to_archive for task in remaining)
 
 
 @pytest.mark.parametrize(

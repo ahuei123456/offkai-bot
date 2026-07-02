@@ -12,6 +12,7 @@ from offkai_bot.alerts.reminders import (
     register_checkin_reminder,
     register_deadline_reminders,
     unregister_checkin_reminder,
+    unregister_deadline_reminders,
 )
 from offkai_bot.data.event import (
     add_event,
@@ -340,6 +341,12 @@ class EventsCog(commands.Cog):
 
         try:
             thread = await fetch_thread_for_event(self.bot, modified_event)
+
+            # Re-schedule the auto-close and deadline reminder alerts in case the
+            # deadline changed. register_deadline_reminders drops the old alerts
+            # first, so this never leaves alerts keyed to the old deadline.
+            register_deadline_reminders(self.bot, modified_event, thread)
+
             try:
                 await thread.send(f"**Event Updated:**\n{update_msg}")
             except discord.HTTPException as e:
@@ -423,6 +430,7 @@ class EventsCog(commands.Cog):
         archived_event = archive_event(event_name)
         save_event_data()
         unregister_checkin_reminder(archived_event.event_name)
+        unregister_deadline_reminders(archived_event.event_name)
         await update_event_message(self.bot, archived_event)
 
         try:

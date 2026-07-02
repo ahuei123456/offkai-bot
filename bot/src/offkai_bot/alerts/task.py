@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 
 import discord
 
-from offkai_bot.errors import BotCommandError  # Import base error for catching known issues
+from offkai_bot.data.event import get_event
+from offkai_bot.errors import BotCommandError, EventNotFoundError  # Import base error for catching known issues
 from offkai_bot.event_actions import perform_close_event
 
 _log = logging.getLogger(__name__)
@@ -31,6 +32,9 @@ class SendMessageTask(Task):
 
     channel_id: int
     message: str
+    # Optional tag linking this message to an event, so pending reminders can be
+    # unregistered when the event's deadline changes or the event is archived.
+    event_name: str | None = None
 
     async def action(self):
         """Sends the defined message to the specified channel."""
@@ -75,6 +79,25 @@ class CloseOffkaiTask(Task):
         Handles errors specific to the closing process. Overrides base action.
         """
         _log.info("Executing CloseOffkaiTask for event: '%s'", self.event_name)
+
+        # Reload the event at fire time; the deadline may have changed since this
+        # task was scheduled. Skip if the event is gone, archived, or the deadline
+        # has been moved into the future (a rescheduled task will handle it).
+        try:
+            event = get_event(self.event_name)
+        except EventNotFoundError:
+            _log.warning("CloseOffkaiTask: event '%s' no longer exists. Skipping.", self.event_name)
+            return
+        if event.archived:
+            _log.info("CloseOffkaiTask: event '%s' is archived. Skipping.", self.event_name)
+            return
+        if event.event_deadline and not event.is_past_deadline:
+            _log.info(
+                "CloseOffkaiTask: deadline for event '%s' has moved into the future. Skipping.",
+                self.event_name,
+            )
+            return
+
         try:
             # Call the core closing logic function
             # self.client is inherited from the Task dataclass
