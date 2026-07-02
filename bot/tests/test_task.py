@@ -96,6 +96,28 @@ async def test_send_message_task_success_thread(mock_log, mock_client, mock_thre
 
 
 @patch("offkai_bot.alerts.task._log")
+async def test_send_message_task_passes_allowed_mentions(mock_log, mock_client, mock_text_channel):
+    """Test SendMessageTask forwards an explicit allowed_mentions opt-in to send."""
+    # Arrange
+    channel_id = mock_text_channel.id
+    message_content = "<@&123> Reminder!"
+    mentions = discord.AllowedMentions(roles=[discord.Object(id=123)])
+    task = SendMessageTask(
+        client=mock_client,
+        channel_id=channel_id,
+        message=message_content,
+        allowed_mentions=mentions,
+    )
+    mock_client.get_channel.return_value = mock_text_channel
+
+    # Act
+    await task.action()
+
+    # Assert
+    mock_text_channel.send.assert_awaited_once_with(message_content, allowed_mentions=mentions)
+
+
+@patch("offkai_bot.alerts.task._log")
 async def test_send_message_task_channel_not_found(mock_log, mock_client):
     """Test SendMessageTask handles channel not found."""
     # Arrange
