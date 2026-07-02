@@ -410,7 +410,12 @@ class GatheringModal(ui.Modal):
                 rank = get_rank(interaction.user.name)
                 if rank in MILESTONE_MESSAGES and can_rank_message_sent(interaction.user.name):
                     msg_template = random.choice(MILESTONE_MESSAGES[rank])
-                    await interaction.channel.send(msg_template.format(user_id=interaction.user.id))
+                    # Milestone messages congratulate the user by mention; opt in to
+                    # user pings past the client-wide AllowedMentions.none() default.
+                    await interaction.channel.send(
+                        msg_template.format(user_id=interaction.user.id),
+                        allowed_mentions=discord.AllowedMentions(users=True),
+                    )
                     mark_achieved_rank(interaction.user.name)
 
         except (discord.Forbidden, discord.HTTPException):

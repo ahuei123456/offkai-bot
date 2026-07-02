@@ -11,7 +11,11 @@ class GeneralCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     async def hello(self, interaction: discord.Interaction):
         """Says hello!"""
-        await interaction.response.send_message(f"Hi, {interaction.user.mention}")
+        # Opt in to the user ping past the client-wide AllowedMentions.none() default.
+        await interaction.response.send_message(
+            f"Hi, {interaction.user.mention}",
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
 
 
 async def setup(bot: commands.Bot):
