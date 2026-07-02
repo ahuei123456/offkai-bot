@@ -45,11 +45,10 @@ export function verifyToken(raw: string): ResolvedToken | null {
   if (typeof raw !== 'string' || !raw || raw.length > MAX_TOKEN_LEN) return null
   const token = raw.trim()
 
-  // Without a configured key we cannot verify signatures (dev/mock without key).
-  // Treat a bare numeric value as the user id; reject anything signed.
-  if (!ADMIN_KEY) {
-    return /^\d+$/.test(token) ? { userId: token, eventName: null } : null
-  }
+  // Without a configured key we cannot verify signatures, so no token is
+  // acceptable (fail closed — a bare user_id would be forgeable, since
+  // Discord user IDs are public; issue #101).
+  if (!ADMIN_KEY) return null
 
   const parts = token.split('.')
 

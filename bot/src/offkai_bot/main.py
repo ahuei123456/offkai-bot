@@ -86,6 +86,8 @@ class OffkaiClient(commands.Bot):
 
         if not get_config().get("FRONTEND_URL"):
             _log.warning("FRONTEND_URL is not set — check-in URLs will be omitted from DMs.")
+        elif not get_config().get("ADMIN_KEY"):
+            _log.warning("ADMIN_KEY is not set — check-in URLs cannot be signed and will be omitted from DMs.")
 
         # Sync commands
         for guild_id in settings["GUILDS"]:
