@@ -10,7 +10,7 @@ from discord.ext import commands
 
 # --- Updated Imports ---
 from offkai_bot import config
-from offkai_bot.alerts.alerts import alert_loop
+from offkai_bot.alerts.alerts import start_alert_loop
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 from offkai_bot.config import get_config
 
@@ -95,7 +95,7 @@ class OffkaiClient(commands.Bot):
         _log.info("Commands synced.")
 
         await load_and_update_events(self)
-        alert_loop.start()
+        start_alert_loop(self)
 
 
 intents = discord.Intents.default()
