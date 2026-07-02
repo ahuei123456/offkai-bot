@@ -180,6 +180,7 @@ def _load_event_data() -> list[Event]:
                 continue  # Skip this dictionary and move to the next one
 
             # --- Parse and Convert event_datetime ---
+            event_datetime_utc = None
             raw_dt_str = event_dict.get("event_datetime")
             if raw_dt_str:
                 try:
@@ -204,8 +205,10 @@ def _load_event_data() -> list[Event]:
                         event_dict.get("event_name"),
                         e,
                     )
-                    _log.error("Skipping event entry due to missing or empty 'event_datetime'. Data: %s", event_dict)
-                    continue
+
+            if event_datetime_utc is None:
+                _log.error("Skipping event entry due to missing or empty 'event_datetime'. Data: %s", event_dict)
+                continue
             # --- End event_datetime Parsing ---
 
             # --- Parse and Convert event_deadline ---

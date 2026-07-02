@@ -280,6 +280,63 @@ def test_load_event_data_invalid_datetime(mock_paths):
         assert mock_log.warning.call_args[0][1] == "not-a-datetime"
 
 
+def test_load_event_data_missing_datetime(mock_paths):
+    """Test loading data where an entry is missing 'event_datetime' entirely.
+
+    Regression test: a missing datetime must not leave `event_datetime_utc`
+    unbound (NameError -> whole load fails) or stale from a prior iteration.
+    """
+    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
+    missing_dt_event = {"event_name": "Missing DT", "venue": "V", "address": "A", "google_maps_link": "G"}
+    valid_event_dict = {
+        "event_name": "Valid Event",
+        "venue": "V",
+        "address": "A",
+        "google_maps_link": "G",
+        "event_datetime": dt1.isoformat(),
+    }
+    bad_json = json.dumps([missing_dt_event, valid_event_dict])
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=bad_json)),
+        patch("offkai_bot.data.event._log") as mock_log,
+    ):
+        events = event_data._load_event_data()
+
+        assert len(events) == 1
+        assert events[0].event_name == "Valid Event"
+        assert events[0].event_datetime == dt1
+        mock_log.error.assert_called_once()
+        assert "Skipping event entry due to missing or empty 'event_datetime'." in mock_log.error.call_args[0][0]
+
+
+def test_load_event_data_empty_datetime(mock_paths):
+    """Test loading data where 'event_datetime' is an empty string."""
+    empty_dt_event = {
+        "event_name": "Empty DT",
+        "venue": "V",
+        "address": "A",
+        "google_maps_link": "G",
+        "event_datetime": "",
+    }
+    bad_json = json.dumps([empty_dt_event])
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=bad_json)),
+        patch("offkai_bot.data.event._log") as mock_log,
+    ):
+        events = event_data._load_event_data()
+
+        assert events == []
+        assert event_data.EVENT_DATA_CACHE == []
+        mock_log.error.assert_called_once()
+        assert "Skipping event entry due to missing or empty 'event_datetime'." in mock_log.error.call_args[0][0]
+
+
 def test_load_event_data_with_ping_role_id(mock_paths):
     """Test loading event data that includes a ping_role_id field."""
     dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
