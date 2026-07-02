@@ -40,6 +40,7 @@ def mock_interaction():
 
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
     interaction.followup = MagicMock(send=AsyncMock())
 
     return interaction
@@ -114,9 +115,9 @@ async def test_promote_success(
     assert added_response.user_id == 99999
     assert added_response.username == "waitlistuser"
 
-    mock_interaction.response.send_message.assert_awaited_once()
-    assert "Promoted user" in mock_interaction.response.send_message.call_args[0][0]
-    assert mock_interaction.response.send_message.call_args[1]["ephemeral"] is True
+    mock_interaction.followup.send.assert_awaited_once()
+    assert "Promoted user" in mock_interaction.followup.send.call_args[0][0]
+    assert mock_interaction.followup.send.call_args[1]["ephemeral"] is True
 
     mock_cog.bot.fetch_user.assert_awaited_once_with(99999)
     mock_promoted_user.send.assert_awaited_once()
@@ -158,7 +159,7 @@ async def test_promote_dm_failure(
     # Promotion should still succeed
     mock_promote_specific.assert_called_once()
     mock_add_response_for_event.assert_called_once()
-    mock_interaction.response.send_message.assert_awaited_once()
+    mock_interaction.followup.send.assert_awaited_once()
     mock_update_event_msg.assert_awaited_once()
 
     # DM failure should be logged as warning
@@ -188,7 +189,7 @@ async def test_promote_event_not_found(
 
     mock_get_event.assert_called_once_with("NonExistent")
     mock_promote_specific.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.add_response_for_event")
@@ -217,7 +218,7 @@ async def test_promote_user_not_on_waitlist(
 
     mock_promote_specific.assert_called_once_with("Summer Bash", 99999)
     mock_add_response_for_event.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
@@ -241,7 +242,7 @@ async def test_promote_invalid_username(
     )
 
     mock_promote_specific.assert_not_called()
-    mock_interaction.response.send_message.assert_awaited_once()
-    call_args = mock_interaction.response.send_message.call_args
+    mock_interaction.followup.send.assert_awaited_once()
+    call_args = mock_interaction.followup.send.call_args
     assert "Invalid user selection" in call_args[0][0]
     assert call_args[1]["ephemeral"] is True

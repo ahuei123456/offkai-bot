@@ -49,7 +49,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
-    interaction.followup = MagicMock(send=AsyncMock())  # In case response is done
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     return interaction
 
@@ -117,7 +118,7 @@ async def test_delete_response_success(
     # 2. Check remove_response call
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
     # 3. Check interaction response
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'.",
         ephemeral=True,
     )
@@ -167,7 +168,7 @@ async def test_delete_response_success_no_channel_id(
     # Steps up to response should succeed
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
-    mock_interaction.response.send_message.assert_awaited_once()
+    mock_interaction.followup.send.assert_awaited_once()
 
     # Discord interactions should be skipped, warning logged
     mock_cog.bot.get_channel.assert_not_called()
@@ -212,7 +213,7 @@ async def test_delete_response_success_thread_not_found(
     # Steps up to response should succeed
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
-    mock_interaction.response.send_message.assert_awaited_once()
+    mock_interaction.followup.send.assert_awaited_once()
     mock_cog.bot.get_channel.assert_called_once_with(mock_event_obj.thread_id)
 
     # Removing user should be skipped, warning logged
@@ -260,7 +261,7 @@ async def test_delete_response_success_remove_user_fails(
     # Steps up to remove_user should succeed
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
-    mock_interaction.response.send_message.assert_awaited_once()
+    mock_interaction.followup.send.assert_awaited_once()
     mock_cog.bot.get_channel.assert_called_once_with(mock_event_obj.thread_id)
     mock_thread.remove_user.assert_awaited_once_with(mock_member)  # Should still be called
 
@@ -301,7 +302,7 @@ async def test_delete_response_event_not_found(
     # Assert only get_event was called
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
     mock_cog.bot.get_channel.assert_not_called()
 
 
@@ -344,6 +345,6 @@ async def test_delete_response_response_not_found_in_data(
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
 
     # Assert subsequent steps were NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
     mock_cog.bot.get_channel.assert_not_called()
     mock_thread.remove_user.assert_not_awaited()  # Ensure thread removal wasn't attempted

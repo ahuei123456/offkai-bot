@@ -53,7 +53,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
-    interaction.followup = MagicMock(send=AsyncMock())  # In case response is done
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     return interaction
 
@@ -102,7 +103,7 @@ async def test_broadcast_success(
     # 3. Check sending message to thread
     mock_thread.send.assert_awaited_once_with(f"{broadcast_message}")
     # 4. Check final interaction response
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"📣 Sent broadcast to channel {mock_thread.mention}.", ephemeral=True
     )
     # 5. Check logs (optional)
@@ -140,7 +141,7 @@ async def test_broadcast_event_not_found(
     mock_get_event.assert_called_once_with(event_name)
     # Assert subsequent steps were NOT called
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -178,7 +179,7 @@ async def test_broadcast_missing_channel_id(
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
     # Assert subsequent steps were NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -216,7 +217,7 @@ async def test_broadcast_thread_not_found_error(  # Renamed test slightly
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
     # Assert subsequent steps were NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -256,7 +257,7 @@ async def test_broadcast_thread_access_error(  # New test for access error
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, target_event)
     # Assert subsequent steps were NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -300,7 +301,7 @@ async def test_broadcast_send_permission_error(
     # Assert send was called
     mock_thread.send.assert_awaited_once_with(f"{broadcast_message}")
     # Assert final response was NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -344,4 +345,4 @@ async def test_broadcast_send_http_error(
     # Assert send was called
     mock_thread.send.assert_awaited_once_with(f"{broadcast_message}")
     # Assert final response was NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
