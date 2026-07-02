@@ -490,8 +490,9 @@ def update_event_details(
         current_count = sum(1 + r.extra_people for r in responses)
         waitlist = get_waitlist(event_name)
 
-        # If reducing capacity, validate constraints
-        if max_capacity < (event.max_capacity or 0):
+        # If reducing capacity, validate constraints. An unlimited (None) old
+        # capacity being set to any finite value counts as a reduction.
+        if event.max_capacity is None or max_capacity < event.max_capacity:
             if max_capacity < current_count:
                 raise CapacityReductionError(event_name, max_capacity, current_count)
             if len(waitlist) > 0:
