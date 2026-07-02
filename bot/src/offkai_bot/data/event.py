@@ -475,7 +475,8 @@ def update_event_details(
         # This will raise InvalidDateTimeFormatError immediately if parsing fails
         parsed_datetime = parse_event_datetime(date_time_str)
         validate_event_datetime(parsed_datetime)
-        validate_event_deadline(parsed_datetime, parsed_deadline)
+        # If the deadline isn't being changed, the new datetime must still respect the existing one
+        validate_event_deadline(parsed_datetime, parsed_deadline if deadline_str is not None else event.event_deadline)
     else:
         validate_event_deadline(event.event_datetime, parsed_deadline)
 
