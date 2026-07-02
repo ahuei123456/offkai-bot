@@ -3,6 +3,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime
 
+import discord
 from discord.ext import tasks  # type: ignore[attr-defined]
 
 # Import necessary components from your project
@@ -14,6 +15,9 @@ _log = logging.getLogger(__name__)
 
 # --- Storage for Scheduled Tasks ---
 _scheduled_tasks: dict[str, list[Task]] = {}
+
+# Client the loop waits on before its first tick; set by start_alert_loop().
+_client: discord.Client | None = None
 
 # --- Key Format String ---
 _TIME_KEY_FORMAT = "%Y-%m-%dT%H:%M"
@@ -86,53 +90,56 @@ def remove_alerts(predicate: Callable[[Task], bool]) -> int:
     return removed
 
 
-# --- NEW: Helper function processes tasks based on a given time ---
+# --- Helper function processes tasks based on a given time ---
 async def fire_alert(current_time: datetime):
     """
-    Calculates the time key for the given current_time, looks up tasks,
-    executes them, and removes them from the schedule.
+    Executes and removes every scheduled task whose time key is at or before
+    current_time. Sweeping all due keys (rather than exact-matching the current
+    minute) means a loop tick that fires late or skips a minute catches up on
+    missed alerts instead of silently dropping them.
 
     Args:
         current_time: The timezone-aware datetime object (expected to be JST)
                       representing the current time to check for tasks.
-        client: The discord client instance.
     """
     global _scheduled_tasks
 
     # --- Generate Key from the provided time ---
-    key = current_time.strftime(_TIME_KEY_FORMAT)
-    _log.debug("Processing tasks for time key (JST): %s", key)
+    now_key = current_time.strftime(_TIME_KEY_FORMAT)
+    _log.debug("Processing tasks for time key (JST): %s", now_key)
 
-    # --- Check for Tasks Scheduled for this specific time key ---
-    tasks_to_process = _scheduled_tasks.get(key)
+    # Keys in _TIME_KEY_FORMAT sort lexicographically in chronological order,
+    # so a plain string comparison finds everything due.
+    due_keys = sorted(key for key in _scheduled_tasks if key <= now_key)
 
-    if not tasks_to_process:
-        _log.debug("No tasks scheduled for %s.", key)
-        return  # Nothing to do for this key
+    if not due_keys:
+        _log.debug("No tasks scheduled for %s.", now_key)
+        return  # Nothing due
 
-    _log.info("Found %s tasks scheduled for %s. Executing...", len(tasks_to_process), key)
-
-    # --- Execute Tasks ---
-    for task in tasks_to_process:
-        # Ensure the task has the client instance if it needs it
-        if not hasattr(task, "client") or task.client is None:
-            _log.warning("Task %s for %s is missing client instance. Skipping.", type(task).__name__, key)
+    for key in due_keys:
+        # Pop the bucket before executing so a task that mutates the schedule
+        # (or a concurrent sweep) can't double-fire it.
+        tasks_to_process = _scheduled_tasks.pop(key, None)
+        if not tasks_to_process:
             continue
 
-        try:
-            _log.debug("Executing task: %s (%s)", type(task).__name__, getattr(task, "event_name", "N/A"))
-            await task.action()
-        except Exception as task_exec_err:
-            # Log errors during the execution of a specific task's action
-            _log.exception("Error executing task %s for key %s: %s", type(task).__name__, key, task_exec_err)
+        _log.info("Found %s tasks scheduled for %s. Executing...", len(tasks_to_process), key)
 
-    # --- Remove Executed Tasks ---
-    # Remove the key from the dictionary after processing all tasks for that minute
-    removed_tasks_list = _scheduled_tasks.pop(key, None)
-    if removed_tasks_list:
-        _log.info("Removed %s executed tasks for key %s.", len(removed_tasks_list), key)
-    else:
-        _log.warning("Attempted to remove tasks for key %s, but key was not found (potentially already removed).", key)
+        # --- Execute Tasks ---
+        for task in tasks_to_process:
+            # Ensure the task has the client instance if it needs it
+            if not hasattr(task, "client") or task.client is None:
+                _log.warning("Task %s for %s is missing client instance. Skipping.", type(task).__name__, key)
+                continue
+
+            try:
+                _log.debug("Executing task: %s (%s)", type(task).__name__, getattr(task, "event_name", "N/A"))
+                await task.action()
+            except Exception as task_exec_err:
+                # Log errors during the execution of a specific task's action
+                _log.exception("Error executing task %s for key %s: %s", type(task).__name__, key, task_exec_err)
+
+        _log.info("Removed %s executed tasks for key %s.", len(tasks_to_process), key)
 
 
 # --- Refactored alert_loop ---
@@ -159,7 +166,19 @@ async def alert_loop():
 @alert_loop.before_loop
 async def before_alert_loop():
     _log.info("Alert loop starting...")
-    # Rely on setup_hook finishing before the loop starts naturally.
+    # Don't tick until the gateway is connected and the cache is populated —
+    # otherwise tasks resolve channels/users to None and alerts are consumed
+    # without ever being delivered.
+    if _client is not None:
+        await _client.wait_until_ready()
+
+
+def start_alert_loop(client: discord.Client):
+    """Starts the alert loop, holding onto the client so the loop can wait for
+    the gateway to be ready before its first tick."""
+    global _client
+    _client = client
+    alert_loop.start()
 
 
 # Optional error handler for the loop task itself
