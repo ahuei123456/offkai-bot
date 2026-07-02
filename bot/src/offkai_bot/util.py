@@ -177,18 +177,19 @@ def build_checkin_token(user_id: int, event_name: str, secret_key: str) -> str:
 
 def build_checkin_url(user_id: int, event_name: str) -> str:
     """Returns the attendee's personal, event-bound check-in URL, or '' if
-    FRONTEND_URL is not configured.
+    FRONTEND_URL or ADMIN_KEY is not configured.
 
-    With ADMIN_KEY set, emits a signed v2 token bound to ``event_name`` so the
-    link can only ever resolve to that event. Without a key, falls back to the
-    bare user_id that the keyless frontend accepts. Centralises token
+    Emits a signed v2 token bound to ``event_name`` so the link can only ever
+    resolve to that event. Without ADMIN_KEY there is no way to sign the token,
+    so no link is emitted at all (fail closed — a bare user_id token would be
+    forgeable, since Discord user IDs are public). Centralises token
     construction so the three call sites (signup, waitlist promotion, reminder)
     stay in sync.
     """
     settings = get_config()
     frontend_url = settings.get("FRONTEND_URL", "")
-    if not frontend_url:
-        return ""
     admin_key = settings.get("ADMIN_KEY", "")
-    token = build_checkin_token(user_id, event_name, admin_key) if admin_key else str(user_id)
+    if not frontend_url or not admin_key:
+        return ""
+    token = build_checkin_token(user_id, event_name, admin_key)
     return f"{frontend_url}/?token={token}"

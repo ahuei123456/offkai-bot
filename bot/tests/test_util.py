@@ -358,11 +358,10 @@ def test_build_checkin_url_no_frontend_url(mock_get_config):
 
 
 @patch("offkai_bot.util.get_config")
-def test_build_checkin_url_no_admin_key_uses_bare_user_id(mock_get_config):
-    """Without ADMIN_KEY the token is just the bare user_id (keyless frontend)."""
+def test_build_checkin_url_no_admin_key_returns_empty(mock_get_config):
+    """Without ADMIN_KEY no URL is emitted (fail closed — a bare user_id token is forgeable)."""
     mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example", "ADMIN_KEY": ""}
-    result = build_checkin_url(99, "Summer Bash")
-    assert result == "https://offkai.example/?token=99"
+    assert build_checkin_url(99, "Summer Bash") == ""
 
 
 @patch("offkai_bot.util.get_config")
@@ -381,5 +380,5 @@ def test_build_checkin_url_missing_keys_default_to_empty(mock_get_config):
     """Keys absent from config dict are treated as empty strings — no KeyError."""
     mock_get_config.return_value = {"FRONTEND_URL": "https://offkai.example"}
     result = build_checkin_url(7, "Summer Bash")
-    # No ADMIN_KEY → bare user_id token.
-    assert result == "https://offkai.example/?token=7"
+    # No ADMIN_KEY → fail closed, no URL.
+    assert result == ""
