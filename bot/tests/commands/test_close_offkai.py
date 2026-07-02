@@ -43,6 +43,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     # Simple mock client if needed, but not used for patching global state
     interaction.client = MagicMock(spec=discord.Client)
@@ -79,7 +81,7 @@ async def test_close_offkai_command_success_with_message(mock_perform_close, moc
     )
 
     # 2. Check that the interaction response was sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_close}' have been closed."
     )
 
@@ -108,7 +110,7 @@ async def test_close_offkai_command_success_no_message(mock_perform_close, mock_
     )
 
     # 2. Check that the interaction response was sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_close}' have been closed."
     )
 
@@ -142,4 +144,4 @@ async def test_close_offkai_command_error_propagation(mock_perform_close, mock_i
     )
 
     # Assert that the success response was NOT sent
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()

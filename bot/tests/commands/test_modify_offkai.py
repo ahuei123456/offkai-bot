@@ -68,6 +68,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     # Add client mock needed by fetch_thread_for_event
     interaction.client = MagicMock(spec=discord.Client)
@@ -168,7 +170,7 @@ async def test_modify_offkai_success(
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_modified_event)
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
     mock_log.warning.assert_not_called()
@@ -293,7 +295,7 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
     # 5. Check sending update message to thread
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
     # 6. Check final interaction response
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
     mock_log.warning.assert_not_called()
@@ -370,7 +372,7 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
 
     # Verify final response
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
 
@@ -449,7 +451,7 @@ async def test_modify_offkai_data_layer_errors(
     mock_save_data.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 # Test handling errors from fetch_thread_for_event
@@ -523,7 +525,7 @@ async def test_modify_offkai_fetch_thread_errors(
     assert log_call[2] == event_name_to_modify
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
 
@@ -580,7 +582,7 @@ async def test_modify_offkai_send_update_fails(
     assert mock_log.warning.call_args[0][1] == mock_thread.id
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
 
@@ -640,7 +642,7 @@ async def test_modify_offkai_increase_capacity_success(
     mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
     mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
 
@@ -697,7 +699,7 @@ async def test_modify_offkai_decrease_capacity_success(
     mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
     mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Event '{event_name_to_modify}' modified successfully. Announcement posted in thread (if possible)."
     )
 

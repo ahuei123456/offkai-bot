@@ -59,6 +59,10 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    # followup.send returns the announcement message, which the command pins
+    interaction.followup = MagicMock()
+    interaction.followup.send = AsyncMock(return_value=MagicMock(spec=discord.Message))
 
     # Mock the client instance attached to main (or bot in cog)
     # The cog uses self.bot, which is mocked in mock_cog.
@@ -188,7 +192,7 @@ async def test_create_offkai_success_sends_and_pins_message(
     # Assert: Verify the main command logic completed
     mock_add_event.assert_called_once()
     mock_register_reminders.assert_called_once()
-    mock_interaction.response.send_message.assert_awaited_once()
+    mock_interaction.followup.send.assert_awaited_once()
 
 
 @patch("offkai_bot.event_actions.save_event_data")
@@ -269,7 +273,7 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     # Assert: Verify the main command logic completed
     mock_add_event.assert_called_once()
     mock_register_reminders.assert_called_once()
-    mock_interaction.response.send_message.assert_awaited_once()
+    mock_interaction.followup.send.assert_awaited_once()
 
 
 @patch("offkai_bot.event_actions.save_event_data")
@@ -437,7 +441,7 @@ async def test_create_offkai_raises_pin_permission_error(
     mock_send_event_message.assert_awaited_once()
 
     # Assert that the final success message was NOT sent, because an error was raised
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.send_event_message")
@@ -483,7 +487,7 @@ async def test_create_offkai_thread_creation_fails(
     # Assert that the function exited before trying to send or pin a message
     mock_add_event.assert_not_called()
     mock_send_msg.assert_not_awaited()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.get_event")
@@ -668,4 +672,4 @@ async def test_create_offkai_add_event_validation_fails(
 
     mock_add_event.assert_called_once()
     mock_send_msg.assert_not_awaited()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()

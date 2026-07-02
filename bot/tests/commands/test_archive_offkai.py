@@ -59,7 +59,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
-    interaction.followup = MagicMock(send=AsyncMock())  # In case response is done
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     return interaction
 
@@ -129,9 +130,7 @@ async def test_archive_offkai_success(
     # Check archiving the Discord thread
     mock_thread.edit.assert_awaited_once_with(archived=True, locked=True)
     # Check final interaction response
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
     mock_log.info.assert_called()
     mock_log.warning.assert_not_called()
 
@@ -223,7 +222,7 @@ async def test_archive_offkai_data_layer_errors(
     mock_save_data.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 # --- UPDATED TEST ---
@@ -272,9 +271,7 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
     assert log_call_args[2] == event_name_to_archive
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
 
 
 # --- END UPDATED TEST ---
@@ -323,9 +320,7 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
     assert log_call_args[1] == "Could not archive thread for event '%s': %s"
     assert log_call_args[2] == event_name_to_archive
 
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
 
 
 # --- END NEW TEST ---
@@ -374,9 +369,7 @@ async def test_archive_offkai_fetch_thread_access_error(
     assert log_call_args[1] == "Could not archive thread for event '%s': %s"
     assert log_call_args[2] == event_name_to_archive
 
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
 
 
 # --- END NEW TEST ---
@@ -428,9 +421,7 @@ async def test_archive_offkai_thread_already_archived(
     mock_log.warning.assert_not_called()  # No warning needed if already archived
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
 
 
 # --- UPDATED PATCHES ---
@@ -485,9 +476,7 @@ async def test_archive_offkai_thread_edit_fails(
     assert mock_log.warning.call_args[0][1] == mock_thread.id
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -531,9 +520,7 @@ async def test_archive_offkai_deletes_role(
     mock_interaction.guild.get_role.assert_called_once_with(99999)
     mock_role.delete.assert_awaited_once_with(reason=f"Offkai '{event_name_to_archive}' archived")
     mock_log.info.assert_any_call("Deleted participant role %s for archived event '%s'.", 99999, event_name_to_archive)
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")
 
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
@@ -580,6 +567,4 @@ async def test_archive_offkai_role_deletion_failure_non_fatal(
     assert warning_call[0] == "Failed to delete participant role for '%s': %s"
     assert warning_call[1] == event_name_to_archive
     # Archive still succeeds
-    mock_interaction.response.send_message.assert_awaited_once_with(
-        f"✅ Event '{event_name_to_archive}' has been archived."
-    )
+    mock_interaction.followup.send.assert_awaited_once_with(f"✅ Event '{event_name_to_archive}' has been archived.")

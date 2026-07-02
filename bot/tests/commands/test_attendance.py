@@ -50,7 +50,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
-    interaction.followup = MagicMock(send=AsyncMock())  # In case response is done
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     return interaction
 
@@ -141,7 +142,7 @@ async def test_attendance_success(
         "4. UserC\n"
         "5. UserC +1"
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)
     # 4. Check logs (optional)
     mock_log.warning.assert_not_called()
 
@@ -211,7 +212,7 @@ async def test_attendance_report_sends_csv_by_dm(
         f"Attendance report for **{event_name_target}** is attached as a CSV file.",
         file=mock_file,
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"Attendance report for '{event_name_target}' has been sent to you by DM.",
         ephemeral=True,
     )
@@ -236,7 +237,7 @@ async def test_attendance_report_rejects_open_event(
 
     mock_has_complete_numbers.assert_not_called()
     mock_build_rows.assert_not_called()
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
         ephemeral=True,
     )
@@ -261,7 +262,7 @@ async def test_attendance_report_rejects_incomplete_numbering(
     await EventsCog.attendance_report.callback(mock_cog, mock_interaction, event_name="Summer Bash")
 
     mock_build_rows.assert_not_called()
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
         ephemeral=True,
     )
@@ -306,7 +307,7 @@ async def test_attendance_with_drinks(
         "2. Alice (UserA +1) - water\n"
         "3.   (UserB +1) - N/A"
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)
     mock_log.warning.assert_not_called()
 
 
@@ -355,7 +356,7 @@ async def test_attendance_sort_success(
         "4. UserC\n"
         "5. UserC +1"
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)
     # 4. Check logs (optional)
     mock_log.warning.assert_not_called()
 
@@ -409,7 +410,7 @@ async def test_attendance_long_output_under_100_sends_file_by_dm(
         f"Attendance for **{event_name_target}** is attached as a text file.",
         file=mock_file,
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"Attendance list for '{event_name_target}' has been sent to you by DM.",
         ephemeral=True,
     )
@@ -461,7 +462,7 @@ async def test_attendance_over_100_sends_file_by_dm(
         f"Attendance for **{event_name_target}** is attached as a text file.",
         file=mock_file,
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"Attendance list for '{event_name_target}' has been sent to you by DM.",
         ephemeral=True,
     )
@@ -514,7 +515,7 @@ async def test_attendance_over_100_with_drinks_sends_file_by_dm(
         f"Attendance for **{event_name_target}** is attached as a text file.",
         file=mock_file,
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"Attendance list for '{event_name_target}' has been sent to you by DM.",
         ephemeral=True,
     )
@@ -562,7 +563,7 @@ async def test_attendance_over_100_falls_back_to_ephemeral_file_when_dm_fails(
         f"Attendance for **{event_name_target}** is attached as a text file.",
         file=dm_file,
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         "I couldn't send you a DM, so I've attached the attendance list here.",
         file=fallback_file,
         ephemeral=True,
@@ -597,7 +598,7 @@ async def test_attendance_event_not_found(
     # Assert only get_event was called
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_attendance.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.calculate_attendance")
@@ -631,7 +632,7 @@ async def test_attendance_no_responses_found(
     mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=False, drinks=False, sort=False)
 
     # Assert subsequent steps were NOT called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.calculate_attendance")
@@ -665,4 +666,4 @@ async def test_attendance_with_nicknames(
     mock_calculate_attendance.assert_called_once_with(event_name_target, nicknames=True, drinks=False, sort=False)
 
     expected_output = f"**Attendance for {event_name_target}**\n\nTotal Attendees: **2**\n\n1. foo (goo)\n2. bar"
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)

@@ -55,6 +55,8 @@ def mock_interaction():
     # Mock response methods
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup = MagicMock(send=AsyncMock())
 
     return interaction
 
@@ -124,7 +126,7 @@ async def test_reopen_offkai_success_with_message(
     # Check sending reopening message to thread
     mock_thread.send.assert_awaited_once_with(f"**Responses Reopened:**\n{reopen_text}")
     # Check final interaction response
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
     )
     mock_log.warning.assert_not_called()
@@ -171,7 +173,7 @@ async def test_reopen_offkai_success_no_message(
     # Check sending reopening message was NOT called
     mock_thread.send.assert_not_awaited()
     # Check final interaction response
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
     )
     mock_log.warning.assert_not_called()
@@ -222,7 +224,7 @@ async def test_reopen_offkai_data_layer_errors(
     mock_save_data.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 # --- UPDATED TEST ---
@@ -273,7 +275,7 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
     assert log_call_args[2] == event_name_to_reopen
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
     )
 
@@ -326,7 +328,7 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
     assert log_call_args[1] == "Could not send reopening message for event '%s': %s"
     assert log_call_args[2] == event_name_to_reopen
 
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
     )
 
@@ -379,7 +381,7 @@ async def test_reopen_offkai_fetch_thread_access_error(
     assert log_call_args[1] == "Could not send reopening message for event '%s': %s"
     assert log_call_args[2] == event_name_to_reopen
 
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
     )
 
@@ -440,6 +442,6 @@ async def test_reopen_offkai_send_reopen_msg_fails(
     assert mock_log.warning.call_args[0][1] == mock_thread.id
 
     # Final confirmation should still be sent
-    mock_interaction.response.send_message.assert_awaited_once_with(
+    mock_interaction.followup.send.assert_awaited_once_with(
         f"✅ Responses for '{event_name_to_reopen}' have been reopened."
     )

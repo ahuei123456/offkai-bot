@@ -193,6 +193,11 @@ class EventsCog(commands.Cog):
         validate_event_datetime(event_datetime)
         validate_event_deadline(event_datetime, event_deadline)
 
+        # 4. Acknowledge the interaction before the slow Discord API calls below
+        # (thread/role creation, event message send) exceed the 3-second window.
+        # The confirmation is a public announcement, so defer non-ephemerally.
+        await interaction.response.defer()
+
         # --- Discord Interaction Block ---
         try:
             assert isinstance(interaction.channel, discord.TextChannel)
@@ -250,9 +255,8 @@ class EventsCog(commands.Cog):
         if announce_msg:
             announce_text += f"{announce_msg}\n\n"
         announce_text += f"Join the discussion and RSVP here: {thread.mention}"
-        await interaction.response.send_message(announce_text)
+        message = await interaction.followup.send(announce_text, wait=True)
 
-        message = await interaction.original_response()
         try:
             await message.pin()
         except discord.Forbidden as e:
@@ -293,6 +297,10 @@ class EventsCog(commands.Cog):
         max_capacity: int | None = None,
     ):
         validate_interaction_context(interaction)
+
+        # Acknowledge early: a capacity increase can promote waitlisted users,
+        # which fetches and DMs each of them — easily exceeding the 3-second window.
+        await interaction.response.defer()
 
         old_event = get_event(event_name)
         old_capacity = old_event.max_capacity
@@ -358,7 +366,7 @@ class EventsCog(commands.Cog):
         except Exception as e:
             _log.exception("Unexpected error sending update message for event '%s': %s", event_name, e)
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ Event '{event_name}' modified successfully. Announcement posted in thread (if possible)."
         )
 
@@ -373,9 +381,10 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def close_offkai(self, interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
+        await interaction.response.defer()
         try:
             await perform_close_event(self.bot, event_name, close_msg)
-            await interaction.response.send_message(f"✅ Responses for '{event_name}' have been closed.")
+            await interaction.followup.send(f"✅ Responses for '{event_name}' have been closed.")
         except Exception as e:
             _log.error("Error during /close_offkai command for '%s': %s", event_name, e, exc_info=e)
             raise e
@@ -391,6 +400,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def reopen_offkai(self, interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
+        await interaction.response.defer()
         reopened_event = set_event_open_status(event_name, target_open_status=True)
         clear_attendee_numbers(event_name)
         save_responses()
@@ -415,7 +425,7 @@ class EventsCog(commands.Cog):
             except Exception as e:
                 _log.exception("Unexpected error sending reopening message for event '%s': %s", event_name, e)
 
-        await interaction.response.send_message(f"✅ Responses for '{event_name}' have been reopened.")
+        await interaction.followup.send(f"✅ Responses for '{event_name}' have been reopened.")
 
     @app_commands.command(
         name="archive_offkai",
@@ -427,6 +437,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def archive_offkai(self, interaction: discord.Interaction, event_name: str):
+        await interaction.response.defer()
         archived_event = archive_event(event_name)
         save_event_data()
         unregister_checkin_reminder(archived_event.event_name)
@@ -459,7 +470,7 @@ class EventsCog(commands.Cog):
                 except (discord.Forbidden, discord.HTTPException) as e:
                     _log.warning("Failed to delete participant role for '%s': %s", event_name, e)
 
-        await interaction.response.send_message(f"✅ Event '{event_name}' has been archived.")
+        await interaction.followup.send(f"✅ Event '{event_name}' has been archived.")
 
     @app_commands.command(
         name="broadcast",
@@ -469,12 +480,13 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def broadcast(self, interaction: discord.Interaction, event_name: str, message: str):
+        await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         thread = await fetch_thread_for_event(self.bot, event)
 
         try:
             await thread.send(f"{message}")
-            await interaction.response.send_message(f"📣 Sent broadcast to channel {thread.mention}.", ephemeral=True)
+            await interaction.followup.send(f"📣 Sent broadcast to channel {thread.mention}.", ephemeral=True)
         except discord.Forbidden as e:
             raise BroadcastPermissionError(thread, e)
         except discord.HTTPException as e:
@@ -488,13 +500,14 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def delete_response(self, interaction: discord.Interaction, event_name: str, member: discord.Member):
+        await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         remove_response(event_name, member.id)
 
         if event.role_id and interaction.guild:
             await remove_event_role(interaction.guild, member.id, event.role_id)
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
             ephemeral=True,
         )
@@ -523,12 +536,13 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def promote(self, interaction: discord.Interaction, event_name: str, username: str):
+        await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
 
         try:
             user_id = int(username)
         except ValueError:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Invalid user selection. Please use the autocomplete dropdown.", ephemeral=True
             )
             return
@@ -552,7 +566,7 @@ class EventsCog(commands.Cog):
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Promoted user <@{user_id}> from the waitlist for '{event_name}'.",
             ephemeral=True,
         )
@@ -597,6 +611,7 @@ class EventsCog(commands.Cog):
         nicknames: bool = False,
         drinks: bool = False,
     ):
+        await interaction.response.defer(ephemeral=True)
         get_event(event_name)
         total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks, sort=sort)
 
@@ -608,7 +623,7 @@ class EventsCog(commands.Cog):
                     f"Attendance for **{event_name}** is attached as a text file.",
                     file=_attendance_file(event_name, output),
                 )
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"Attendance list for '{event_name}' has been sent to you by DM.",
                     ephemeral=True,
                 )
@@ -619,14 +634,14 @@ class EventsCog(commands.Cog):
                     event_name,
                     e,
                 )
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "I couldn't send you a DM, so I've attached the attendance list here.",
                     file=_attendance_file(event_name, output),
                     ephemeral=True,
                 )
             return
 
-        await interaction.response.send_message(output, ephemeral=True)
+        await interaction.followup.send(output, ephemeral=True)
 
     @app_commands.command(
         name="attendance_report",
@@ -636,9 +651,10 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def attendance_report(self, interaction: discord.Interaction, event_name: str):
+        await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         if event.open or not has_complete_attendee_numbers(event_name):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
                 ephemeral=True,
             )
@@ -650,7 +666,7 @@ class EventsCog(commands.Cog):
                 f"Attendance report for **{event_name}** is attached as a CSV file.",
                 file=_attendance_report_file(event_name, report_rows),
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Attendance report for '{event_name}' has been sent to you by DM.",
                 ephemeral=True,
             )
@@ -661,7 +677,7 @@ class EventsCog(commands.Cog):
                 event_name,
                 e,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "I couldn't send you a DM, so I've attached the attendance report here.",
                 file=_attendance_report_file(event_name, report_rows),
                 ephemeral=True,
