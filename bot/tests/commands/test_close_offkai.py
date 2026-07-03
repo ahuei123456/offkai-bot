@@ -37,6 +37,9 @@ def mock_interaction():
     interaction.guild = MagicMock(spec=discord.Guild)
     interaction.guild.id = 789
 
+    interaction.channel = MagicMock(spec=discord.TextChannel)
+    interaction.channel.id = 456
+
     interaction.command = MagicMock(spec=app_commands.Command)
     interaction.command.name = "close_offkai"
 

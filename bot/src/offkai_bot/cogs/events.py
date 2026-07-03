@@ -381,6 +381,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def close_offkai(self, interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
+        validate_interaction_context(interaction)
         await interaction.response.defer()
         try:
             await perform_close_event(self.bot, event_name, close_msg)
@@ -400,6 +401,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def reopen_offkai(self, interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
+        validate_interaction_context(interaction)
         await interaction.response.defer()
         reopened_event = set_event_open_status(event_name, target_open_status=True)
         clear_attendee_numbers(event_name)
@@ -437,6 +439,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def archive_offkai(self, interaction: discord.Interaction, event_name: str):
+        validate_interaction_context(interaction)
         await interaction.response.defer()
         archived_event = archive_event(event_name)
         save_event_data()
@@ -480,6 +483,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def broadcast(self, interaction: discord.Interaction, event_name: str, message: str):
+        validate_interaction_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         thread = await fetch_thread_for_event(self.bot, event)
@@ -500,6 +504,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def delete_response(self, interaction: discord.Interaction, event_name: str, member: discord.Member):
+        validate_interaction_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         remove_response(event_name, member.id)
@@ -536,6 +541,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def promote(self, interaction: discord.Interaction, event_name: str, username: str):
+        validate_interaction_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
 
@@ -611,6 +617,7 @@ class EventsCog(commands.Cog):
         nicknames: bool = False,
         drinks: bool = False,
     ):
+        validate_interaction_context(interaction)
         await interaction.response.defer(ephemeral=True)
         get_event(event_name)
         total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks, sort=sort)
@@ -651,6 +658,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def attendance_report(self, interaction: discord.Interaction, event_name: str):
+        validate_interaction_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         if event.open or not has_complete_attendee_numbers(event_name):
@@ -697,6 +705,7 @@ class EventsCog(commands.Cog):
     async def waitlist(
         self, interaction: discord.Interaction, event_name: str, sort: bool = False, nicknames: bool = False
     ):
+        validate_interaction_context(interaction)
         get_event(event_name)
         total_count, waitlisted_list = calculate_waitlist(event_name, nicknames=nicknames, sort=sort)
 
@@ -718,6 +727,7 @@ class EventsCog(commands.Cog):
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def drinks(self, interaction: discord.Interaction, event_name: str):
+        validate_interaction_context(interaction)
         get_event(event_name)
         total_count, drinks_count = calculate_drinks(event_name)
 

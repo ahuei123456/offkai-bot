@@ -99,12 +99,29 @@ class OffkaiClient(commands.Bot):
 
 
 intents = discord.Intents.default()
-intents.message_content = True
 
 client = OffkaiClient(intents=intents)
 
 
 # --- Error Handler ---
+
+
+async def _send_error_message(interaction: discord.Interaction, message: str, user_info: str) -> None:
+    """Sends an ephemeral error message, falling back to a followup if the interaction was already acknowledged."""
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(message, ephemeral=True)
+        else:
+            await interaction.followup.send(message, ephemeral=True)
+    except discord.HTTPException as http_err:
+        _log.error("%s - Failed to send error response message: %s", user_info, http_err)
+    except Exception as e:
+        _log.error(
+            "%s - Exception sending error response message: %s",
+            user_info,
+            e,
+            exc_info=e,
+        )
 
 
 @client.tree.error
@@ -118,13 +135,13 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
         case app_commands.MissingRole():
             message = "❌ You need the Offkai Organizer role to use this command."
             _log.warning("%s - Missing Offkai Organizer role for command '%s'.", user_info, command_name)
-            await interaction.response.send_message(message, ephemeral=True)
+            await _send_error_message(interaction, message, user_info)
             return  # Handled
 
         case app_commands.CheckFailure():
             message = "❌ You do not have permission to use this command."
             _log.warning("%s - CheckFailure for command '%s'.", user_info, command_name)
-            await interaction.response.send_message(message, ephemeral=True)
+            await _send_error_message(interaction, message, user_info)
             return  # Handled
 
     # For other errors, work with the 'original' error if it exists
@@ -167,20 +184,7 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
 
     # Send the response (if a message was set)
     if message:
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(message, ephemeral=True)
-            else:
-                await interaction.followup.send(message, ephemeral=True)
-        except discord.HTTPException as http_err:
-            _log.error("%s - Failed to send error response message: %s", user_info, http_err)
-        except Exception as e:
-            _log.error(
-                "%s - Exception sending error response message: %s",
-                user_info,
-                e,
-                exc_info=e,
-            )
+        await _send_error_message(interaction, message, user_info)
 
 
 # Event to run when the client is ready

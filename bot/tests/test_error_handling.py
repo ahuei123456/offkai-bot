@@ -111,6 +111,59 @@ async def test_on_command_error_check_failure(mock_interaction):
         assert "User: TestUser#1234 (1234567890)" in log_message
 
 
+async def test_on_command_error_missing_role_interaction_done(mock_interaction):
+    """Test MissingRole handling when the interaction was already acknowledged."""
+    # Arrange
+    error = app_commands.MissingRole("Offkai Organizer")
+    mock_interaction.response.is_done.return_value = True
+
+    with patch("offkai_bot.main._log"):
+        # Act
+        await main.on_command_error(mock_interaction, error)
+
+        # Assert: Uses followup instead of the initial response
+        expected_message = "❌ You need the Offkai Organizer role to use this command."
+        mock_interaction.followup.send.assert_awaited_once_with(expected_message, ephemeral=True)
+        mock_interaction.response.send_message.assert_not_called()
+
+
+async def test_on_command_error_check_failure_interaction_done(mock_interaction):
+    """Test CheckFailure handling when the interaction was already acknowledged."""
+    # Arrange
+    error = app_commands.CheckFailure("Some check failed")
+    mock_interaction.response.is_done.return_value = True
+
+    with patch("offkai_bot.main._log"):
+        # Act
+        await main.on_command_error(mock_interaction, error)
+
+        # Assert: Uses followup instead of the initial response
+        expected_message = "❌ You do not have permission to use this command."
+        mock_interaction.followup.send.assert_awaited_once_with(expected_message, ephemeral=True)
+        mock_interaction.response.send_message.assert_not_called()
+
+
+async def test_on_command_error_check_failure_send_fails(mock_interaction):
+    """Test that a failure sending the CheckFailure response is logged, not raised."""
+    # Arrange
+    error = app_commands.CheckFailure("Some check failed")
+    send_error = discord.HTTPException(MagicMock(), "Failed to send")
+    mock_interaction.response.send_message.side_effect = send_error
+
+    with patch("offkai_bot.main._log") as mock_log:
+        # Act (must not raise)
+        await main.on_command_error(mock_interaction, error)
+
+        # Assert: The send failure was logged
+        mock_log.error.assert_called_once()
+        log_call_args = mock_log.error.call_args[0]
+        log_error_msg = log_call_args[0] % log_call_args[1:]
+        assert "Failed to send error response message" in log_error_msg
+
+        # Assert: No followup attempted after the response failed
+        mock_interaction.followup.send.assert_not_called()
+
+
 # --- Parametrized Test for Custom BotCommandErrors ---
 @pytest.mark.parametrize(
     "error_class, error_args, expected_log_level, expected_log_level_name_in_msg",
