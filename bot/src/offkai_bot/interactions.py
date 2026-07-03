@@ -614,13 +614,6 @@ class GatheringModal(ui.Modal):
                 # Send waitlist confirmation
                 await self._handle_waitlist_submission(interaction, new_entry)
 
-                # Check if this is the first time capacity was reached - send thread message
-                # Only send this if capacity just reached (not if deadline passed or event closed)
-                if at_capacity and not is_past_deadline and not is_closed:
-                    current_count = get_current_attendance_count(self.event.event_name)
-                    if current_count == self.event.max_capacity:
-                        await self._send_capacity_reached_message(interaction)
-
             elif would_exceed_capacity(self.event, total_people_in_group):
                 # Registration would exceed capacity - add to waitlist with special message
                 remaining = get_remaining_capacity(self.event)
