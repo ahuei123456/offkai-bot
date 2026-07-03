@@ -12,6 +12,7 @@ from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
     EventDeadlineInPastError,
+    EventNameTooLongError,
     InvalidChannelTypeError,
     InvalidDateTimeFormatError,
 )
@@ -20,6 +21,7 @@ from offkai_bot.errors import (
 # Import build_checkin_url / build_checkin_token for their own test sections below
 from offkai_bot.util import (
     JST,
+    MAX_EVENT_NAME_LENGTH,
     build_checkin_token,
     build_checkin_url,
     generate_checkin_signature,
@@ -27,6 +29,7 @@ from offkai_bot.util import (
     parse_event_datetime,
     validate_event_datetime,
     validate_event_deadline,
+    validate_event_name,
     validate_interaction_context,
 )
 
@@ -140,6 +143,33 @@ def test_parse_event_datetime_invalid_values():
 def test_parse_drinks(input_str, expected_list):
     """Test parsing various drink strings."""
     assert parse_drinks(input_str) == expected_list
+
+
+# --- Tests for validate_event_name ---
+
+
+def test_validate_event_name_within_limit():
+    """Test that a normal-length event name passes validation."""
+    validate_event_name("Summer Offkai 2026")  # Should not raise
+
+
+def test_validate_event_name_at_limit():
+    """Test that a name exactly at the maximum length passes validation."""
+    validate_event_name("a" * MAX_EVENT_NAME_LENGTH)  # Should not raise
+
+
+def test_validate_event_name_too_long():
+    """Test that a name over the maximum length raises EventNameTooLongError."""
+    long_name = "a" * (MAX_EVENT_NAME_LENGTH + 1)
+    with pytest.raises(EventNameTooLongError) as exc_info:
+        validate_event_name(long_name)
+    assert exc_info.value.event_name == long_name
+    assert exc_info.value.max_length == MAX_EVENT_NAME_LENGTH
+
+
+def test_validate_event_name_limit_fits_discord_custom_id():
+    """The modal custom_id 'modal_<event_name>' must fit Discord's 100-char cap."""
+    assert len("modal_") + MAX_EVENT_NAME_LENGTH <= 100
 
 
 # --- Tests for validate_interaction_context ---

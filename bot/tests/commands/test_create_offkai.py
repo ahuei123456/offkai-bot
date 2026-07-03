@@ -15,13 +15,14 @@ from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
     EventDeadlineInPastError,
+    EventNameTooLongError,
     EventNotFoundError,  # Needed for mocking get_event side effect
     InvalidChannelTypeError,
     InvalidDateTimeFormatError,
     PinPermissionError,
     ThreadCreationError,
 )
-from offkai_bot.util import JST
+from offkai_bot.util import JST, MAX_EVENT_NAME_LENGTH
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio
@@ -513,6 +514,31 @@ async def test_create_offkai_duplicate_event(mock_log, mock_get_event, mock_inte
 
     assert exc_info.value.event_name == event_name
     mock_get_event.assert_called_once_with(event_name)
+    mock_interaction.channel.create_thread.assert_not_awaited()
+
+
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_create_offkai_event_name_too_long(mock_log, mock_get_event, mock_interaction, mock_cog):
+    """Test create_offkai rejects names too long for Discord thread names / modal custom_ids."""
+    # Arrange
+    event_name = "a" * (MAX_EVENT_NAME_LENGTH + 1)
+
+    # Act & Assert
+    with pytest.raises(EventNameTooLongError) as exc_info:
+        await EventsCog.create_offkai.callback(
+            mock_cog,
+            mock_interaction,
+            event_name=event_name,
+            venue="Any",
+            address="Any",
+            google_maps_link="Any",
+            date_time="3000-01-01 10:00",
+        )
+
+    assert exc_info.value.event_name == event_name
+    # Validation fails before the duplicate check or any Discord calls
+    mock_get_event.assert_not_called()
     mock_interaction.channel.create_thread.assert_not_awaited()
 
 

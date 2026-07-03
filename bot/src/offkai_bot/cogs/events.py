@@ -64,6 +64,7 @@ from offkai_bot.util import (
     parse_event_datetime,
     validate_event_datetime,
     validate_event_deadline,
+    validate_event_name,
     validate_interaction_context,
 )
 
@@ -172,6 +173,7 @@ class EventsCog(commands.Cog):
         create_role: bool = False,
     ):
         # 1. Business Logic Validation
+        validate_event_name(event_name)
         with contextlib.suppress(EventNotFoundError):
             if get_event(event_name):
                 raise DuplicateEventError(event_name)
