@@ -797,6 +797,59 @@ async def test_capacity_reached_message_sent_when_filling_event(event_with_capac
 
 
 @pytest.mark.asyncio
+async def test_capacity_reached_message_not_repeated_on_waitlist_signup(
+    event_with_capacity, mock_interaction, mock_cog
+):
+    """Waitlist signups while the event sits at capacity must not re-post the capacity announcement."""
+    # Fill the event to exactly max capacity (3)
+    add_response(
+        event_with_capacity.event_name,
+        Response(
+            user_id=999,
+            username="ExistingUser",
+            extra_people=2,  # 3 people total
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # Two more users sign up while at capacity - both go to the waitlist
+    for user_id in (123, 456):
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.user.id = user_id
+        interaction.user.name = f"WaitlistUser{user_id}"
+        interaction.user.send = AsyncMock()
+        interaction.channel = MagicMock(spec=discord.Thread)
+        interaction.channel.id = 456
+        interaction.channel.send = AsyncMock()
+        interaction.channel.add_user = AsyncMock()
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        modal = GatheringModal(event=event_with_capacity)
+        modal.extra_people_input = MagicMock()
+        modal.extra_people_input.value = "0"
+        modal.behave_checkbox_input = MagicMock()
+        modal.behave_checkbox_input.value = "Yes"
+        modal.arrival_checkbox_input = MagicMock()
+        modal.arrival_checkbox_input.value = "Yes"
+        modal.drink_choice_input = None
+        modal.extras_names_input = MagicMock()
+        modal.extras_names_input.value = ""
+
+        await modal.on_submit(interaction)
+
+        # User was waitlisted, but no announcement was posted to the thread
+        assert not interaction.channel.send.called
+
+    assert len(get_waitlist(event_with_capacity.event_name)) == 2
+
+
+@pytest.mark.asyncio
 async def test_waitlist_dm_contains_extra_charge_warning(event_with_capacity, mock_interaction, mock_cog):
     """Test that waitlist DM contains the extra-charge warning."""
     # Fill the event to capacity
