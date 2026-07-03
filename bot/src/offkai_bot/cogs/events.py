@@ -24,6 +24,7 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
+from offkai_bot.data.ranking import decrease_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
     Response,
@@ -503,6 +504,7 @@ class EventsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         remove_response(event_name, member.id)
+        decrease_rank(member.id, member.name)
 
         if event.role_id and interaction.guild:
             await remove_event_role(interaction.guild, member.id, event.role_id)

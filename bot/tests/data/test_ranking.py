@@ -360,7 +360,7 @@ def test_save_rankings_os_error(mock_paths):
 
 def test_update_rank_existing_user(mock_paths):
     """Test updating an existing user's rank."""
-    initial_cache = {"User1": UserRank("User1", 1, False, False, False)}
+    initial_cache = {"111": UserRank("User1", 1, False, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
@@ -368,9 +368,9 @@ def test_update_rank_existing_user(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
         patch("offkai_bot.data.ranking._log") as mock_log,
     ):
-        ranking_data.update_rank("User1")
+        ranking_data.update_rank(111, "User1")
 
-        assert initial_cache["User1"].rank == 2
+        assert initial_cache["111"].rank == 2
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
         log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
@@ -378,7 +378,7 @@ def test_update_rank_existing_user(mock_paths):
 
 
 def test_update_rank_new_user(mock_paths):
-    """Test updating rank for a new user (creates entry)."""
+    """Test updating rank for a new user (creates entry keyed by user ID)."""
     initial_cache: dict[str, UserRank] = {}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
@@ -387,13 +387,64 @@ def test_update_rank_new_user(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
         patch("offkai_bot.data.ranking._log") as mock_log,
     ):
-        ranking_data.update_rank("NewUser")
+        ranking_data.update_rank(222, "NewUser")
 
-        assert "NewUser" in initial_cache
-        assert initial_cache["NewUser"].rank == 1
-        assert initial_cache["NewUser"].achieved_rank_1 is False
+        assert "222" in initial_cache
+        assert initial_cache["222"].rank == 1
+        assert initial_cache["222"].username == "NewUser"
+        assert initial_cache["222"].achieved_rank_1 is False
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
+
+
+def test_update_rank_migrates_legacy_username_entry(mock_paths):
+    """Test that a legacy username-keyed entry is migrated to the user ID key."""
+    initial_cache = {"User1": UserRank("User1", 3, True, False, False)}
+    ranking_data.RANKING_DATA_CACHE = initial_cache
+
+    with (
+        patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
+        patch("offkai_bot.data.ranking.save_rankings") as mock_save,
+    ):
+        ranking_data.update_rank(111, "User1")
+
+        assert "User1" not in initial_cache
+        assert initial_cache["111"].rank == 4
+        assert initial_cache["111"].achieved_rank_1 is True
+        mock_save.assert_called()
+
+
+def test_update_rank_refreshes_username(mock_paths):
+    """Test that update_rank keeps the stored username current after a rename."""
+    initial_cache = {"111": UserRank("OldName", 2, True, False, False)}
+    ranking_data.RANKING_DATA_CACHE = initial_cache
+
+    with (
+        patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
+        patch("offkai_bot.data.ranking.save_rankings"),
+    ):
+        ranking_data.update_rank(111, "NewName")
+
+        assert initial_cache["111"].username == "NewName"
+        assert initial_cache["111"].rank == 3
+
+
+def test_update_rank_renamed_user_does_not_inherit_other_entry(mock_paths):
+    """A different user's legacy username entry must not be credited to a new holder of that username."""
+    # User with ID 111 already migrated; user 222 now holds the username "User1"... but
+    # entries keyed by ID are matched first, so 222 gets a fresh entry only if no legacy
+    # username key exists. Here 111's data is ID-keyed, so 222 starts fresh.
+    initial_cache = {"111": UserRank("User1", 9, True, True, False)}
+    ranking_data.RANKING_DATA_CACHE = initial_cache
+
+    with (
+        patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
+        patch("offkai_bot.data.ranking.save_rankings"),
+    ):
+        ranking_data.update_rank(222, "User1")
+
+        assert initial_cache["111"].rank == 9  # untouched
+        assert initial_cache["222"].rank == 1  # fresh entry
 
 
 # == decrease_rank Tests ==
@@ -401,7 +452,7 @@ def test_update_rank_new_user(mock_paths):
 
 def test_decrease_rank_existing_user(mock_paths):
     """Test decreasing an existing user's rank."""
-    initial_cache = {"User1": UserRank("User1", 3, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 3, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
@@ -409,9 +460,9 @@ def test_decrease_rank_existing_user(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
         patch("offkai_bot.data.ranking._log") as mock_log,
     ):
-        ranking_data.decrease_rank("User1")
+        ranking_data.decrease_rank(111, "User1")
 
-        assert initial_cache["User1"].rank == 2
+        assert initial_cache["111"].rank == 2
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
         log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
@@ -420,35 +471,50 @@ def test_decrease_rank_existing_user(mock_paths):
 
 def test_decrease_rank_nonexistent_user(mock_paths):
     """Test decreasing rank for a non-existent user (no-op)."""
-    initial_cache = {"User1": UserRank("User1", 3, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 3, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
         patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
-        ranking_data.decrease_rank("NonExistent")
+        ranking_data.decrease_rank(999, "NonExistent")
 
         # Should not create new user or save
-        assert "NonExistent" not in initial_cache
+        assert "999" not in initial_cache
         mock_save.assert_not_called()
 
 
 def test_decrease_rank_at_zero(mock_paths):
     """Test decreasing rank when user is at rank 0 (should not go negative)."""
-    initial_cache = {"User1": UserRank("User1", 0, False, False, False)}
+    initial_cache = {"111": UserRank("User1", 0, False, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
         patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
-        ranking_data.decrease_rank("User1")
+        ranking_data.decrease_rank(111, "User1")
 
         # Rank should remain 0, not go negative
-        assert initial_cache["User1"].rank == 0
+        assert initial_cache["111"].rank == 0
         # Should not save since no change was made
         mock_save.assert_not_called()
+
+
+def test_decrease_rank_migrates_legacy_username_entry(mock_paths):
+    """Test that decrease_rank also migrates a legacy username-keyed entry."""
+    initial_cache = {"User1": UserRank("User1", 3, True, False, False)}
+    ranking_data.RANKING_DATA_CACHE = initial_cache
+
+    with (
+        patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
+        patch("offkai_bot.data.ranking.save_rankings"),
+    ):
+        ranking_data.decrease_rank(111, "User1")
+
+        assert "User1" not in initial_cache
+        assert initial_cache["111"].rank == 2
 
 
 # == get_rank Tests ==
@@ -456,11 +522,11 @@ def test_decrease_rank_at_zero(mock_paths):
 
 def test_get_rank_existing_user(mock_paths):
     """Test getting rank for an existing user."""
-    initial_cache = {"User1": UserRank("User1", 5, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 5, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        rank = ranking_data.get_rank("User1")
+        rank = ranking_data.get_rank(111, "User1")
         assert rank == 5
 
 
@@ -474,15 +540,31 @@ def test_get_rank_new_user(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
         patch("offkai_bot.data.ranking._log") as mock_log,
     ):
-        rank = ranking_data.get_rank("NewUser")
+        rank = ranking_data.get_rank(222, "NewUser")
 
         assert rank == 0
-        assert "NewUser" in initial_cache
-        assert initial_cache["NewUser"].rank == 0
+        assert "222" in initial_cache
+        assert initial_cache["222"].rank == 0
         mock_save.assert_called_once()
         mock_log.info.assert_called_once()
         log_msg = mock_log.info.call_args[0][0] % mock_log.info.call_args[0][1:]
         assert "Created user rank for NewUser" in log_msg
+
+
+def test_get_rank_migrates_legacy_username_entry(mock_paths):
+    """Test that get_rank migrates a legacy username-keyed entry."""
+    initial_cache = {"User1": UserRank("User1", 5, True, True, False)}
+    ranking_data.RANKING_DATA_CACHE = initial_cache
+
+    with (
+        patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
+        patch("offkai_bot.data.ranking.save_rankings"),
+    ):
+        rank = ranking_data.get_rank(111, "User1")
+
+        assert rank == 5
+        assert "User1" not in initial_cache
+        assert initial_cache["111"].rank == 5
 
 
 # == can_rank_message_sent Tests ==
@@ -490,61 +572,61 @@ def test_get_rank_new_user(mock_paths):
 
 def test_can_rank_message_sent_rank_1_not_achieved(mock_paths):
     """Test can_rank_message_sent returns True for rank 1 when not achieved."""
-    initial_cache = {"User1": UserRank("User1", 1, False, False, False)}
+    initial_cache = {"111": UserRank("User1", 1, False, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("User1")
+        result = ranking_data.can_rank_message_sent(111)
         assert result is True
 
 
 def test_can_rank_message_sent_rank_5_not_achieved(mock_paths):
     """Test can_rank_message_sent returns True for rank 5 when not achieved."""
-    initial_cache = {"User1": UserRank("User1", 5, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 5, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("User1")
+        result = ranking_data.can_rank_message_sent(111)
         assert result is True
 
 
 def test_can_rank_message_sent_rank_10_not_achieved(mock_paths):
     """Test can_rank_message_sent returns True for rank 10 when not achieved."""
-    initial_cache = {"User1": UserRank("User1", 10, True, True, False)}
+    initial_cache = {"111": UserRank("User1", 10, True, True, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("User1")
+        result = ranking_data.can_rank_message_sent(111)
         assert result is True
 
 
 def test_can_rank_message_sent_rank_1_already_achieved(mock_paths):
     """Test can_rank_message_sent returns False for rank 1 when already achieved."""
-    initial_cache = {"User1": UserRank("User1", 1, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 1, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("User1")
+        result = ranking_data.can_rank_message_sent(111)
         assert result is False
 
 
 def test_can_rank_message_sent_rank_5_already_achieved(mock_paths):
     """Test can_rank_message_sent returns False for rank 5 when already achieved."""
-    initial_cache = {"User1": UserRank("User1", 5, True, True, False)}
+    initial_cache = {"111": UserRank("User1", 5, True, True, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("User1")
+        result = ranking_data.can_rank_message_sent(111)
         assert result is False
 
 
 def test_can_rank_message_sent_rank_10_already_achieved(mock_paths):
     """Test can_rank_message_sent returns False for rank 10 when already achieved."""
-    initial_cache = {"User1": UserRank("User1", 10, True, True, True)}
+    initial_cache = {"111": UserRank("User1", 10, True, True, True)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("User1")
+        result = ranking_data.can_rank_message_sent(111)
         assert result is False
 
 
@@ -552,11 +634,11 @@ def test_can_rank_message_sent_non_milestone_rank(mock_paths):
     """Test can_rank_message_sent returns False for non-milestone ranks."""
     # Test various non-milestone ranks
     for rank_value in [2, 3, 4, 6, 7, 8, 9, 11, 15, 100]:
-        initial_cache = {"User1": UserRank("User1", rank_value, True, True, True)}
+        initial_cache = {"111": UserRank("User1", rank_value, True, True, True)}
         ranking_data.RANKING_DATA_CACHE = initial_cache
 
         with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-            result = ranking_data.can_rank_message_sent("User1")
+            result = ranking_data.can_rank_message_sent(111)
             assert result is False, f"Failed for rank {rank_value}"
 
 
@@ -566,7 +648,7 @@ def test_can_rank_message_sent_nonexistent_user(mock_paths):
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache):
-        result = ranking_data.can_rank_message_sent("NonExistent")
+        result = ranking_data.can_rank_message_sent(999)
         assert result is False
 
 
@@ -575,70 +657,70 @@ def test_can_rank_message_sent_nonexistent_user(mock_paths):
 
 def test_mark_achieved_rank_1(mock_paths):
     """Test marking rank 1 as achieved."""
-    initial_cache = {"User1": UserRank("User1", 1, False, False, False)}
+    initial_cache = {"111": UserRank("User1", 1, False, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
         patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
-        ranking_data.mark_achieved_rank("User1")
+        ranking_data.mark_achieved_rank(111)
 
-        assert initial_cache["User1"].achieved_rank_1 is True
-        assert initial_cache["User1"].achieved_rank_5 is False
-        assert initial_cache["User1"].achieved_rank_10 is False
+        assert initial_cache["111"].achieved_rank_1 is True
+        assert initial_cache["111"].achieved_rank_5 is False
+        assert initial_cache["111"].achieved_rank_10 is False
         mock_save.assert_called_once()
 
 
 def test_mark_achieved_rank_5(mock_paths):
     """Test marking rank 5 as achieved."""
-    initial_cache = {"User1": UserRank("User1", 5, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 5, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
         patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
-        ranking_data.mark_achieved_rank("User1")
+        ranking_data.mark_achieved_rank(111)
 
-        assert initial_cache["User1"].achieved_rank_1 is True
-        assert initial_cache["User1"].achieved_rank_5 is True
-        assert initial_cache["User1"].achieved_rank_10 is False
+        assert initial_cache["111"].achieved_rank_1 is True
+        assert initial_cache["111"].achieved_rank_5 is True
+        assert initial_cache["111"].achieved_rank_10 is False
         mock_save.assert_called_once()
 
 
 def test_mark_achieved_rank_10(mock_paths):
     """Test marking rank 10 as achieved."""
-    initial_cache = {"User1": UserRank("User1", 10, True, True, False)}
+    initial_cache = {"111": UserRank("User1", 10, True, True, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
         patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
-        ranking_data.mark_achieved_rank("User1")
+        ranking_data.mark_achieved_rank(111)
 
-        assert initial_cache["User1"].achieved_rank_1 is True
-        assert initial_cache["User1"].achieved_rank_5 is True
-        assert initial_cache["User1"].achieved_rank_10 is True
+        assert initial_cache["111"].achieved_rank_1 is True
+        assert initial_cache["111"].achieved_rank_5 is True
+        assert initial_cache["111"].achieved_rank_10 is True
         mock_save.assert_called_once()
 
 
 def test_mark_achieved_rank_non_milestone(mock_paths):
     """Test marking non-milestone ranks still saves (but doesn't change flags)."""
-    initial_cache = {"User1": UserRank("User1", 3, True, False, False)}
+    initial_cache = {"111": UserRank("User1", 3, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
         patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
-        ranking_data.mark_achieved_rank("User1")
+        ranking_data.mark_achieved_rank(111)
 
         # Flags should remain unchanged
-        assert initial_cache["User1"].achieved_rank_1 is True
-        assert initial_cache["User1"].achieved_rank_5 is False
-        assert initial_cache["User1"].achieved_rank_10 is False
+        assert initial_cache["111"].achieved_rank_1 is True
+        assert initial_cache["111"].achieved_rank_5 is False
+        assert initial_cache["111"].achieved_rank_10 is False
         # Save is still called (inside the if user_data block)
         mock_save.assert_called_once()
 
@@ -653,8 +735,8 @@ def test_mark_achieved_rank_nonexistent_user(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings") as mock_save,
     ):
         # Should not raise an error
-        ranking_data.mark_achieved_rank("NonExistent")
-        assert "NonExistent" not in initial_cache
+        ranking_data.mark_achieved_rank(999)
+        assert "999" not in initial_cache
         # Should not save since user doesn't exist
         mock_save.assert_not_called()
 
@@ -672,38 +754,38 @@ def test_full_ranking_flow(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings"),
     ):
         # New user gets rank, should be 0
-        rank = ranking_data.get_rank("TestUser")
+        rank = ranking_data.get_rank(555, "TestUser")
         assert rank == 0
-        assert "TestUser" in initial_cache
+        assert "555" in initial_cache
 
         # First attendance -> rank 1
-        ranking_data.update_rank("TestUser")
-        assert initial_cache["TestUser"].rank == 1
+        ranking_data.update_rank(555, "TestUser")
+        assert initial_cache["555"].rank == 1
 
         # Should be able to send rank 1 message
-        assert ranking_data.can_rank_message_sent("TestUser") is True
+        assert ranking_data.can_rank_message_sent(555) is True
 
         # Mark as achieved
-        ranking_data.mark_achieved_rank("TestUser")
-        assert initial_cache["TestUser"].achieved_rank_1 is True
+        ranking_data.mark_achieved_rank(555)
+        assert initial_cache["555"].achieved_rank_1 is True
 
         # Should not send again
-        assert ranking_data.can_rank_message_sent("TestUser") is False
+        assert ranking_data.can_rank_message_sent(555) is False
 
         # Continue attending events until rank 5
         for _ in range(4):  # 2, 3, 4, 5
-            ranking_data.update_rank("TestUser")
+            ranking_data.update_rank(555, "TestUser")
 
-        assert initial_cache["TestUser"].rank == 5
-        assert ranking_data.can_rank_message_sent("TestUser") is True
+        assert initial_cache["555"].rank == 5
+        assert ranking_data.can_rank_message_sent(555) is True
 
-        ranking_data.mark_achieved_rank("TestUser")
-        assert initial_cache["TestUser"].achieved_rank_5 is True
+        ranking_data.mark_achieved_rank(555)
+        assert initial_cache["555"].achieved_rank_5 is True
 
 
 def test_withdraw_and_rejoin_flow(mock_paths):
     """Test flow when user withdraws and rejoins."""
-    initial_cache = {"TestUser": UserRank("TestUser", 3, True, False, False)}
+    initial_cache = {"555": UserRank("TestUser", 3, True, False, False)}
     ranking_data.RANKING_DATA_CACHE = initial_cache
 
     with (
@@ -711,12 +793,31 @@ def test_withdraw_and_rejoin_flow(mock_paths):
         patch("offkai_bot.data.ranking.save_rankings"),
     ):
         # User withdraws
-        ranking_data.decrease_rank("TestUser")
-        assert initial_cache["TestUser"].rank == 2
+        ranking_data.decrease_rank(555, "TestUser")
+        assert initial_cache["555"].rank == 2
 
         # User rejoins
-        ranking_data.update_rank("TestUser")
-        assert initial_cache["TestUser"].rank == 3
+        ranking_data.update_rank(555, "TestUser")
+        assert initial_cache["555"].rank == 3
 
         # Achievement flags should remain unchanged
-        assert initial_cache["TestUser"].achieved_rank_1 is True
+        assert initial_cache["555"].achieved_rank_1 is True
+
+
+def test_rename_after_migration_keeps_history(mock_paths):
+    """A user who renames keeps their history because entries are keyed by ID."""
+    initial_cache: dict[str, UserRank] = {}
+    ranking_data.RANKING_DATA_CACHE = initial_cache
+
+    with (
+        patch("offkai_bot.data.ranking.load_rankings", return_value=initial_cache),
+        patch("offkai_bot.data.ranking.save_rankings"),
+    ):
+        ranking_data.update_rank(555, "old_name")
+        assert initial_cache["555"].rank == 1
+
+        # User renames; history follows the ID and username is refreshed
+        ranking_data.update_rank(555, "new_name")
+        assert initial_cache["555"].rank == 2
+        assert initial_cache["555"].username == "new_name"
+        assert "old_name" not in initial_cache

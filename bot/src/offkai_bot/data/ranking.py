@@ -20,6 +20,7 @@ class UserRank:
     achieved_rank_10: bool
 
 
+# Keyed by str(user_id); legacy entries keyed by username are migrated lazily on access.
 RANKING_DATA_CACHE: dict[str, UserRank] | None = None
 
 
@@ -135,47 +136,59 @@ def save_rankings():
         _log.exception("An unexpected error occurred saving response data: %s", e)
 
 
-def update_rank(username: str) -> None:
+def _get_user_rank(all_data: dict[str, UserRank], user_id: int, username: str) -> UserRank | None:
+    """Look up a user's entry by ID, migrating a legacy username-keyed entry if one exists."""
+    key = str(user_id)
+    user_data = all_data.get(key)
+    if user_data is None and username in all_data:
+        user_data = all_data.pop(username)
+        all_data[key] = user_data
+        save_rankings()
+        _log.info("Migrated ranking entry for %s from username key to user ID %s.", username, user_id)
+    return user_data
+
+
+def update_rank(user_id: int, username: str) -> None:
     all_data = load_rankings()
-    user_data = all_data.get(
-        username,
-        UserRank(username=username, rank=0, achieved_rank_1=False, achieved_rank_5=False, achieved_rank_10=False),
-    )
+    user_data = _get_user_rank(all_data, user_id, username)
+    if user_data is None:
+        user_data = UserRank(
+            username=username, rank=0, achieved_rank_1=False, achieved_rank_5=False, achieved_rank_10=False
+        )
+        all_data[str(user_id)] = user_data
+    user_data.username = username
     user_data.rank += 1
-    if username not in all_data:
-        all_data[username] = user_data
     save_rankings()
     _log.info("Updated %s rank to %s.", username, user_data.rank)
 
 
-def decrease_rank(username: str) -> None:
+def decrease_rank(user_id: int, username: str) -> None:
     all_data = load_rankings()
-    user_data = all_data.get(username, None)
+    user_data = _get_user_rank(all_data, user_id, username)
     if user_data and user_data.rank > 0:
         user_data.rank -= 1
-        all_data[username] = user_data
         save_rankings()
         _log.info("Updated %s rank to %s.", username, user_data.rank)
 
 
-def get_rank(username: str) -> int:
+def get_rank(user_id: int, username: str) -> int:
     all_data = load_rankings()
-    user_data = all_data.get(username, None)
+    user_data = _get_user_rank(all_data, user_id, username)
     if user_data:
         return user_data.rank
     else:
         user_data = UserRank(
             username=username, rank=0, achieved_rank_1=False, achieved_rank_5=False, achieved_rank_10=False
         )
-        all_data[username] = user_data
+        all_data[str(user_id)] = user_data
         save_rankings()
         _log.info("Created user rank for %s.", username)
         return 0
 
 
-def can_rank_message_sent(username: str) -> bool:
+def can_rank_message_sent(user_id: int) -> bool:
     all_data = load_rankings()
-    user_data = all_data.get(username, None)
+    user_data = all_data.get(str(user_id))
     if user_data:
         match user_data.rank:
             case 1:
@@ -187,9 +200,9 @@ def can_rank_message_sent(username: str) -> bool:
     return False
 
 
-def mark_achieved_rank(username: str) -> None:
+def mark_achieved_rank(user_id: int) -> None:
     all_data = load_rankings()
-    user_data = all_data.get(username, None)
+    user_data = all_data.get(str(user_id))
     if user_data:
         match user_data.rank:
             case 1:
