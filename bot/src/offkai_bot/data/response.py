@@ -4,7 +4,7 @@ import logging
 import os
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypedDict
 
 # Use relative imports for sibling modules within the package
@@ -222,7 +222,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             behavior_confirmed=behavior_confirmed,
             arrival_confirmed=arrival_confirmed,
             event_name=resp_dict.get("event_name", event_name),
-            timestamp=(ts if ts is not None else datetime.now()),
+            timestamp=(ts if ts is not None else datetime.now(UTC)),
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
@@ -266,7 +266,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             behavior_confirmed=behavior_confirmed,
             arrival_confirmed=arrival_confirmed,
             event_name=entry_dict.get("event_name", event_name),
-            timestamp=(ts if ts is not None else datetime.now()),
+            timestamp=(ts if ts is not None else datetime.now(UTC)),
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
