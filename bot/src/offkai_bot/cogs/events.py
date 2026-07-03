@@ -548,7 +548,7 @@ class EventsCog(commands.Cog):
             )
             return
 
-        promoted_entry = promote_specific_from_waitlist(event_name, user_id)
+        promoted_entry, original_index = promote_specific_from_waitlist(event_name, user_id)
 
         promoted_response = Response(
             user_id=promoted_entry.user_id,
@@ -565,8 +565,9 @@ class EventsCog(commands.Cog):
         try:
             add_response_for_event(event, promoted_response)
         except Exception:
-            # Roll back the waitlist pop so the user isn't dropped from both lists.
-            restore_waitlist_entry(event_name, promoted_entry)
+            # Roll back the waitlist pop so the user isn't dropped from both lists,
+            # restoring them at their original position so they don't jump the queue.
+            restore_waitlist_entry(event_name, promoted_entry, position=original_index)
             raise
 
         if event.role_id and interaction.guild:

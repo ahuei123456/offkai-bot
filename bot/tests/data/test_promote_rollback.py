@@ -45,15 +45,16 @@ def _make_entry(event_name: str, user_id: int) -> WaitlistEntry:
 
 
 def test_promote_specific_removes_from_waitlist():
-    """Happy path: the entry is removed from the waitlist and returned."""
+    """Happy path: the entry is removed from the waitlist and returned with its original index."""
     event_name = "Rollback Happy Path Event"
     load_responses()
     add_to_waitlist(event_name, _make_entry(event_name, 101))
     add_to_waitlist(event_name, _make_entry(event_name, 102))
 
-    promoted = promote_specific_from_waitlist(event_name, 102)
+    promoted, original_index = promote_specific_from_waitlist(event_name, 102)
 
     assert promoted.user_id == 102
+    assert original_index == 1
     assert [e.user_id for e in get_waitlist(event_name)] == [101]
 
 
@@ -87,6 +88,23 @@ def test_restore_waitlist_entry_reinserts_at_front():
     restore_waitlist_entry(event_name, popped)
 
     assert [e.user_id for e in get_waitlist(event_name)] == [201, 202]
+
+
+def test_restore_waitlist_entry_at_original_position_preserves_order():
+    """Rolling back a promotion from the middle of the waitlist must not reorder the queue."""
+    event_name = "Rollback Middle Position Event"
+    load_responses()
+    add_to_waitlist(event_name, _make_entry(event_name, 401))
+    add_to_waitlist(event_name, _make_entry(event_name, 402))
+    add_to_waitlist(event_name, _make_entry(event_name, 403))
+
+    popped, original_index = promote_specific_from_waitlist(event_name, 402)
+    assert original_index == 1
+    assert [e.user_id for e in get_waitlist(event_name)] == [401, 403]
+
+    restore_waitlist_entry(event_name, popped, position=original_index)
+
+    assert [e.user_id for e in get_waitlist(event_name)] == [401, 402, 403]
 
 
 def test_restore_waitlist_entry_noop_when_already_on_waitlist():

@@ -697,9 +697,11 @@ def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
     return first_entry
 
 
-def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEntry:
+def promote_specific_from_waitlist(event_name: str, user_id: int) -> tuple[WaitlistEntry, int]:
     """
-    Removes and returns a specific user from the waitlist by user_id.
+    Removes a specific user from the waitlist by user_id.
+    Returns the entry and its original waitlist index, so a rollback can
+    restore it at the same position instead of jumping the queue.
 
     Raises:
         ResponseNotFoundError: If the user is not found on the waitlist.
@@ -721,7 +723,7 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
             all_data[event_name] = event_data
             save_responses()
             _log.info("Promoted specific user %s from waitlist for event %s.", user_id, event_name)
-            return promoted_entry
+            return promoted_entry, i
 
     raise ResponseNotFoundError(event_name, user_id)
 
