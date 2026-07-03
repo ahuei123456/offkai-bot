@@ -7,7 +7,7 @@ import pytest
 from discord import app_commands
 from discord.ext import commands
 from offkai_bot.cogs.events import EventsCog
-from offkai_bot.errors import EventNotFoundError, ResponseNotFoundError
+from offkai_bot.errors import DuplicateResponseError, EventNotFoundError, ResponseNotFoundError
 
 pytestmark = pytest.mark.asyncio
 
@@ -219,6 +219,42 @@ async def test_promote_user_not_on_waitlist(
     mock_promote_specific.assert_called_once_with("Summer Bash", 99999)
     mock_add_response_for_event.assert_not_called()
     mock_interaction.followup.send.assert_not_awaited()
+
+
+@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.restore_waitlist_entry")
+@patch("offkai_bot.cogs.events.add_response_for_event")
+@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.get_event")
+async def test_promote_add_response_failure_restores_waitlist_entry(
+    mock_get_event,
+    mock_promote_specific,
+    mock_add_response_for_event,
+    mock_restore_waitlist_entry,
+    mock_update_event_msg,
+    mock_interaction,
+    mock_event_obj,
+    mock_waitlist_entry,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """If add_response_for_event fails after the waitlist pop, the entry is restored and the error propagates."""
+    mock_get_event.return_value = mock_event_obj
+    mock_promote_specific.return_value = mock_waitlist_entry
+    mock_add_response_for_event.side_effect = DuplicateResponseError("Summer Bash", 99999)
+
+    with pytest.raises(DuplicateResponseError):
+        await EventsCog.promote.callback(
+            mock_cog,
+            mock_interaction,
+            event_name="Summer Bash",
+            username="99999",
+        )
+
+    mock_restore_waitlist_entry.assert_called_once_with("Summer Bash", mock_waitlist_entry)
+    mock_interaction.followup.send.assert_not_awaited()
+    mock_cog.bot.fetch_user.assert_not_awaited()
+    mock_update_event_msg.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.promote_specific_from_waitlist")

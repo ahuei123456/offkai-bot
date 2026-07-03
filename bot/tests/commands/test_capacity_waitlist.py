@@ -540,6 +540,54 @@ async def test_withdraw_no_promotion_when_waitlist_empty(event_with_capacity, mo
     assert len(responses) == 0
 
 
+@pytest.mark.asyncio
+async def test_batch_promotion_failure_restores_waitlist_entry(event_with_capacity):
+    """If add_response fails mid-promotion, the popped waitlist entry is restored (issue #105)."""
+    from offkai_bot.data.response import EventData, load_responses
+    from offkai_bot.errors import DuplicateResponseError
+    from offkai_bot.interactions import promote_waitlist_batch
+
+    now = datetime.now(UTC)
+    # Seed inconsistent state directly: user 456 is both an attendee and first on the waitlist,
+    # so add_response will raise DuplicateResponseError after the waitlist pop.
+    all_data = load_responses()
+    all_data[event_with_capacity.event_name] = EventData(
+        attendees=[
+            Response(
+                user_id=456,
+                username="StaleUser",
+                extra_people=0,
+                behavior_confirmed=True,
+                arrival_confirmed=True,
+                event_name=event_with_capacity.event_name,
+                timestamp=now,
+                drinks=[],
+            )
+        ],
+        waitlist=[
+            WaitlistEntry(
+                user_id=456,
+                username="StaleUser",
+                extra_people=0,
+                behavior_confirmed=True,
+                arrival_confirmed=True,
+                event_name=event_with_capacity.event_name,
+                timestamp=now,
+                drinks=[],
+            )
+        ],
+    )
+
+    mock_client = MagicMock(spec=discord.Client)
+    mock_client.fetch_user = AsyncMock()
+
+    with pytest.raises(DuplicateResponseError):
+        await promote_waitlist_batch(event_with_capacity, mock_client)
+
+    # The waitlist entry must not be lost.
+    assert [e.user_id for e in get_waitlist(event_with_capacity.event_name)] == [456]
+
+
 # --- Tests for Capacity Overflow Prevention ---
 
 

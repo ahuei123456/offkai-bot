@@ -36,6 +36,7 @@ from offkai_bot.data.response import (
     has_complete_attendee_numbers,
     promote_specific_from_waitlist,
     remove_response,
+    restore_waitlist_entry,
     save_responses,
 )
 from offkai_bot.errors import (
@@ -561,7 +562,12 @@ class EventsCog(commands.Cog):
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response_for_event(event, promoted_response)
+        try:
+            add_response_for_event(event, promoted_response)
+        except Exception:
+            # Roll back the waitlist pop so the user isn't dropped from both lists.
+            restore_waitlist_entry(event_name, promoted_entry)
+            raise
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)

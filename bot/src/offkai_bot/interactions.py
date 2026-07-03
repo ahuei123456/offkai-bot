@@ -17,6 +17,7 @@ from offkai_bot.data.response import (
     promote_from_waitlist,
     remove_from_waitlist,
     remove_response,
+    restore_waitlist_entry,
 )
 from offkai_bot.errors import (
     DuplicateResponseError,
@@ -168,7 +169,12 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response_for_event(event, promoted_response)
+        try:
+            add_response_for_event(event, promoted_response)
+        except Exception:
+            # Roll back the waitlist pop so the user isn't dropped from both lists.
+            restore_waitlist_entry(event.event_name, promoted_entry)
+            raise
         promoted_count += 1
         promoted_user_ids.append(promoted_entry.user_id)
 

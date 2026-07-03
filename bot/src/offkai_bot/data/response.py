@@ -703,9 +703,17 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
 
     Raises:
         ResponseNotFoundError: If the user is not found on the waitlist.
+        DuplicateResponseError: If the user already has an attendee record, so a
+            subsequent add_response would fail after the waitlist entry was removed.
     """
     all_data = load_responses()
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    if any(r.user_id == user_id for r in event_data["attendees"]):
+        _log.warning(
+            "User %s is already an attendee of event %s. Refusing to remove waitlist entry.", user_id, event_name
+        )
+        raise DuplicateResponseError(event_name, user_id)
 
     for i, entry in enumerate(event_data["waitlist"]):
         if entry.user_id == user_id:
@@ -716,6 +724,23 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
             return promoted_entry
 
     raise ResponseNotFoundError(event_name, user_id)
+
+
+def restore_waitlist_entry(event_name: str, entry: WaitlistEntry, position: int = 0) -> None:
+    """
+    Re-inserts a previously popped waitlist entry, used to roll back a failed promotion.
+    Does nothing if the user is already back on the waitlist.
+    """
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    if any(e.user_id == entry.user_id for e in event_data["waitlist"]):
+        return
+
+    event_data["waitlist"].insert(position, entry)
+    all_data[event_name] = event_data
+    save_responses()
+    _log.info("Restored user %s to waitlist for event %s after failed promotion.", entry.user_id, event_name)
 
 
 def calculate_attendance(
