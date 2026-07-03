@@ -169,6 +169,110 @@ async def test_fire_alert_task_no_client(mock_log, mock_client):
 
 
 @patch("offkai_bot.alerts.alerts._log")
+async def test_fire_alert_sweeps_past_due_keys(mock_log, mock_client):
+    """Test fire_alert executes tasks keyed to earlier minutes (missed ticks), not just the current one."""
+    # Arrange
+    current_time = datetime(3024, 8, 15, 12, 30, 0, tzinfo=JST)
+    past_task = MagicMock(spec=Task, client=mock_client)
+    past_task.action = AsyncMock()
+    past_task.__class__.__name__ = "PastTask"
+    current_task = MagicMock(spec=Task, client=mock_client)
+    current_task.action = AsyncMock()
+    current_task.__class__.__name__ = "CurrentTask"
+
+    past_key = datetime(3024, 8, 15, 12, 27, 0, tzinfo=JST).strftime(alerts._TIME_KEY_FORMAT)
+    current_key = current_time.strftime(alerts._TIME_KEY_FORMAT)
+    alerts._scheduled_tasks[past_key] = [past_task]
+    alerts._scheduled_tasks[current_key] = [current_task]
+
+    # Act
+    await alerts.fire_alert(current_time)
+
+    # Assert
+    past_task.action.assert_awaited_once()
+    current_task.action.assert_awaited_once()
+    assert past_key not in alerts._scheduled_tasks
+    assert current_key not in alerts._scheduled_tasks
+
+
+@patch("offkai_bot.alerts.alerts._log")
+async def test_fire_alert_leaves_future_keys(mock_log, mock_client):
+    """Test fire_alert does not execute tasks scheduled for future minutes."""
+    # Arrange
+    current_time = datetime(3024, 8, 15, 12, 30, 0, tzinfo=JST)
+    future_task = MagicMock(spec=Task, client=mock_client)
+    future_task.action = AsyncMock()
+    future_task.__class__.__name__ = "FutureTask"
+
+    future_key = datetime(3024, 8, 15, 12, 31, 0, tzinfo=JST).strftime(alerts._TIME_KEY_FORMAT)
+    alerts._scheduled_tasks[future_key] = [future_task]
+
+    # Act
+    await alerts.fire_alert(current_time)
+
+    # Assert
+    future_task.action.assert_not_awaited()
+    assert future_key in alerts._scheduled_tasks
+
+
+@patch("offkai_bot.alerts.alerts._log")
+async def test_fire_alert_sweeps_in_chronological_order(mock_log, mock_client):
+    """Test overdue buckets execute oldest-first when several minutes are due at once."""
+    # Arrange
+    current_time = datetime(3024, 8, 15, 12, 30, 0, tzinfo=JST)
+    call_order = []
+
+    def make_task(name):
+        task = MagicMock(spec=Task, client=mock_client)
+        task.action = AsyncMock(side_effect=lambda name=name: call_order.append(name))
+        task.__class__.__name__ = name
+        return task
+
+    # Insert out of chronological order on purpose.
+    late_key = datetime(3024, 8, 15, 12, 29, 0, tzinfo=JST).strftime(alerts._TIME_KEY_FORMAT)
+    early_key = datetime(3024, 8, 15, 12, 25, 0, tzinfo=JST).strftime(alerts._TIME_KEY_FORMAT)
+    alerts._scheduled_tasks[late_key] = [make_task("late")]
+    alerts._scheduled_tasks[early_key] = [make_task("early")]
+
+    # Act
+    await alerts.fire_alert(current_time)
+
+    # Assert
+    assert call_order == ["early", "late"]
+    assert not alerts._scheduled_tasks
+
+
+# --- Tests for loop startup ---
+
+
+async def test_before_alert_loop_waits_until_ready():
+    """Test before_alert_loop waits for the gateway when a client is registered."""
+    mock_client = MagicMock(spec=discord.Client)
+    mock_client.wait_until_ready = AsyncMock()
+
+    with patch.object(alerts, "_client", mock_client):
+        await alerts.before_alert_loop()
+
+    mock_client.wait_until_ready.assert_awaited_once()
+
+
+async def test_before_alert_loop_without_client():
+    """Test before_alert_loop does not blow up when no client was registered."""
+    with patch.object(alerts, "_client", None):
+        await alerts.before_alert_loop()  # Should simply not raise
+
+
+async def test_start_alert_loop_registers_client_and_starts_loop():
+    """Test start_alert_loop stores the client and starts the tasks.loop."""
+    mock_client = MagicMock(spec=discord.Client)
+
+    with patch.object(alerts.alert_loop, "start") as mock_start, patch.object(alerts, "_client", None):
+        alerts.start_alert_loop(mock_client)
+        assert alerts._client is mock_client
+        mock_start.assert_called_once()
+
+
+@patch("offkai_bot.alerts.alerts._log")
 async def test_fire_alert_triggers_on_different_seconds(mock_log, mock_client, mock_task):
     """Test fire_alert triggers tasks registered for a minute, even if called with different seconds."""
     # Arrange

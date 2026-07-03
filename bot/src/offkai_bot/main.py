@@ -10,7 +10,7 @@ from discord.ext import commands
 
 # --- Updated Imports ---
 from offkai_bot import config
-from offkai_bot.alerts.alerts import alert_loop
+from offkai_bot.alerts.alerts import start_alert_loop
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 from offkai_bot.config import get_config
 
@@ -66,7 +66,15 @@ async def load_and_update_events(client: discord.Client):
 class OffkaiClient(commands.Bot):
     def __init__(self, *, intents: discord.Intents):
         # Initialize commands.Bot. Command prefix is required but we only use slash commands.
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        # Suppress all mentions by default: organizer-supplied text (broadcast/update/close/
+        # announce messages) is relayed verbatim, and must not let the bot ping
+        # @everyone/@here/roles. Intended pings opt in per-send via allowed_mentions.
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            help_command=None,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     async def setup_hook(self):
         # Load extensions (Cogs)
@@ -95,7 +103,7 @@ class OffkaiClient(commands.Bot):
         _log.info("Commands synced.")
 
         await load_and_update_events(self)
-        alert_loop.start()
+        start_alert_loop(self)
 
 
 intents = discord.Intents.default()
