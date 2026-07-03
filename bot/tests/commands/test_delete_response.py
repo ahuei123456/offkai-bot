@@ -75,6 +75,7 @@ def mock_event_obj(sample_event_list):
 # --- Test Cases ---
 
 
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -82,6 +83,7 @@ async def test_delete_response_success(
     mock_log,
     mock_get_event,
     mock_remove_response_func,  # Renamed mock for clarity
+    mock_promote_waitlist_batch,
     mock_interaction,
     mock_member,
     mock_thread,  # From conftest.py
@@ -96,6 +98,7 @@ async def test_delete_response_success(
     mock_get_event.return_value = mock_event_obj
     # remove_response now returns None on success, or raises error
     # No need to set return_value explicitly if None is acceptable
+    mock_promote_waitlist_batch.return_value = []
 
     # Mock the bot.get_channel call on mock_cog.bot
     mock_cog.bot.get_channel.return_value = mock_thread
@@ -117,16 +120,18 @@ async def test_delete_response_success(
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check remove_response call
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
-    # 3. Check interaction response
+    # 3. Check waitlist promotion was attempted
+    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot)
+    # 4. Check interaction response
     mock_interaction.followup.send.assert_awaited_once_with(
         f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'.",
         ephemeral=True,
     )
-    # 4. Check getting the channel via bot instance
+    # 5. Check getting the channel via bot instance
     mock_cog.bot.get_channel.assert_called_once_with(mock_event_obj.thread_id)
-    # 5. Check removing user from thread
+    # 6. Check removing user from thread
     mock_thread.remove_user.assert_awaited_once_with(mock_member)
-    # 6. Check logs
+    # 7. Check logs
     mock_log.info.assert_called()
     assert mock_log.info.call_args[0][0] == "Removed user %s from thread %s for event '%s'."
     assert mock_log.info.call_args[0][1] == mock_member.id
@@ -135,6 +140,48 @@ async def test_delete_response_success(
     mock_log.error.assert_not_called()  # Check no error logs
 
 
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_delete_response_promotes_from_waitlist(
+    mock_log,
+    mock_get_event,
+    mock_remove_response_func,
+    mock_promote_waitlist_batch,
+    mock_interaction,
+    mock_member,
+    mock_thread,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that deleting a response promotes waitlisted users and reports the count."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_promote_waitlist_batch.return_value = [111, 222]
+    mock_cog.bot.get_channel.return_value = mock_thread
+
+    # Act
+    await EventsCog.delete_response.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+        member=mock_member,
+    )
+
+    # Assert
+    mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
+    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot)
+    mock_interaction.followup.send.assert_awaited_once_with(
+        f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'."
+        f"\n⬆️ Promoted 2 user(s) from the waitlist to fill the freed spot.",
+        ephemeral=True,
+    )
+
+
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -142,6 +189,7 @@ async def test_delete_response_success_no_channel_id(
     mock_log,
     mock_get_event,
     mock_remove_response_func,
+    mock_promote_waitlist_batch,
     mock_interaction,
     mock_member,
     mock_thread,  # Still needed for potential calls if logic changed
@@ -155,6 +203,7 @@ async def test_delete_response_success_no_channel_id(
     mock_event_obj.thread_id = None  # Modify event for this test
     mock_get_event.return_value = mock_event_obj
     # remove_response returns None on success
+    mock_promote_waitlist_batch.return_value = []
 
     # Act
     await EventsCog.delete_response.callback(
@@ -180,6 +229,7 @@ async def test_delete_response_success_no_channel_id(
     mock_log.error.assert_not_called()
 
 
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -187,6 +237,7 @@ async def test_delete_response_success_thread_not_found(
     mock_log,
     mock_get_event,
     mock_remove_response_func,
+    mock_promote_waitlist_batch,
     mock_interaction,
     mock_member,
     mock_thread,
@@ -199,6 +250,7 @@ async def test_delete_response_success_thread_not_found(
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
     # remove_response returns None on success
+    mock_promote_waitlist_batch.return_value = []
     mock_cog.bot.get_channel.return_value = None  # Simulate thread not found
 
     # Act
@@ -225,6 +277,7 @@ async def test_delete_response_success_thread_not_found(
     mock_log.error.assert_not_called()
 
 
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -232,6 +285,7 @@ async def test_delete_response_success_remove_user_fails(
     mock_log,
     mock_get_event,
     mock_remove_response_func,
+    mock_promote_waitlist_batch,
     mock_interaction,
     mock_member,
     mock_thread,
@@ -244,6 +298,7 @@ async def test_delete_response_success_remove_user_fails(
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
     # remove_response returns None on success
+    mock_promote_waitlist_batch.return_value = []
     mock_cog.bot.get_channel.return_value = mock_thread
     # Simulate error removing user
     remove_error = discord.HTTPException(MagicMock(), "Cannot remove user")
@@ -273,6 +328,7 @@ async def test_delete_response_success_remove_user_fails(
     mock_log.info.assert_not_called()
 
 
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -280,6 +336,7 @@ async def test_delete_response_event_not_found(
     mock_log,
     mock_get_event,
     mock_remove_response_func,
+    mock_promote_waitlist_batch,
     mock_interaction,
     mock_member,
     prepopulated_event_cache,  # Still useful for setup/teardown
@@ -302,10 +359,12 @@ async def test_delete_response_event_not_found(
     # Assert only get_event was called
     mock_get_event.assert_called_once_with(event_name_target)
     mock_remove_response_func.assert_not_called()
+    mock_promote_waitlist_batch.assert_not_awaited()
     mock_interaction.followup.send.assert_not_awaited()
     mock_cog.bot.get_channel.assert_not_called()
 
 
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -313,6 +372,7 @@ async def test_delete_response_response_not_found_in_data(
     mock_log,
     mock_get_event,
     mock_remove_response_func,
+    mock_promote_waitlist_batch,
     mock_interaction,
     mock_member,
     mock_event_obj,
@@ -345,6 +405,7 @@ async def test_delete_response_response_not_found_in_data(
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
 
     # Assert subsequent steps were NOT called
+    mock_promote_waitlist_batch.assert_not_awaited()
     mock_interaction.followup.send.assert_not_awaited()
     mock_cog.bot.get_channel.assert_not_called()
     mock_thread.remove_user.assert_not_awaited()  # Ensure thread removal wasn't attempted

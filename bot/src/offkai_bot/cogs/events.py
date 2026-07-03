@@ -512,10 +512,13 @@ class EventsCog(commands.Cog):
         if event.role_id and interaction.guild:
             await remove_event_role(interaction.guild, member.id, event.role_id)
 
-        await interaction.followup.send(
-            f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
-            ephemeral=True,
-        )
+        # Offer the freed spot to the waitlist, mirroring the self-withdrawal paths.
+        promoted_user_ids = await promote_waitlist_batch(event, self.bot)
+
+        message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
+        if promoted_user_ids:
+            message += f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spot."
+        await interaction.followup.send(message, ephemeral=True)
 
         if event.thread_id:
             thread = self.bot.get_channel(event.thread_id)
