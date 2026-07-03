@@ -346,6 +346,21 @@ def test_load_responses_invalid_timestamp(mock_datetime, mock_paths):
         assert "Could not parse ISO timestamp" in str(mock_log.warning.call_args)
 
 
+def test_parse_fallback_timestamp_is_aware_utc():
+    """Fallback timestamp for unparseable input must be timezone-aware UTC, not naive local time."""
+    invalid_ts_resp = RESP_1_DICT.copy()
+    invalid_ts_resp["timestamp"] = "invalid-ts"
+
+    with patch("offkai_bot.data.response._log"):
+        response = response_data._parse_response_from_dict(invalid_ts_resp, "Event A")
+        entry = response_data._parse_waitlist_entry_from_dict(invalid_ts_resp, "Event A")
+
+    assert response is not None
+    assert response.timestamp.tzinfo is UTC
+    assert entry is not None
+    assert entry.timestamp.tzinfo is UTC
+
+
 def test_load_responses_invalid_numeric_field(mock_paths):
     """Test loading data with non-numeric extra_people."""
     bad_resp_dict = RESP_1_DICT.copy()
