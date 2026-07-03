@@ -606,8 +606,8 @@ def add_response(
     return assigned_max_number
 
 
-def remove_response(event_name: str, user_id: int) -> None:
-    """Removes a response for a given user from the specified event's attendees.
+def remove_response(event_name: str, user_id: int) -> Response:
+    """Removes and returns the response for a given user from the specified event's attendees.
 
     Raises:
         ResponseNotFoundError: If no response is found for the given user and event.
@@ -628,6 +628,7 @@ def remove_response(event_name: str, user_id: int) -> None:
         all_data[event_name] = event_data
         save_responses()
         _log.info("Removed response from user %s for event %s.", user_id, event_name)
+        return removed_response
 
 
 def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:

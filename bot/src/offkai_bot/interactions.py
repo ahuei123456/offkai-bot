@@ -94,14 +94,18 @@ def get_remaining_capacity(event: Event) -> int | None:
     return max(0, event.max_capacity - current_count)
 
 
-async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[int]:
+async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spots: int | None = None) -> list[int]:
     """
     Promote users from waitlist to fill available capacity.
+
+    For events without a target capacity (unlimited capacity and never closed),
+    freed_spots bounds the promotion to the headcount freed by a withdrawal so
+    the confirmed total stays stable. If freed_spots is also None, there is no
+    constraint to protect and the entire waitlist is promoted.
 
     Returns list of promoted user IDs.
     """
     promoted_user_ids: list[int] = []
-    promoted_count = 0
 
     # Resolve guild for role assignment
     guild: discord.Guild | None = None
@@ -124,13 +128,15 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
         # Event is still open or was never closed, use max_capacity
         target_capacity = event.max_capacity
 
+    if target_capacity is None and freed_spots is not None:
+        # Unlimited capacity, but a withdrawal freed a specific headcount:
+        # backfill exactly that many spots so the confirmed total stays stable.
+        target_capacity = get_current_attendance_count(event.event_name) + freed_spots
+
     while True:
         # Check if we should continue promoting
-        if target_capacity is None:
-            # No capacity limit, only promote one person (original behavior for unlimited events)
-            if promoted_count >= 1:
-                break
-        else:
+        # (if target_capacity is None there is no constraint: drain the whole waitlist)
+        if target_capacity is not None:
             # Check if we're at target capacity
             current_count = get_current_attendance_count(event.event_name)
             if current_count >= target_capacity:
@@ -169,7 +175,6 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
             display_name=promoted_entry.display_name,
         )
         add_response_for_event(event, promoted_response)
-        promoted_count += 1
         promoted_user_ids.append(promoted_entry.user_id)
 
         # Assign event participant role
@@ -731,11 +736,13 @@ class OpenEvent(EventView):
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
         removed_from_responses = False
+        freed_spots = 0
         try:
             # Try to remove from responses first
-            remove_response(self.event.event_name, interaction.user.id)
+            removed_response = remove_response(self.event.event_name, interaction.user.id)
             decrease_rank(interaction.user.name)
             removed_from_responses = True
+            freed_spots = 1 + removed_response.extra_people
 
         except ResponseNotFoundError:
             # User not in responses, try waitlist
@@ -806,7 +813,7 @@ class OpenEvent(EventView):
             # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
             if removed_from_responses:
-                await promote_waitlist_batch(self.event, interaction.client)
+                await promote_waitlist_batch(self.event, interaction.client, freed_spots=freed_spots)
 
         except Exception as e:
             # Catch any errors during notification/promotion
@@ -853,10 +860,12 @@ class ClosedEvent(EventView):
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
         removed_from_responses = False
+        freed_spots = 0
         try:
             # Try to remove from responses first
-            remove_response(self.event.event_name, interaction.user.id)
+            removed_response = remove_response(self.event.event_name, interaction.user.id)
             removed_from_responses = True
+            freed_spots = 1 + removed_response.extra_people
 
         except ResponseNotFoundError:
             # User not in responses, try waitlist
@@ -957,7 +966,7 @@ class ClosedEvent(EventView):
             # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
             if removed_from_responses:
-                await promote_waitlist_batch(self.event, interaction.client)
+                await promote_waitlist_batch(self.event, interaction.client, freed_spots=freed_spots)
 
         except Exception as e:
             # Catch any errors during notification/promotion
@@ -994,10 +1003,12 @@ class PostDeadlineEvent(EventView):
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
         removed_from_responses = False
+        freed_spots = 0
         try:
             # Try to remove from responses first
-            remove_response(self.event.event_name, interaction.user.id)
+            removed_response = remove_response(self.event.event_name, interaction.user.id)
             removed_from_responses = True
+            freed_spots = 1 + removed_response.extra_people
 
         except ResponseNotFoundError:
             # User not in responses, try waitlist
@@ -1098,7 +1109,7 @@ class PostDeadlineEvent(EventView):
             # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
             if removed_from_responses:
-                await promote_waitlist_batch(self.event, interaction.client)
+                await promote_waitlist_batch(self.event, interaction.client, freed_spots=freed_spots)
 
         except Exception as e:
             # Catch any errors during notification/promotion
