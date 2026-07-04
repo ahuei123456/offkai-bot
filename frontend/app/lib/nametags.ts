@@ -23,7 +23,6 @@ export type NametagEntry = {
   number: number | null
   numberLabel: string
   discordLine: string
-  drinkLine: string
   subLine: string
   status: Attendee['status']
   kind: 'attendee' | 'guest'
@@ -112,14 +111,12 @@ export function buildNametagEntries(attendees: Attendee[], options: { includeWai
 
   for (const attendee of included) {
     const primaryName = attendee.display_name || attendee.username
-    const drinkLine = attendee.drinks.length ? attendee.drinks.join(' + ') : 'Drink not selected'
     entries.push({
       id: `${attendee.user_id}:primary`,
       name: primaryName,
       number: attendee.attendee_number,
       numberLabel: attendee.attendee_number == null ? (attendee.status === 'waitlist' ? 'WAIT' : '—') : String(attendee.attendee_number),
       discordLine: `@${attendee.username} · ${attendee.user_id}`,
-      drinkLine,
       subLine: attendee.status === 'waitlist' ? 'STANDBY / WAITLIST' : 'CONFIRMED OFFKAI PASS',
       status: attendee.status,
       kind: 'attendee',
@@ -136,7 +133,6 @@ export function buildNametagEntries(attendees: Attendee[], options: { includeWai
         number: guestNumber,
         numberLabel: guestNumber == null ? 'GUEST' : String(guestNumber),
         discordLine: `Guest of @${attendee.username}`,
-        drinkLine,
         subLine: primaryName,
         status: 'attending',
         kind: 'guest',

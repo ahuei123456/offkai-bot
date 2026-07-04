@@ -14,10 +14,10 @@ import {
 } from '../../lib/nametags'
 
 const PRESETS = [
-  { label: 'A4 compact · 3×8 stickers', hint: 'default: smaller cards, more room on the page', values: DEFAULT_NAMETAG_SHEET },
+  { label: 'A4 · custom sticker grid', hint: 'default, fully editable', values: DEFAULT_NAMETAG_SHEET },
   {
-    label: 'Letter · 3×8 Avery-ish',
-    hint: 'US paper stock',
+    label: 'Letter · US sheet',
+    hint: '8.5×11in paper, editable sticker stock',
     values: {
       ...DEFAULT_NAMETAG_SHEET,
       paperWidthMm: 215.9,
@@ -28,13 +28,64 @@ const PRESETS = [
       marginLeftMm: 4.8,
       stickerWidthMm: 66,
       stickerHeightMm: 33.9,
-      gutterXMm: 2.5,
-      gutterYMm: 0,
+      gutterXMm: 3,
+      gutterYMm: 3,
     },
   },
   {
-    label: 'Compact badge · 91×55mm',
-    hint: 'large readable cards',
+    label: 'Legal · US long sheet',
+    hint: '8.5×14in paper, editable sticker stock',
+    values: {
+      ...DEFAULT_NAMETAG_SHEET,
+      paperWidthMm: 215.9,
+      paperHeightMm: 355.6,
+      marginTopMm: 12.7,
+      marginRightMm: 6,
+      marginBottomMm: 12.7,
+      marginLeftMm: 6,
+      stickerWidthMm: 66,
+      stickerHeightMm: 33.9,
+      gutterXMm: 3,
+      gutterYMm: 3,
+    },
+  },
+  {
+    label: 'B5 · Japanese paper',
+    hint: '182×257mm, editable sticker stock',
+    values: {
+      ...DEFAULT_NAMETAG_SHEET,
+      paperWidthMm: 182,
+      paperHeightMm: 257,
+      marginTopMm: 8,
+      marginRightMm: 6,
+      marginBottomMm: 8,
+      marginLeftMm: 6,
+      stickerWidthMm: 54,
+      stickerHeightMm: 30,
+      gutterXMm: 4,
+      gutterYMm: 3,
+    },
+  },
+  {
+    label: 'A5 · half sheet',
+    hint: '148×210mm, editable sticker stock',
+    values: {
+      ...DEFAULT_NAMETAG_SHEET,
+      paperWidthMm: 148,
+      paperHeightMm: 210,
+      marginTopMm: 7,
+      marginRightMm: 6,
+      marginBottomMm: 7,
+      marginLeftMm: 6,
+      stickerWidthMm: 42,
+      stickerHeightMm: 28,
+      gutterXMm: 3,
+      gutterYMm: 3,
+    },
+  },
+  {
+    label: 'Badge cards · 91×55mm',
+    hint: 'larger cards, still editable',
     values: {
       ...DEFAULT_NAMETAG_SHEET,
       paperWidthMm: 210,
@@ -71,7 +122,7 @@ function Field({
           step="0.1"
           value={value}
           onChange={event => onChange(Number(event.target.value))}
-          className="w-0 min-w-0 flex-1 border-0 bg-transparent py-2 text-sm font-black text-[#17120F] outline-none"
+          className="min-w-[2.75rem] flex-1 border-0 bg-transparent py-2 text-center text-sm font-black text-[#17120F] outline-none"
         />
         <span className="text-[9px] text-[#8B2D1F]/70">{suffix}</span>
       </span>
@@ -101,7 +152,6 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
       <div className="nametag-card__body">
         <p className="nametag-card__name">{entry.name}</p>
         <p className="nametag-card__discord">{entry.discordLine}</p>
-        <p className="nametag-card__drink">{entry.drinkLine}</p>
         <div className="nametag-card__meta-row">
           <span>{entry.subLine}</span>
           <span>{entry.kind === 'guest' ? 'GUEST' : entry.status.toUpperCase()}</span>
@@ -117,7 +167,6 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
 
 export function NametagSheetGenerator({ attendees, eventName }: { attendees: Attendee[]; eventName: string }) {
   const [settings, setSettings] = useState<NametagSheetSettings>(DEFAULT_NAMETAG_SHEET)
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const safeSettings = useMemo(() => normalizeSheetSettings(settings), [settings])
   const layout = useMemo(() => calculateSheetLayout(safeSettings), [safeSettings])
   const entries = useMemo(
@@ -163,7 +212,7 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#FFD51B]">Nametag printer</p>
             <h2 className="font-display text-2xl font-black uppercase tracking-tight md:text-3xl">Print-ready offkai stickers</h2>
-            <p className="mt-1 text-xs font-bold text-white/70">Setup stays here. Only the paper section below prints.</p>
+            <p className="mt-1 text-xs font-bold text-white/70">Separate print tool. Not part of the day-of attendee list.</p>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center text-[#17120F] sm:min-w-[360px]">
             <div className="rounded-xl bg-[#FFD51B] px-3 py-2">
@@ -182,11 +231,11 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
         </div>
       </div>
 
-      <div className="nametag-print-controls grid gap-4 border-b-2 border-[#17120F] bg-[#FFF8D8] p-4 lg:grid-cols-[320px_1fr] md:p-5">
-        <div className="rounded-2xl border-2 border-[#17120F] bg-white p-4 shadow-[3px_3px_0_rgba(23,18,15,0.22)]">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Quick setup</p>
-          <div className="mt-3 grid gap-3">
-            <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#5B3428]">
+      <div className="nametag-print-controls grid gap-4 border-b-2 border-[#17120F] bg-[#FFF8D8] p-4 md:p-5">
+        <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
+          <div className="rounded-2xl border-2 border-[#17120F] bg-white p-4 shadow-[3px_3px_0_rgba(23,18,15,0.22)]">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Paper/template</p>
+            <label className="mt-3 grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#5B3428]">
               Preset
               <select
                 aria-label="Nametag sheet preset"
@@ -199,21 +248,8 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
                 {PRESETS.map((preset, index) => <option key={preset.label} value={index}>{preset.label}</option>)}
               </select>
             </label>
-
-            <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#5B3428]">
-              Visual style
-              <select
-                value={safeSettings.theme}
-                onChange={event => update({ theme: event.target.value as StickerTheme })}
-                className="rounded-xl border-2 border-[#17120F] bg-white px-3 py-2.5 text-sm font-black text-[#17120F]"
-              >
-                <option value="chibachan">High-visibility red/yellow</option>
-                <option value="classic-red">Classic hello red</option>
-                <option value="ink">Black ink staff mode</option>
-              </select>
-            </label>
-
-            <label className="flex items-center gap-3 rounded-xl border-2 border-[#17120F] bg-[#FFF8D8] px-3 py-2.5 text-sm font-black text-[#17120F]">
+            <p className="mt-2 text-[11px] font-bold text-[#5B3428]">All dimensions below are editable for any paper or sticker stock.</p>
+            <label className="mt-3 flex items-center gap-3 rounded-xl border-2 border-[#17120F] bg-[#FFF8D8] px-3 py-2.5 text-sm font-black text-[#17120F]">
               <input
                 type="checkbox"
                 checked={safeSettings.includeWaitlist}
@@ -223,60 +259,61 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
               Include waitlist
             </label>
           </div>
-        </div>
 
-        <div className="rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] p-4 shadow-[3px_3px_0_rgba(23,18,15,0.22)]">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Paper use</p>
-              <p className="mt-1 text-sm font-black text-[#17120F]">
-                {entries.length}/{totalSlots} slots filled · {blankSlots} blank · {pages.length} page{pages.length === 1 ? '' : 's'}
-              </p>
-              <p className="mt-1 text-xs font-bold text-[#5B3428]">Default is fitted now. Use custom paper only when the actual sticker stock demands it.</p>
+          <div className="rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] p-4 shadow-[3px_3px_0_rgba(23,18,15,0.22)]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Paper use</p>
+                <p className="mt-1 text-sm font-black text-[#17120F]">
+                  {entries.length}/{totalSlots} slots filled · {blankSlots} blank · {pages.length} page{pages.length === 1 ? '' : 's'} · gutters {safeSettings.gutterXMm}×{safeSettings.gutterYMm}mm
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="brand-action min-h-[48px] rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-[0.18em]"
+              >
+                Print tags
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="brand-action min-h-[48px] rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-[0.18em]"
-            >
-              Print this section
-            </button>
-          </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(prev => !prev)}
-            className="mt-4 text-xs font-black uppercase tracking-[0.16em] text-[#17120F] underline decoration-[#E51F1F] decoration-2 underline-offset-4"
-          >
-            {showAdvanced ? 'Hide custom paper settings' : 'Custom paper settings'}
-          </button>
-
-          {showAdvanced && (
-            <div className="mt-4 grid gap-3 md:grid-cols-4">
-              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/80 p-3">
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/85 p-3">
                 <p className="col-span-2 text-[10px] font-black uppercase tracking-[0.16em] text-[#17120F]/70">Paper</p>
                 <Field label="Width" value={safeSettings.paperWidthMm} onChange={setNumber('paperWidthMm')} />
                 <Field label="Height" value={safeSettings.paperHeightMm} onChange={setNumber('paperHeightMm')} />
               </div>
-              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/80 p-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/85 p-3">
                 <p className="col-span-2 text-[10px] font-black uppercase tracking-[0.16em] text-[#17120F]/70">Sticker</p>
                 <Field label="Width" value={safeSettings.stickerWidthMm} onChange={setNumber('stickerWidthMm')} />
                 <Field label="Height" value={safeSettings.stickerHeightMm} onChange={setNumber('stickerHeightMm')} />
               </div>
-              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/80 p-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/85 p-3">
                 <p className="col-span-2 text-[10px] font-black uppercase tracking-[0.16em] text-[#17120F]/70">Gutter</p>
                 <Field label="X" value={safeSettings.gutterXMm} onChange={setNumber('gutterXMm')} />
                 <Field label="Y" value={safeSettings.gutterYMm} onChange={setNumber('gutterYMm')} />
               </div>
-              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/80 p-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 rounded-xl bg-white/85 p-3">
                 <p className="col-span-2 text-[10px] font-black uppercase tracking-[0.16em] text-[#17120F]/70">Margins</p>
                 <Field label="Top" value={safeSettings.marginTopMm} onChange={setNumber('marginTopMm')} />
                 <Field label="Right" value={safeSettings.marginRightMm} onChange={setNumber('marginRightMm')} />
                 <Field label="Bottom" value={safeSettings.marginBottomMm} onChange={setNumber('marginBottomMm')} />
                 <Field label="Left" value={safeSettings.marginLeftMm} onChange={setNumber('marginLeftMm')} />
               </div>
+              <div className="grid min-w-0 gap-2 rounded-xl bg-white/85 p-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#17120F]/70">Style</p>
+                <select
+                  value={safeSettings.theme}
+                  onChange={event => update({ theme: event.target.value as StickerTheme })}
+                  className="rounded-lg border border-[#17120F]/35 bg-white px-2 py-2 text-xs font-black text-[#17120F]"
+                >
+                  <option value="chibachan">High contrast</option>
+                  <option value="classic-red">Classic red</option>
+                  <option value="ink">Black ink</option>
+                </select>
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 

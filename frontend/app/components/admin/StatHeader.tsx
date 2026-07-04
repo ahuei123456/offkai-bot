@@ -14,6 +14,7 @@ export function StatHeader({
   waitlistCount,
   scanning,
   onToggleScan,
+  onOpenNametags,
 }: {
   eventName: string
   events: EventOption[]
@@ -25,6 +26,7 @@ export function StatHeader({
   waitlistCount: number
   scanning: boolean
   onToggleScan: () => void
+  onOpenNametags: () => void
 }) {
   return (
     <div className="brand-sunburst text-white p-4 md:p-6 rounded-b-[1.5rem] md:rounded-b-[2rem] border-b-4 border-[#17120F] shadow-[0_6px_0_#17120F] md:shadow-[0_8px_0_#17120F]">
@@ -74,6 +76,14 @@ export function StatHeader({
         <p className="text-xs font-black text-white drop-shadow-[1px_1px_0_#17120F]">{checkedInCount} / {attendingCount} in · {waitlistCount} waitlist</p>
         <div className="flex-1" />
         <button
+          type="button"
+          onClick={onOpenNametags}
+          className="min-h-[44px] rounded-xl border-2 border-[#17120F] bg-white px-4 py-2 text-xs font-black uppercase tracking-widest text-[#17120F] shadow-[3px_3px_0_#17120F]"
+        >
+          Print tags
+        </button>
+        <button
+          type="button"
           onClick={onToggleScan}
           className={`min-h-[44px] px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest cursor-pointer ${scanning ? 'brand-action text-white' : 'brand-action-alt'}`}
         >

@@ -279,16 +279,6 @@ button, a, input {
   color: #8b2d1f;
 }
 
-.nametag-card__drink {
-  margin-top: 0.35mm;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: clamp(5px, 1.45mm, 7px);
-  font-weight: 1000;
-  color: #17120f;
-}
-
 .nametag-card__meta-row {
   margin-top: 0.35mm;
   display: flex;
