@@ -157,6 +157,194 @@ button, a, input {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+.nametag-sheet {
+  box-sizing: border-box;
+  box-shadow: 0 14px 40px rgba(23, 18, 15, 0.22);
+  overflow: hidden;
+}
+
+.nametag-grid {
+  display: grid;
+  align-content: start;
+  justify-content: start;
+}
+
+.nametag-card {
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  border: 0.7mm solid #17120f;
+  border-radius: 3.2mm;
+  background: #fffdf4;
+  color: #17120f;
+  font-family: var(--font-noto-sans), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  break-inside: avoid;
+}
+
+.nametag-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.08;
+  background-image:
+    linear-gradient(45deg, transparent 0 46%, #17120f 46% 48%, transparent 48%),
+    radial-gradient(circle at 12% 82%, #e51f1f 0 1.2mm, transparent 1.3mm),
+    radial-gradient(circle at 88% 18%, #ffd51b 0 1.3mm, transparent 1.4mm);
+  background-size: 7mm 7mm, 11mm 11mm, 13mm 13mm;
+}
+
+.nametag-card__header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2mm;
+  min-height: 11mm;
+  padding: 1.7mm 2.2mm 1.4mm;
+  background: #e51f1f;
+  color: white;
+}
+
+.nametag-card__hello {
+  font-size: clamp(15px, 6.4mm, 30px);
+  font-weight: 1000;
+  line-height: 0.78;
+  letter-spacing: 0.04em;
+}
+
+.nametag-card__my-name {
+  margin-top: 0.7mm;
+  font-size: clamp(5px, 2.2mm, 10px);
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0.16em;
+}
+
+.nametag-card__number {
+  display: grid;
+  place-items: center;
+  min-width: 13mm;
+  border: 0.45mm solid #17120f;
+  border-radius: 999px;
+  background: #ffd51b;
+  color: #17120f;
+  padding: 0.7mm 1.4mm;
+  box-shadow: 0.7mm 0.7mm 0 #17120f;
+  line-height: 1;
+}
+
+.nametag-card__number span {
+  font-size: clamp(4px, 1.6mm, 7px);
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+}
+
+.nametag-card__number strong {
+  font-size: clamp(9px, 3.6mm, 16px);
+  font-weight: 1000;
+}
+
+.nametag-card__body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1.5mm 2.5mm 1.2mm;
+  text-align: center;
+}
+
+.nametag-card__name {
+  font-size: clamp(16px, 7.4mm, 34px);
+  font-weight: 1000;
+  line-height: 0.96;
+  letter-spacing: 0.02em;
+  text-wrap: balance;
+}
+
+.nametag-card__discord {
+  margin-top: 1mm;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(6px, 2.35mm, 11px);
+  font-weight: 900;
+  color: #8b2d1f;
+}
+
+.nametag-card__meta-row {
+  margin-top: 1.1mm;
+  display: flex;
+  justify-content: center;
+  gap: 1.3mm;
+  font-size: clamp(4px, 1.65mm, 8px);
+  font-weight: 1000;
+  letter-spacing: 0.1em;
+  color: rgba(23, 18, 15, 0.7);
+  text-transform: uppercase;
+}
+
+.nametag-card__footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2mm;
+  border-top: 0.45mm solid #17120f;
+  background: #ffd51b;
+  padding: 1mm 2.2mm;
+  font-size: clamp(5px, 1.9mm, 9px);
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.nametag-card__footer span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nametag-card__footer strong {
+  color: #e51f1f;
+  font-family: var(--font-brush), var(--font-display), "Hiragino Kaku Gothic ProN", sans-serif;
+  letter-spacing: 0.1em;
+}
+
+.nametag-card--chibachan .nametag-card__header {
+  background:
+    radial-gradient(circle at 0 100%, rgba(255, 213, 27, 0.65) 0 20%, transparent 21%),
+    repeating-conic-gradient(from -18deg at 50% 130%, #e51f1f 0deg 11deg, #ffd51b 11deg 22deg);
+  color: white;
+  text-shadow: 0.55mm 0.55mm 0 #17120f;
+}
+
+.nametag-card--classic .nametag-card__header,
+.nametag-card--classic .nametag-card__footer {
+  background: #ef2018;
+  color: white;
+}
+
+.nametag-card--classic .nametag-card__footer strong { color: white; }
+
+.nametag-card--ink {
+  background: #fff;
+}
+
+.nametag-card--ink .nametag-card__header,
+.nametag-card--ink .nametag-card__footer {
+  background: #17120f;
+  color: white;
+}
+
+.nametag-card--ink .nametag-card__number {
+  background: white;
+}
+
+.nametag-card--ink .nametag-card__footer strong { color: #ffd51b; }
+
 @keyframes slideUp {
   from { transform: translateY(100%); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

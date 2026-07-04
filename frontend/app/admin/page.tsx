@@ -8,6 +8,7 @@ import { FilterBar } from '../components/admin/FilterBar'
 import { AttendeeRow } from '../components/admin/AttendeeRow'
 import { WaitlistList } from '../components/admin/WaitlistList'
 import { ScanPopup } from '../components/admin/ScanPopup'
+import { NametagSheetGenerator } from '../components/admin/NametagSheetGenerator'
 
 export default function AdminPage() {
   const data = useAdminData()
@@ -56,6 +57,10 @@ export default function AdminPage() {
         search={data.search}
         onSearch={data.setSearch}
       />
+
+      <div className="p-4 lg:p-6">
+        <NametagSheetGenerator attendees={data.attendees} eventName={data.eventName} />
+      </div>
 
       <div className="p-4 space-y-4 lg:p-6">
         {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
