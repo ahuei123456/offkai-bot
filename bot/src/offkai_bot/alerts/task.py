@@ -35,6 +35,9 @@ class SendMessageTask(Task):
     # Optional tag linking this message to an event, so pending reminders can be
     # unregistered when the event's deadline changes or the event is archived.
     event_name: str | None = None
+    # Per-message mention opt-in. None keeps the client-wide AllowedMentions.none()
+    # default, so a task message can never ping unless it explicitly asks to.
+    allowed_mentions: discord.AllowedMentions | None = None
 
     async def action(self):
         """Sends the defined message to the specified channel."""
@@ -43,7 +46,12 @@ class SendMessageTask(Task):
             channel = self.client.get_channel(self.channel_id)
             # Use isinstance with a tuple for multiple types
             if isinstance(channel, discord.TextChannel | discord.Thread):
-                await channel.send(self.message)
+                # send()'s overloads reject allowed_mentions=None, so only pass the
+                # kwarg when this task opted in; omitting it keeps the client default.
+                if self.allowed_mentions is not None:
+                    await channel.send(self.message, allowed_mentions=self.allowed_mentions)
+                else:
+                    await channel.send(self.message)
             elif channel is None:
                 _log.warning("SendMessageTask: Channel %s not found.", self.channel_id)
             else:

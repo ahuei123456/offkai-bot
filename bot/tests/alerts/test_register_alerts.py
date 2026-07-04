@@ -311,6 +311,9 @@ def test_register_deadline_reminders_with_ping_role(
         assert task.message.startswith(role_ping_prefix), (
             f"Expected message to start with role ping, got: {task.message}"
         )
+        # The reminder must opt in to pinging exactly the configured role.
+        assert task.allowed_mentions is not None
+        assert [role.id for role in task.allowed_mentions.roles] == [99887766]
 
 
 @patch("offkai_bot.alerts.reminders.register_alert")
@@ -333,6 +336,9 @@ def test_register_deadline_reminders_without_ping_role(
     for call in send_msg_calls:
         task = call[0][1]
         assert not task.message.startswith("<@&"), f"Expected no role ping, got: {task.message}"
+        # No ping role configured -> no mention opt-in; the client-wide
+        # AllowedMentions.none() default applies.
+        assert task.allowed_mentions is None
 
 
 @patch("offkai_bot.alerts.reminders.register_alert")  # <-- CORRECTED PATCH PATH
