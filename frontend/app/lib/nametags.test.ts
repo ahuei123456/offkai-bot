@@ -52,7 +52,9 @@ describe('buildNametagEntries', () => {
     assert.deepEqual(entries.map(e => e.name), ['Tomori Takamatsu', 'Anon Chihaya', 'Raana', 'soyo'])
     assert.deepEqual(entries.map(e => e.number), [7, 8, 9, 10])
     assert.equal(entries[0].discordLine, '@tomori · 300')
+    assert.equal(entries[0].drinkLine, 'Cream Soda (L)')
     assert.equal(entries[1].discordLine, 'Guest of @tomori')
+    assert.equal(entries[1].drinkLine, 'Cream Soda (L)')
     assert.equal(entries[1].kind, 'guest')
   })
 

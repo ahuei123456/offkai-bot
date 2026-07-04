@@ -90,8 +90,8 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
     <article className={`nametag-card ${themeClass}`}>
       <div className="nametag-card__header">
         <div>
-          <p className="nametag-card__hello">HELLO</p>
-          <p className="nametag-card__my-name">OFFKAI NAME TAG</p>
+          <p className="nametag-card__hello">OFFKAI PASS</p>
+          <p className="nametag-card__my-name">ENTRY / CHECK-IN</p>
         </div>
         <div className="nametag-card__number" aria-label={`Entry number ${entry.numberLabel}`}>
           <span>No.</span>
@@ -101,6 +101,7 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
       <div className="nametag-card__body">
         <p className="nametag-card__name">{entry.name}</p>
         <p className="nametag-card__discord">{entry.discordLine}</p>
+        <p className="nametag-card__drink">{entry.drinkLine}</p>
         <div className="nametag-card__meta-row">
           <span>{entry.subLine}</span>
           <span>{entry.kind === 'guest' ? 'GUEST' : entry.status.toUpperCase()}</span>
@@ -108,7 +109,7 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
       </div>
       <div className="nametag-card__footer">
         <span>{eventName}</span>
-        <strong>千葉ちゃん</strong>
+        <strong>{entry.kind === 'guest' ? 'GUEST PASS' : 'ATTENDEE PASS'}</strong>
       </div>
     </article>
   )
@@ -206,7 +207,7 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
                 onChange={event => update({ theme: event.target.value as StickerTheme })}
                 className="rounded-xl border-2 border-[#17120F] bg-white px-3 py-2.5 text-sm font-black text-[#17120F]"
               >
-                <option value="chibachan">Chibachan clean</option>
+                <option value="chibachan">High-visibility red/yellow</option>
                 <option value="classic-red">Classic hello red</option>
                 <option value="ink">Black ink staff mode</option>
               </select>

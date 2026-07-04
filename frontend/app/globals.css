@@ -209,10 +209,10 @@ button, a, input {
 }
 
 .nametag-card__hello {
-  font-size: clamp(13px, 5.5mm, 26px);
+  font-size: clamp(10px, 3.5mm, 17px);
   font-weight: 1000;
-  line-height: 0.78;
-  letter-spacing: 0.04em;
+  line-height: 0.9;
+  letter-spacing: 0.02em;
 }
 
 .nametag-card__my-name {
@@ -274,6 +274,16 @@ button, a, input {
   color: #8b2d1f;
 }
 
+.nametag-card__drink {
+  margin-top: 0.8mm;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(6px, 2.1mm, 10px);
+  font-weight: 1000;
+  color: #17120f;
+}
+
 .nametag-card__meta-row {
   margin-top: 0.8mm;
   display: flex;
@@ -308,7 +318,7 @@ button, a, input {
 
 .nametag-card__footer strong {
   color: #e51f1f;
-  font-family: var(--font-brush), var(--font-display), "Hiragino Kaku Gothic ProN", sans-serif;
+  font-family: var(--font-noto-sans), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
   letter-spacing: 0.1em;
 }
 
