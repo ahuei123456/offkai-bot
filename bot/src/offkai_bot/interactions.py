@@ -209,6 +209,19 @@ async def promote_waitlist_batch(event: Event, client: discord.Client) -> list[i
     return promoted_user_ids
 
 
+# Discord's modal title cap is smaller than the custom_id cap, so a name that
+# fits "modal_<event_name>" (see MAX_EVENT_NAME_LENGTH) can still be too long
+# to display as the modal's title. Truncate the title only; custom_id keeps
+# the full event name for identity.
+MODAL_TITLE_MAX_LENGTH = 45
+
+
+def _build_modal_title(event_name: str) -> str:
+    if len(event_name) <= MODAL_TITLE_MAX_LENGTH:
+        return event_name
+    return event_name[: MODAL_TITLE_MAX_LENGTH - 1] + "…"
+
+
 # Class to handle the modal for event attendance
 class GatheringModal(ui.Modal):
     def __init__(
@@ -218,7 +231,7 @@ class GatheringModal(ui.Modal):
         timeout=None,
     ):
         super().__init__(
-            title=event.event_name,
+            title=_build_modal_title(event.event_name),
             timeout=timeout,
             custom_id=f"modal_{event.event_name}",
         )
