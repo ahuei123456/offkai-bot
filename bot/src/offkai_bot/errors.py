@@ -198,6 +198,18 @@ class EventDeadlineAfterEventError(BotCommandError):
         super().__init__("❌ Event deadline must be set *before* the event date/time.")
 
 
+class EventNameTooLongError(BotCommandError):
+    """Raised when the provided event name exceeds the maximum allowed length."""
+
+    def __init__(self, event_name: str, max_length: int):
+        self.event_name = event_name
+        self.max_length = max_length
+        super().__init__(
+            f"❌ Event name is too long ({len(event_name)} characters). "
+            f"Please use a name with at most {max_length} characters."
+        )
+
+
 class CapacityReductionError(BotCommandError):
     """Raised when trying to reduce capacity below current attendee count."""
 
