@@ -96,8 +96,8 @@ async def test_delete_response_success(
     event_name_target = "Summer Bash"
 
     mock_get_event.return_value = mock_event_obj
-    # remove_response now returns None on success, or raises error
-    # No need to set return_value explicitly if None is acceptable
+    # remove_response returns the removed Response on success
+    mock_remove_response_func.return_value = MagicMock(extra_people=0)
     mock_promote_waitlist_batch.return_value = []
 
     # Mock the bot.get_channel call on mock_cog.bot
@@ -120,8 +120,8 @@ async def test_delete_response_success(
     mock_get_event.assert_called_once_with(event_name_target)
     # 2. Check remove_response call
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
-    # 3. Check waitlist promotion was attempted
-    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot)
+    # 3. Check waitlist promotion was attempted, bounded by the freed headcount
+    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot, freed_spots=1)
     # 4. Check interaction response
     mock_interaction.followup.send.assert_awaited_once_with(
         f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'.",
@@ -160,6 +160,7 @@ async def test_delete_response_promotes_from_waitlist(
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
+    mock_remove_response_func.return_value = MagicMock(extra_people=1)
     mock_promote_waitlist_batch.return_value = [111, 222]
     mock_cog.bot.get_channel.return_value = mock_thread
 
@@ -173,12 +174,108 @@ async def test_delete_response_promotes_from_waitlist(
 
     # Assert
     mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
-    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot)
+    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot, freed_spots=2)
     mock_interaction.followup.send.assert_awaited_once_with(
         f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'."
-        f"\n⬆️ Promoted 2 user(s) from the waitlist to fill the freed spot.",
+        f"\n⬆️ Promoted 2 user(s) from the waitlist to fill the freed spots.",
         ephemeral=True,
     )
+
+
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_delete_response_multi_person_unlimited_event_bounds_promotion(
+    mock_log,
+    mock_get_event,
+    mock_remove_response_func,
+    mock_promote_waitlist_batch,
+    mock_interaction,
+    mock_member,
+    mock_thread,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that an unlimited-capacity event still bounds promotion to the removed headcount."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_event_obj.max_capacity = None  # Unlimited capacity
+    mock_get_event.return_value = mock_event_obj
+    # Removed response brought 2 extras -> 3 freed spots
+    mock_remove_response_func.return_value = MagicMock(extra_people=2)
+    mock_promote_waitlist_batch.return_value = [111]
+    mock_cog.bot.get_channel.return_value = mock_thread
+
+    # Act
+    await EventsCog.delete_response.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+        member=mock_member,
+    )
+
+    # Assert: promotion is bounded by the freed headcount, never unbounded
+    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot, freed_spots=3)
+    mock_interaction.followup.send.assert_awaited_once_with(
+        f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'."
+        f"\n⬆️ Promoted 1 user(s) from the waitlist to fill the freed spots.",
+        ephemeral=True,
+    )
+
+
+@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.cogs.events.get_event")
+@patch("offkai_bot.cogs.events._log")
+async def test_delete_response_promotion_failure_still_confirms_and_cleans_up(
+    mock_log,
+    mock_get_event,
+    mock_remove_response_func,
+    mock_promote_waitlist_batch,
+    mock_interaction,
+    mock_member,
+    mock_thread,
+    mock_event_obj,
+    prepopulated_event_cache,
+    mock_cog,
+):
+    """Test that a promotion failure after a successful delete still confirms and cleans up the thread."""
+    # Arrange
+    event_name_target = "Summer Bash"
+    mock_get_event.return_value = mock_event_obj
+    mock_remove_response_func.return_value = MagicMock(extra_people=0)
+    mock_promote_waitlist_batch.side_effect = RuntimeError("DM service down")
+    mock_cog.bot.get_channel.return_value = mock_thread
+
+    # Act
+    await EventsCog.delete_response.callback(
+        mock_cog,
+        mock_interaction,
+        event_name=event_name_target,
+        member=mock_member,
+    )
+
+    # Assert: the delete is confirmed with a warning about the failed promotion
+    mock_remove_response_func.assert_called_once_with(event_name_target, mock_member.id)
+    mock_promote_waitlist_batch.assert_awaited_once_with(mock_event_obj, mock_cog.bot, freed_spots=1)
+    mock_interaction.followup.send.assert_awaited_once_with(
+        f"🚮 Deleted response from user {mock_member.mention} for '{event_name_target}'."
+        "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed.",
+        ephemeral=True,
+    )
+
+    # Assert: thread cleanup still happens
+    mock_thread.remove_user.assert_awaited_once_with(mock_member)
+
+    # Assert: the failure is logged
+    mock_log.error.assert_called_once()
+    assert mock_log.error.call_args[0][0] == (
+        "Waitlist promotion failed after deleting response from user %s for event '%s': %s"
+    )
+    assert mock_log.error.call_args[0][1] == mock_member.id
+    assert mock_log.error.call_args[0][2] == event_name_target
 
 
 @patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
@@ -202,7 +299,7 @@ async def test_delete_response_success_no_channel_id(
     event_name_target = "Summer Bash"
     mock_event_obj.thread_id = None  # Modify event for this test
     mock_get_event.return_value = mock_event_obj
-    # remove_response returns None on success
+    mock_remove_response_func.return_value = MagicMock(extra_people=0)
     mock_promote_waitlist_batch.return_value = []
 
     # Act
@@ -249,7 +346,7 @@ async def test_delete_response_success_thread_not_found(
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
-    # remove_response returns None on success
+    mock_remove_response_func.return_value = MagicMock(extra_people=0)
     mock_promote_waitlist_batch.return_value = []
     mock_cog.bot.get_channel.return_value = None  # Simulate thread not found
 
@@ -297,7 +394,7 @@ async def test_delete_response_success_remove_user_fails(
     # Arrange
     event_name_target = "Summer Bash"
     mock_get_event.return_value = mock_event_obj
-    # remove_response returns None on success
+    mock_remove_response_func.return_value = MagicMock(extra_people=0)
     mock_promote_waitlist_batch.return_value = []
     mock_cog.bot.get_channel.return_value = mock_thread
     # Simulate error removing user
