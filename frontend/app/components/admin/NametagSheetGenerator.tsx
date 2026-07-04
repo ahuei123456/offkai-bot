@@ -116,13 +116,13 @@ function Field({
   return (
     <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#5B3428]">
       <span>{label}</span>
-      <span className="flex items-center gap-1 rounded-lg border border-[#17120F]/35 bg-white px-2 focus-within:border-[#E51F1F] focus-within:ring-2 focus-within:ring-[#E51F1F]/20">
+      <span className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-lg border border-[#17120F]/35 bg-white px-2 focus-within:border-[#E51F1F] focus-within:ring-2 focus-within:ring-[#E51F1F]/20">
         <input
           type="number"
           step="0.1"
           value={value}
           onChange={event => onChange(Number(event.target.value))}
-          className="min-w-[2.75rem] flex-1 border-0 bg-transparent py-2 text-center text-sm font-black text-[#17120F] outline-none"
+          className="w-full min-w-0 border-0 bg-transparent py-2 text-center text-sm font-black text-[#17120F] outline-none"
         />
         <span className="text-[9px] text-[#8B2D1F]/70">{suffix}</span>
       </span>
