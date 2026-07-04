@@ -506,16 +506,30 @@ class EventsCog(commands.Cog):
     async def delete_response(self, interaction: discord.Interaction, event_name: str, member: discord.Member):
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
-        remove_response(event_name, member.id)
+        removed_response = remove_response(event_name, member.id)
         decrease_rank(member.id, member.name)
+        freed_spots = 1 + removed_response.extra_people
 
         if event.role_id and interaction.guild:
             await remove_event_role(interaction.guild, member.id, event.role_id)
 
-        await interaction.followup.send(
-            f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
-            ephemeral=True,
-        )
+        # Offer the freed spots to the waitlist, mirroring the self-withdrawal paths.
+        # The delete has already persisted, so promotion failure must not fail the command.
+        message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
+        try:
+            promoted_user_ids = await promote_waitlist_batch(event, self.bot, freed_spots=freed_spots)
+            if promoted_user_ids:
+                message += f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spots."
+        except Exception as e:
+            _log.error(
+                "Waitlist promotion failed after deleting response from user %s for event '%s': %s",
+                member.id,
+                event_name,
+                e,
+                exc_info=True,
+            )
+            message += "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed."
+        await interaction.followup.send(message, ephemeral=True)
 
         if event.thread_id:
             thread = self.bot.get_channel(event.thread_id)
