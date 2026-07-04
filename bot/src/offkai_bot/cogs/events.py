@@ -24,7 +24,7 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
-from offkai_bot.data.ranking import decrease_rank
+from offkai_bot.data.ranking import decrease_rank, migrate_legacy_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
     Response,
@@ -529,6 +529,24 @@ class EventsCog(commands.Cog):
                 _log.warning("Could not find thread %s to remove user for event '%s'.", event.thread_id, event_name)
         else:
             _log.warning("Event '%s' is missing thread_id, cannot remove user from thread.", event_name)
+
+    @app_commands.command(
+        name="migrate_rank",
+        description="Reassigns a legacy username-keyed rank entry to a member.",
+    )
+    @app_commands.describe(
+        member="The member who should receive the legacy rank entry.",
+        legacy_username="The old username the rank entry is stored under.",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def migrate_rank(self, interaction: discord.Interaction, member: discord.Member, legacy_username: str):
+        validate_interaction_context(interaction)
+        new_rank = migrate_legacy_rank(member.id, member.name, legacy_username)
+        await interaction.response.send_message(
+            f"✅ Migrated legacy rank entry '{legacy_username}' to {member.mention}. Their rank is now {new_rank}.",
+            ephemeral=True,
+        )
 
     @app_commands.command(
         name="promote",

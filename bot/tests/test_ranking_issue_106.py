@@ -217,3 +217,34 @@ async def test_delete_response_decrements_rank(mock_interaction, prepopulated_ev
 
     mock_remove.assert_called_once_with(prepopulated_event_cache[0].event_name, 98765)
     mock_decrease.assert_called_once_with(98765, "TargetUser")
+
+
+# --- /migrate_rank organizer command ---
+
+
+async def test_migrate_rank_command(mock_interaction):
+    """Organizer /migrate_rank reassigns a legacy entry to the given member."""
+    bot = MagicMock(spec=commands.Bot)
+    cog = EventsCog(bot)
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 98765
+    member.name = "TargetUser"
+    member.mention = "<@98765>"
+
+    mock_interaction.guild = MagicMock(spec=discord.Guild)
+    mock_interaction.channel = MagicMock(spec=discord.TextChannel)
+
+    with patch("offkai_bot.cogs.events.migrate_legacy_rank", return_value=7) as mock_migrate:
+        await EventsCog.migrate_rank.callback(
+            cog,
+            mock_interaction,
+            member=member,
+            legacy_username="OldName",
+        )
+
+    mock_migrate.assert_called_once_with(98765, "TargetUser", "OldName")
+    mock_interaction.response.send_message.assert_awaited_once()
+    sent = mock_interaction.response.send_message.call_args
+    assert "OldName" in sent.args[0]
+    assert "7" in sent.args[0]
