@@ -429,22 +429,34 @@ class GatheringModal(ui.Modal):
             await interaction.response.send_message(
                 "✅ Your attendance is confirmed! I've sent you a DM with the details.", ephemeral=True
             )
-            if isinstance(interaction.channel, discord.abc.Messageable):
-                update_rank(interaction.user.name)
-                rank = get_rank(interaction.user.name)
-                if rank in MILESTONE_MESSAGES and can_rank_message_sent(interaction.user.name):
-                    msg_template = random.choice(MILESTONE_MESSAGES[rank])
-                    # Milestone messages congratulate the user by mention; opt in to
-                    # user pings past the client-wide AllowedMentions.none() default.
-                    await interaction.channel.send(
-                        msg_template.format(user_id=interaction.user.id),
-                        allowed_mentions=discord.AllowedMentions(users=True),
-                    )
-                    mark_achieved_rank(interaction.user.name)
-
         except (discord.Forbidden, discord.HTTPException):
-            # 3. If DM fails, fall back to sending an ephemeral message in the channel
+            # If DM fails, fall back to sending an ephemeral message in the channel
             await interaction.response.send_message(confirmation_message, ephemeral=True)
+
+        # 3. Update rank and announce milestones regardless of whether the DM succeeded
+        update_rank(interaction.user.id, interaction.user.name)
+        rank = get_rank(interaction.user.id, interaction.user.name)
+        if (
+            rank in MILESTONE_MESSAGES
+            and can_rank_message_sent(interaction.user.id)
+            and isinstance(interaction.channel, discord.abc.Messageable)
+        ):
+            try:
+                msg_template = random.choice(MILESTONE_MESSAGES[rank])
+                # Milestone messages congratulate the user by mention; opt in to
+                # user pings past the client-wide AllowedMentions.none() default.
+                await interaction.channel.send(
+                    msg_template.format(user_id=interaction.user.id),
+                    allowed_mentions=discord.AllowedMentions(users=True),
+                )
+                mark_achieved_rank(interaction.user.id)
+            except discord.HTTPException as e:
+                _log.error(
+                    "Failed to send milestone message for user %s in channel %s: %s",
+                    interaction.user.id,
+                    interaction.channel_id,
+                    e,
+                )
 
         # 4. Add user to the thread
         try:
@@ -759,7 +771,7 @@ class OpenEvent(EventView):
         try:
             # Try to remove from responses first
             removed_response = remove_response(self.event.event_name, interaction.user.id)
-            decrease_rank(interaction.user.name)
+            decrease_rank(interaction.user.id, interaction.user.name)
             removed_from_responses = True
             freed_spots = 1 + removed_response.extra_people
 
@@ -883,6 +895,7 @@ class ClosedEvent(EventView):
         try:
             # Try to remove from responses first
             removed_response = remove_response(self.event.event_name, interaction.user.id)
+            decrease_rank(interaction.user.id, interaction.user.name)
             removed_from_responses = True
             freed_spots = 1 + removed_response.extra_people
 
@@ -1026,6 +1039,7 @@ class PostDeadlineEvent(EventView):
         try:
             # Try to remove from responses first
             removed_response = remove_response(self.event.event_name, interaction.user.id)
+            decrease_rank(interaction.user.id, interaction.user.name)
             removed_from_responses = True
             freed_spots = 1 + removed_response.extra_people
 

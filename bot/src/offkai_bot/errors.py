@@ -135,6 +135,14 @@ class NoResponsesFoundError(BotCommandError):
         super().__init__(f"No responses found for '{event_name}'.")
 
 
+class LegacyRankEntryNotFoundError(BotCommandError):
+    """Raised when a manual rank migration references a legacy username key that doesn't exist."""
+
+    def __init__(self, legacy_username: str):
+        self.legacy_username = legacy_username
+        super().__init__(f"❌ No legacy rank entry found for username '{legacy_username}'.")
+
+
 class NoWaitlistEntriesFoundError(BotCommandError):
     """Raised by waitlist command when no waitlist entries exist for an event."""
 
