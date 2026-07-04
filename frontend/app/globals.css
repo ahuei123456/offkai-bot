@@ -169,14 +169,19 @@ button, a, input {
   justify-content: start;
 }
 
+.nametag-screen-preview {
+  width: max-content;
+  zoom: 0.45;
+}
+
 .nametag-card {
   position: relative;
   box-sizing: border-box;
   display: grid;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
-  border: 0.7mm solid #17120f;
-  border-radius: 3.2mm;
+  border: 0.45mm solid #17120f;
+  border-radius: 2.2mm;
   background: #fffdf4;
   color: #17120f;
   font-family: var(--font-noto-sans), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
@@ -201,23 +206,23 @@ button, a, input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 2mm;
-  min-height: 9.5mm;
-  padding: 1.3mm 2mm 1mm;
+  gap: 1.4mm;
+  min-height: 6.8mm;
+  padding: 0.8mm 1.4mm 0.7mm;
   background: #e51f1f;
   color: white;
 }
 
 .nametag-card__hello {
-  font-size: clamp(10px, 3.5mm, 17px);
+  font-size: clamp(8px, 2.5mm, 12px);
   font-weight: 1000;
   line-height: 0.9;
   letter-spacing: 0.02em;
 }
 
 .nametag-card__my-name {
-  margin-top: 0.4mm;
-  font-size: clamp(5px, 1.9mm, 9px);
+  margin-top: 0.25mm;
+  font-size: clamp(4px, 1.35mm, 7px);
   font-weight: 1000;
   line-height: 1;
   letter-spacing: 0.16em;
@@ -226,23 +231,23 @@ button, a, input {
 .nametag-card__number {
   display: grid;
   place-items: center;
-  min-width: 12mm;
-  border: 0.45mm solid #17120f;
+  min-width: 8.5mm;
+  border: 0.35mm solid #17120f;
   border-radius: 999px;
   background: #ffd51b;
   color: #17120f;
-  padding: 0.7mm 1.4mm;
+  padding: 0.45mm 0.9mm;
   line-height: 1;
 }
 
 .nametag-card__number span {
-  font-size: clamp(4px, 1.6mm, 7px);
+  font-size: clamp(3px, 1.1mm, 5px);
   font-weight: 1000;
   letter-spacing: 0.12em;
 }
 
 .nametag-card__number strong {
-  font-size: clamp(9px, 3.6mm, 16px);
+  font-size: clamp(7px, 2.4mm, 11px);
   font-weight: 1000;
 }
 
@@ -252,12 +257,12 @@ button, a, input {
   min-height: 0;
   flex-direction: column;
   justify-content: center;
-  padding: 1.2mm 2.2mm 1mm;
+  padding: 0.7mm 1.5mm 0.6mm;
   text-align: center;
 }
 
 .nametag-card__name {
-  font-size: clamp(14px, 6.2mm, 30px);
+  font-size: clamp(10px, 4mm, 19px);
   font-weight: 1000;
   line-height: 0.96;
   letter-spacing: 0.02em;
@@ -265,31 +270,31 @@ button, a, input {
 }
 
 .nametag-card__discord {
-  margin-top: 0.7mm;
+  margin-top: 0.4mm;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: clamp(6px, 2.35mm, 11px);
+  font-size: clamp(5px, 1.55mm, 8px);
   font-weight: 900;
   color: #8b2d1f;
 }
 
 .nametag-card__drink {
-  margin-top: 0.8mm;
+  margin-top: 0.35mm;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: clamp(6px, 2.1mm, 10px);
+  font-size: clamp(5px, 1.45mm, 7px);
   font-weight: 1000;
   color: #17120f;
 }
 
 .nametag-card__meta-row {
-  margin-top: 0.8mm;
+  margin-top: 0.35mm;
   display: flex;
   justify-content: center;
-  gap: 1.3mm;
-  font-size: clamp(4px, 1.65mm, 8px);
+  gap: 0.8mm;
+  font-size: clamp(3px, 1.1mm, 5px);
   font-weight: 1000;
   letter-spacing: 0.1em;
   color: rgba(23, 18, 15, 0.7);
@@ -301,11 +306,11 @@ button, a, input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 2mm;
-  border-top: 0.45mm solid #17120f;
+  gap: 1.2mm;
+  border-top: 0.35mm solid #17120f;
   background: #ffd51b;
-  padding: 0.8mm 2mm;
-  font-size: clamp(5px, 1.7mm, 8px);
+  padding: 0.45mm 1.4mm;
+  font-size: clamp(4px, 1.15mm, 6px);
   font-weight: 1000;
   line-height: 1;
 }

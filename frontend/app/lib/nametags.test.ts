@@ -87,6 +87,16 @@ describe('calculateSheetLayout', () => {
     assert.equal(layout.contentWidthMm, 194)
   })
 
+  it('keeps the default sheet compact instead of using most of the page for oversized cards', () => {
+    const layout = calculateSheetLayout(DEFAULT_NAMETAG_SHEET)
+
+    assert.equal(DEFAULT_NAMETAG_SHEET.stickerWidthMm, 60)
+    assert.equal(DEFAULT_NAMETAG_SHEET.stickerHeightMm, 32)
+    assert.equal(layout.columns, 3)
+    assert.equal(layout.rows, 8)
+    assert.equal(layout.perPage, 24)
+  })
+
   it('normalizes unsafe values to printable defaults instead of generating impossible CSS', () => {
     const normalized = normalizeSheetSettings({ ...DEFAULT_NAMETAG_SHEET, paperWidthMm: -1, stickerWidthMm: 999 })
     const layout = calculateSheetLayout(normalized)

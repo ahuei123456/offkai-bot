@@ -14,7 +14,7 @@ import {
 } from '../../lib/nametags'
 
 const PRESETS = [
-  { label: 'A4 stonks · 3×5 full sheet', hint: 'default: no blank slots for the mock run', values: DEFAULT_NAMETAG_SHEET },
+  { label: 'A4 compact · 3×8 stickers', hint: 'default: smaller cards, more room on the page', values: DEFAULT_NAMETAG_SHEET },
   {
     label: 'Letter · 3×8 Avery-ish',
     hint: 'US paper stock',
@@ -151,7 +151,7 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
           body { background: white !important; }
           body * { visibility: hidden !important; }
           #nametag-print-root, #nametag-print-root * { visibility: visible !important; }
-          #nametag-print-root { position: absolute !important; inset: 0 auto auto 0 !important; width: var(--paper-w) !important; }
+          #nametag-print-root { position: absolute !important; inset: 0 auto auto 0 !important; width: var(--paper-w) !important; zoom: 1 !important; }
           .nametag-print-controls { display: none !important; }
           .nametag-sheet { box-shadow: none !important; margin: 0 !important; break-after: page; page-break-after: always; }
           .nametag-sheet:last-child { break-after: auto; page-break-after: auto; }
@@ -280,7 +280,7 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
         </div>
       </div>
 
-      <div className="bg-[#F2DFA2] p-4 md:p-6">
+      <div className="bg-[#F2DFA2] p-3 md:p-4">
         <div className="nametag-print-controls mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Print section</p>
@@ -288,8 +288,8 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
           </div>
         </div>
 
-        <div className="overflow-auto rounded-2xl border-2 border-[#17120F] bg-[#E8D395] p-3">
-          <div id="nametag-print-root" className="nametag-sheet-stage grid gap-6">
+        <div className="max-h-[380px] overflow-auto rounded-2xl border-2 border-[#17120F] bg-[#E8D395] p-2">
+          <div id="nametag-print-root" className="nametag-sheet-stage nametag-screen-preview grid gap-6">
             {pages.map((pageEntries, pageIndex) => (
               <div
                 key={pageIndex}
