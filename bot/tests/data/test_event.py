@@ -1102,6 +1102,32 @@ def test_update_event_details_fails_new_event_time_before_existing_deadline(
     mock_save.assert_not_called()
 
 
+@patch("offkai_bot.data.event.parse_drinks", return_value=[])
+@patch("offkai_bot.data.event.save_event_data")
+@patch("offkai_bot.data.event._log")
+def test_update_event_details_allows_new_event_time_with_past_deadline(mock_log, mock_save, mock_parse_drinks):
+    """Regression test: moving only the event time must succeed even after the
+    existing (unchanged) deadline has legitimately passed."""
+    test_event = copy.deepcopy(BASE_EVENT_OBJ)
+    test_event.event_deadline = PAST_DEADLINE  # Signups already closed
+    new_event_time = TEST_NOW_UTC + timedelta(hours=11)  # Later the same day, still after the deadline
+
+    with (
+        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.parse_event_datetime", return_value=new_event_time) as mock_parse_dt,
+    ):
+        # Uses the real validators: the past deadline must not raise EventDeadlineInPastError
+        updated_event = event_data.update_event_details(
+            event_name=test_event.event_name,
+            date_time_str="later-today",
+        )
+
+    assert updated_event.event_datetime == new_event_time
+    assert updated_event.event_deadline == PAST_DEADLINE  # Deadline untouched
+    mock_parse_dt.assert_called_once_with("later-today")
+    mock_save.assert_not_called()
+
+
 @patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # max_capacity=None
 @patch("offkai_bot.data.event.get_waitlist", return_value=[])
 @patch("offkai_bot.data.event.get_responses")
