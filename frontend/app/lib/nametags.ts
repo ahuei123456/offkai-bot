@@ -1,6 +1,6 @@
 import type { Attendee } from './types'
 
-export type StickerTheme = 'chibachan' | 'classic-red' | 'ink'
+export type StickerTheme = 'plain' | 'chibachan' | 'classic-red' | 'ink'
 
 export type NametagSheetSettings = {
   paperWidthMm: number
@@ -37,18 +37,18 @@ export type SheetLayout = {
 }
 
 export const DEFAULT_NAMETAG_SHEET: NametagSheetSettings = {
-  paperWidthMm: 210,
-  paperHeightMm: 297,
-  marginTopMm: 8,
-  marginRightMm: 7,
-  marginBottomMm: 8,
-  marginLeftMm: 7,
-  stickerWidthMm: 60,
-  stickerHeightMm: 32,
-  gutterXMm: 4,
-  gutterYMm: 3,
+  paperWidthMm: 215.9,
+  paperHeightMm: 279.4,
+  marginTopMm: 12.7,
+  marginRightMm: 14.2,
+  marginBottomMm: 12.7,
+  marginLeftMm: 14.2,
+  stickerWidthMm: 85.73,
+  stickerHeightMm: 59.27,
+  gutterXMm: 15.7,
+  gutterYMm: 5.64,
   includeWaitlist: false,
-  theme: 'chibachan',
+  theme: 'plain',
 }
 
 const DEFAULT_BOUNDS = {

@@ -324,6 +324,77 @@ button, a, input {
   color: white;
 }
 
+.nametag-card--plain {
+  grid-template-rows: auto 1fr auto;
+  border: 0.35mm solid #222;
+  border-radius: 0;
+  background: white;
+  color: #111;
+}
+
+.nametag-card--plain::before {
+  display: none;
+}
+
+.nametag-card--plain .nametag-card__header {
+  min-height: 12mm;
+  border-bottom: 0.3mm solid #222;
+  background: white;
+  color: #111;
+  padding: 1.8mm 2.4mm 1.4mm;
+}
+
+.nametag-card--plain .nametag-card__hello {
+  font-size: clamp(9px, 3.1mm, 15px);
+  letter-spacing: 0.22em;
+}
+
+.nametag-card--plain .nametag-card__my-name {
+  margin-top: 0.5mm;
+  font-size: clamp(5px, 1.55mm, 8px);
+  letter-spacing: 0.34em;
+}
+
+.nametag-card--plain .nametag-card__number {
+  min-width: 11mm;
+  border: 0.3mm solid #222;
+  background: white;
+  color: #111;
+}
+
+.nametag-card--plain .nametag-card__body {
+  padding: 2.5mm 4mm;
+}
+
+.nametag-card--plain .nametag-card__name {
+  font-size: clamp(18px, 7.4mm, 36px);
+  letter-spacing: 0;
+}
+
+.nametag-card--plain .nametag-card__discord {
+  margin-top: 1.6mm;
+  color: #333;
+  font-size: clamp(8px, 2.3mm, 11px);
+}
+
+.nametag-card--plain .nametag-card__meta-row {
+  margin-top: 1.2mm;
+  color: #555;
+  font-size: clamp(5px, 1.45mm, 7px);
+}
+
+.nametag-card--plain .nametag-card__footer {
+  border-top: 0.3mm solid #222;
+  background: white;
+  color: #111;
+  padding: 1mm 2.2mm;
+  font-size: clamp(5px, 1.45mm, 7px);
+}
+
+.nametag-card--plain .nametag-card__footer strong {
+  color: #111;
+}
+
 .nametag-card--classic .nametag-card__header,
 .nametag-card--classic .nametag-card__footer {
   background: #ef2018;

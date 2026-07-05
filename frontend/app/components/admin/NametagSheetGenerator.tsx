@@ -14,7 +14,25 @@ import {
 } from '../../lib/nametags'
 
 const PRESETS = [
-  { label: 'A4 · custom sticker grid', hint: 'default, fully editable', values: DEFAULT_NAMETAG_SHEET },
+  { label: 'Avery 5395 · Letter 2×4', hint: '2⅓×3⅜in name badges, plain ink default', values: DEFAULT_NAMETAG_SHEET },
+  {
+    label: 'A4 · custom sticker grid',
+    hint: 'compact editable sticker grid',
+    values: {
+      ...DEFAULT_NAMETAG_SHEET,
+      paperWidthMm: 210,
+      paperHeightMm: 297,
+      marginTopMm: 8,
+      marginRightMm: 7,
+      marginBottomMm: 8,
+      marginLeftMm: 7,
+      stickerWidthMm: 60,
+      stickerHeightMm: 32,
+      gutterXMm: 4,
+      gutterYMm: 3,
+      theme: 'chibachan' as StickerTheme,
+    },
+  },
   {
     label: 'Letter · US sheet',
     hint: '8.5×11in paper, editable sticker stock',
@@ -132,6 +150,7 @@ function Field({
 
 function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventName: string; theme: StickerTheme }) {
   const themeClass = {
+    plain: 'nametag-card--plain',
     chibachan: 'nametag-card--chibachan',
     'classic-red': 'nametag-card--classic',
     ink: 'nametag-card--ink',
@@ -141,8 +160,8 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
     <article className={`nametag-card ${themeClass}`}>
       <div className="nametag-card__header">
         <div>
-          <p className="nametag-card__hello">OFFKAI PASS</p>
-          <p className="nametag-card__my-name">ENTRY / CHECK-IN</p>
+          <p className="nametag-card__hello">HELLO</p>
+          <p className="nametag-card__my-name">MY NAME IS</p>
         </div>
         <div className="nametag-card__number" aria-label={`Entry number ${entry.numberLabel}`}>
           <span>No.</span>
@@ -248,7 +267,7 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
                 {PRESETS.map((preset, index) => <option key={preset.label} value={index}>{preset.label}</option>)}
               </select>
             </label>
-            <p className="mt-2 text-[11px] font-bold text-[#5B3428]">All dimensions below are editable for any paper or sticker stock.</p>
+            <p className="mt-2 text-[11px] font-bold text-[#5B3428]">Default matches Avery 5395: Letter, 2 columns × 4 rows, 2⅓×3⅜in badges.</p>
             <label className="mt-3 flex items-center gap-3 rounded-xl border-2 border-[#17120F] bg-[#FFF8D8] px-3 py-2.5 text-sm font-black text-[#17120F]">
               <input
                 type="checkbox"
@@ -307,6 +326,7 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
                   onChange={event => update({ theme: event.target.value as StickerTheme })}
                   className="rounded-lg border border-[#17120F]/35 bg-white px-2 py-2 text-xs font-black text-[#17120F]"
                 >
+                  <option value="plain">Plain / black ink</option>
                   <option value="chibachan">High contrast</option>
                   <option value="classic-red">Classic red</option>
                   <option value="ink">Black ink</option>

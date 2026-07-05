@@ -87,14 +87,17 @@ describe('calculateSheetLayout', () => {
     assert.equal(layout.contentWidthMm, 194)
   })
 
-  it('keeps the default sheet compact instead of using most of the page for oversized cards', () => {
+  it('uses Avery 5395 Letter stock as the default printable template', () => {
     const layout = calculateSheetLayout(DEFAULT_NAMETAG_SHEET)
 
-    assert.equal(DEFAULT_NAMETAG_SHEET.stickerWidthMm, 60)
-    assert.equal(DEFAULT_NAMETAG_SHEET.stickerHeightMm, 32)
-    assert.equal(layout.columns, 3)
-    assert.equal(layout.rows, 8)
-    assert.equal(layout.perPage, 24)
+    assert.equal(DEFAULT_NAMETAG_SHEET.paperWidthMm, 215.9)
+    assert.equal(DEFAULT_NAMETAG_SHEET.paperHeightMm, 279.4)
+    assert.equal(DEFAULT_NAMETAG_SHEET.stickerWidthMm, 85.73)
+    assert.equal(DEFAULT_NAMETAG_SHEET.stickerHeightMm, 59.27)
+    assert.equal(DEFAULT_NAMETAG_SHEET.theme, 'plain')
+    assert.equal(layout.columns, 2)
+    assert.equal(layout.rows, 4)
+    assert.equal(layout.perPage, 8)
   })
 
   it('normalizes unsafe values to printable defaults instead of generating impossible CSS', () => {
