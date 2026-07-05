@@ -337,7 +337,7 @@ button, a, input {
 }
 
 .nametag-card--plain .nametag-card__header {
-  min-height: 12mm;
+  min-height: 10mm;
   border-bottom: 0.3mm solid #222;
   background: white;
   color: #111;
@@ -363,24 +363,24 @@ button, a, input {
 }
 
 .nametag-card--plain .nametag-card__body {
-  padding: 2.5mm 4mm;
+  padding: 2mm 4mm;
 }
 
 .nametag-card--plain .nametag-card__name {
-  font-size: clamp(18px, 7.4mm, 36px);
+  font-size: clamp(28px, 9.2mm, 46px);
   letter-spacing: 0;
 }
 
 .nametag-card--plain .nametag-card__discord {
-  margin-top: 1.6mm;
+  margin-top: 2.1mm;
   color: #333;
-  font-size: clamp(8px, 2.3mm, 11px);
+  font-size: clamp(12px, 3.1mm, 16px);
 }
 
 .nametag-card--plain .nametag-card__meta-row {
-  margin-top: 1.2mm;
+  margin: 1.8mm 0 0;
   color: #555;
-  font-size: clamp(5px, 1.45mm, 7px);
+  font-size: clamp(8px, 2.1mm, 11px);
 }
 
 .nametag-card--plain .nametag-card__footer {

@@ -52,8 +52,10 @@ describe('buildNametagEntries', () => {
     assert.deepEqual(entries.map(e => e.name), ['Tomori Takamatsu', 'Anon Chihaya', 'Raana', 'soyo'])
     assert.deepEqual(entries.map(e => e.number), [7, 8, 9, 10])
     assert.equal(entries[0].discordLine, '@tomori')
+    assert.equal(entries[0].subLine, '')
     assert.equal('drinkLine' in entries[0], false)
     assert.equal(entries[1].discordLine, 'Guest of @tomori')
+    assert.equal(entries[1].subLine, 'Guest of Tomori Takamatsu')
     assert.equal('drinkLine' in entries[1], false)
     assert.equal(entries[1].kind, 'guest')
   })
@@ -79,6 +81,8 @@ describe('calculateSheetLayout', () => {
       stickerHeightMm: 38.1,
       gutterXMm: 2.5,
       gutterYMm: 2.5,
+      includeWaitlist: false,
+      theme: 'plain',
     })
 
     assert.equal(layout.columns, 3)
@@ -94,10 +98,18 @@ describe('calculateSheetLayout', () => {
     assert.equal(DEFAULT_NAMETAG_SHEET.paperHeightMm, 279.4)
     assert.equal(DEFAULT_NAMETAG_SHEET.stickerWidthMm, 85.73)
     assert.equal(DEFAULT_NAMETAG_SHEET.stickerHeightMm, 59.27)
+    assert.equal(DEFAULT_NAMETAG_SHEET.marginLeftMm, 14.2)
+    assert.equal(DEFAULT_NAMETAG_SHEET.marginRightMm, 14.2)
+    assert.equal(DEFAULT_NAMETAG_SHEET.marginTopMm, 12.7)
+    assert.equal(DEFAULT_NAMETAG_SHEET.marginBottomMm, 12.7)
+    assert.equal(DEFAULT_NAMETAG_SHEET.gutterXMm, 15.7)
+    assert.equal(DEFAULT_NAMETAG_SHEET.gutterYMm, 5.64)
     assert.equal(DEFAULT_NAMETAG_SHEET.theme, 'plain')
     assert.equal(layout.columns, 2)
     assert.equal(layout.rows, 4)
     assert.equal(layout.perPage, 8)
+    assert.equal(layout.contentWidthMm, 187.50000000000003)
+    assert.equal(layout.contentHeightMm, 254)
   })
 
   it('normalizes unsafe values to printable defaults instead of generating impossible CSS', () => {

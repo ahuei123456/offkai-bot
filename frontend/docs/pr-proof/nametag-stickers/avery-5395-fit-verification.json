@@ -1,0 +1,96 @@
+{
+  "officialAveryPage": "https://www.avery.com/templates/5395",
+  "officialVisibleSpec": "Template 5395 Adhesive Name Badges, Letter 8-1/2 x 11, 2-1/3 x 3-3/8, 8 per sheet",
+  "mm": {
+    "paperW": 215.9,
+    "paperH": 279.4,
+    "labelW": 85.73,
+    "labelH": 59.27,
+    "marginX": 14.2,
+    "marginTop": 12.7,
+    "gutterX": 15.7,
+    "gutterY": 5.64
+  },
+  "cols": 2,
+  "rows": 4,
+  "labelsPerSheet": 8,
+  "contentW": 187.5,
+  "contentH": 253.99999999999997,
+  "usedW": 187.16,
+  "usedH": 254,
+  "slackW": 0.34,
+  "slackH": 0,
+  "sampleState": {
+    "sheetPx": {
+      "w": 816,
+      "h": 1056
+    },
+    "cardCount": 8,
+    "text": "HELLO\n\nMY NAME IS\n\nNo.\n7\n\nTomori Takamatsu\n\n@tomori\n\nOffKai Staff Check-In\nATTENDEE PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n8\n\nAnon Chihaya\n\nGuest of @tomori\n\nGuest of Tomori\n\nOffKai Staff Check-In\nGUEST PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n9\n\nRaana\n\nGuest of @tomori\n\nGuest of Tomori\n\nOffKai Staff Check-In\nGUEST PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n10\n\nsoyo\n\n@soyo\n\nOffKai Staff Check-In\nATTENDEE PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n11\n\nUika\n\n@uika\n\nOffKai Staff Check-In\nATTENDEE PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n12\n\nMutsumi\n\n@mutsumi\n\nOffKai Staff Check-In\nATTENDEE PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n13\n\nUmiri\n\n@umiri\n\nOffKai Staff Check-In\nATTENDEE PASS\n\nHELLO\n\nMY NAME IS\n\nNo.\n14\n\nNyamu\n\n@nyamu\n\nOffKai Staff Check-In\nATTENDEE PASS",
+    "cards": [
+      {
+        "left": 53.65625,
+        "top": 48,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n7\n\nTomori Takamatsu\n\n@tomori\n\nOffKai Staff Check-In\nATTENDEE PASS"
+      },
+      {
+        "left": 437,
+        "top": 48,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n8\n\nAnon Chihaya\n\nGuest of @tomori\n\nGuest of Tomori\n\nOffKai Staff Check-In\nGUEST PASS"
+      },
+      {
+        "left": 53.65625,
+        "top": 293.3125,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n9\n\nRaana\n\nGuest of @tomori\n\nGuest of Tomori\n\nOffKai Staff Check-In\nGUEST PASS"
+      },
+      {
+        "left": 437,
+        "top": 293.3125,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n10\n\nsoyo\n\n@soyo\n\nOffKai Staff Check-In\nATTENDEE PASS"
+      },
+      {
+        "left": 53.65625,
+        "top": 538.625,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n11\n\nUika\n\n@uika\n\nOffKai Staff Check-In\nATTENDEE PASS"
+      },
+      {
+        "left": 437,
+        "top": 538.625,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n12\n\nMutsumi\n\n@mutsumi\n\nOffKai Staff Check-In\nATTENDEE PASS"
+      },
+      {
+        "left": 53.65625,
+        "top": 783.9375,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n13\n\nUmiri\n\n@umiri\n\nOffKai Staff Check-In\nATTENDEE PASS"
+      },
+      {
+        "left": 437,
+        "top": 783.9375,
+        "w": 324.015625,
+        "h": 224,
+        "text": "HELLO\n\nMY NAME IS\n\nNo.\n14\n\nNyamu\n\n@nyamu\n\nOffKai Staff Check-In\nATTENDEE PASS"
+      }
+    ]
+  },
+  "files": {
+    "sampleHtmlPath": "/Users/hamp/work/offkai-bot/frontend/docs/pr-proof/nametag-stickers/sample-nametag-sheet.html",
+    "overlayHtmlPath": "/Users/hamp/work/offkai-bot/frontend/docs/pr-proof/nametag-stickers/avery-5395-interlaced-proof.html",
+    "samplePng": "/Users/hamp/work/offkai-bot/frontend/docs/pr-proof/nametag-stickers/avery-5395-plain-preview.png",
+    "overlayPng": "/Users/hamp/work/offkai-bot/frontend/docs/pr-proof/nametag-stickers/avery-5395-template-interlaced-proof.png",
+    "pdfPath": "/Users/hamp/work/offkai-bot/frontend/docs/pr-proof/nametag-stickers/sample-nametag-sheet.pdf"
+  }
+}

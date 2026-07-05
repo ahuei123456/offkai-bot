@@ -171,10 +171,7 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
       <div className="nametag-card__body">
         <p className="nametag-card__name">{entry.name}</p>
         <p className="nametag-card__discord">{entry.discordLine}</p>
-        <div className="nametag-card__meta-row">
-          <span>{entry.subLine}</span>
-          <span>{entry.kind === 'guest' ? 'GUEST' : entry.status.toUpperCase()}</span>
-        </div>
+        {entry.subLine && <p className="nametag-card__meta-row">{entry.subLine}</p>}
       </div>
       <div className="nametag-card__footer">
         <span>{eventName}</span>

@@ -117,7 +117,7 @@ export function buildNametagEntries(attendees: Attendee[], options: { includeWai
       number: attendee.attendee_number,
       numberLabel: attendee.attendee_number == null ? (attendee.status === 'waitlist' ? 'WAIT' : '—') : String(attendee.attendee_number),
       discordLine: `@${attendee.username}`,
-      subLine: attendee.status === 'waitlist' ? 'STANDBY / WAITLIST' : 'CONFIRMED OFFKAI PASS',
+      subLine: attendee.status === 'waitlist' ? 'WAITLIST' : '',
       status: attendee.status,
       kind: 'attendee',
     })
@@ -133,7 +133,7 @@ export function buildNametagEntries(attendees: Attendee[], options: { includeWai
         number: guestNumber,
         numberLabel: guestNumber == null ? 'GUEST' : String(guestNumber),
         discordLine: `Guest of @${attendee.username}`,
-        subLine: primaryName,
+        subLine: `Guest of ${primaryName}`,
         status: 'attending',
         kind: 'guest',
       })
