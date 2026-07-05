@@ -297,6 +297,26 @@ def test_validate_event_deadline_past(mock_dt):
 
     with pytest.raises(EventDeadlineInPastError):
         validate_event_deadline(FUTURE_EVENT_AFTER_DEADLINE, PAST_DEADLINE)
+
+
+@patch("offkai_bot.util.datetime")
+def test_validate_event_deadline_past_allowed_when_not_required_future(mock_dt):
+    """Test a past deadline passes when require_future=False, as long as it precedes the event."""
+    mock_dt.now.return_value = NOW_UTC_FOR_DEADLINE
+
+    try:
+        validate_event_deadline(FUTURE_EVENT_AFTER_DEADLINE, PAST_DEADLINE, require_future=False)
+    except (EventDeadlineInPastError, EventDeadlineAfterEventError):
+        pytest.fail("validate_event_deadline raised an error unexpectedly")
+
+
+@patch("offkai_bot.util.datetime")
+def test_validate_event_deadline_ordering_still_checked_when_not_required_future(mock_dt):
+    """Test require_future=False still rejects a deadline that is not before the event time."""
+    mock_dt.now.return_value = NOW_UTC_FOR_DEADLINE
+
+    with pytest.raises(EventDeadlineAfterEventError):
+        validate_event_deadline(EVENT_BEFORE_DEADLINE, FUTURE_DEADLINE, require_future=False)
     mock_dt.now.assert_called_once_with(UTC)
 
 
