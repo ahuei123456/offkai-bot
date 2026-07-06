@@ -118,8 +118,13 @@ function BlankSticker({ eventName }: { eventName: string }) {
           <p className="nametag-card__hello">ENTRY PASS</p>
           <p className="nametag-card__my-name">{eventName}</p>
         </div>
+        <div className="nametag-card__number" aria-label="Write-in blank sticker">
+          <span>Write</span>
+          <strong>IN</strong>
+        </div>
       </div>
       <div className="nametag-card__body">
+        <span className="nametag-card__stamp" aria-hidden="true">大衆酒場</span>
         <div
           className="nametag-card__blank-lines"
           aria-hidden="true"

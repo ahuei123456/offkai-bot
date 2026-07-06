@@ -576,8 +576,28 @@ button, a, input {
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   justify-items: stretch;
-  padding: 0 8mm;
+  padding: 0 7.2mm;
   background: transparent;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__number {
+  min-width: 15mm;
+  padding-inline: 1.2mm;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__number span {
+  font-size: clamp(6px, 1.55mm, 8px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__number strong {
+  font-size: clamp(15px, 4.2mm, 21px);
+  letter-spacing: 0.02em;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__stamp {
+  display: block;
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__blank-lines {
@@ -589,8 +609,11 @@ button, a, input {
   justify-self: stretch;
   align-content: center;
   justify-items: stretch;
-  gap: 8mm;
-  padding: 0;
+  gap: 6.8mm;
+  padding: 5mm 5.5mm 4.8mm;
+  border: 0.45mm solid #111;
+  border-radius: 1.2mm;
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__blank-lines span {
