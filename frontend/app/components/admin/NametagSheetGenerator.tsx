@@ -113,6 +113,12 @@ function EntrySticker({ entry, eventName }: { entry: NametagEntry; eventName: st
 function BlankSticker({ eventName }: { eventName: string }) {
   return (
     <article className="nametag-card nametag-card--plain nametag-card--blank">
+      <div className="nametag-card__header">
+        <div>
+          <p className="nametag-card__hello">ENTRY PASS</p>
+          <p className="nametag-card__my-name">{eventName}</p>
+        </div>
+      </div>
       <div className="nametag-card__body">
         <div
           className="nametag-card__blank-lines"
@@ -121,6 +127,10 @@ function BlankSticker({ eventName }: { eventName: string }) {
           <span>&nbsp;</span>
           <span>&nbsp;</span>
         </div>
+      </div>
+      <div className="nametag-card__footer">
+        <span>Offkai Bot</span>
+        <strong>OFFKAI</strong>
       </div>
     </article>
   )

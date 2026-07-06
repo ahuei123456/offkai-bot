@@ -571,28 +571,29 @@ button, a, input {
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__body {
-  grid-row: 1 / -1;
+  grid-row: 2;
+  grid-template-rows: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   justify-items: stretch;
   padding: 0 8mm;
   background: transparent;
 }
 
-.nametag-card--plain .nametag-card__blank-lines {
+.nametag-card--plain.nametag-card--blank .nametag-card__blank-lines {
   display: grid;
-  position: absolute;
-  left: 8mm;
-  right: 8mm;
-  top: 11mm;
-  bottom: 15mm;
-  width: auto;
+  position: relative;
+  width: 100%;
+  min-width: 0;
   height: auto;
+  justify-self: stretch;
   align-content: center;
-  gap: 10mm;
+  justify-items: stretch;
+  gap: 8mm;
   padding: 0;
 }
 
-.nametag-card--plain .nametag-card__blank-lines span {
+.nametag-card--plain.nametag-card--blank .nametag-card__blank-lines span {
   display: block;
   min-height: 1mm;
   width: 100%;
