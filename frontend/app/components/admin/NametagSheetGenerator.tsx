@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import type { Attendee } from '../../lib/types'
 import {
   buildNametagEntries,
@@ -10,115 +10,7 @@ import {
   normalizeSheetSettings,
   type NametagEntry,
   type NametagSheetSettings,
-  type StickerTheme,
 } from '../../lib/nametags'
-
-const PRESETS = [
-  { label: 'Avery 5395 · Letter 2×4', hint: '2⅓×3⅜in name badges, plain ink default', values: DEFAULT_NAMETAG_SHEET },
-  {
-    label: 'A4 · custom sticker grid',
-    hint: 'compact editable sticker grid',
-    values: {
-      ...DEFAULT_NAMETAG_SHEET,
-      paperWidthMm: 210,
-      paperHeightMm: 297,
-      marginTopMm: 8,
-      marginRightMm: 7,
-      marginBottomMm: 8,
-      marginLeftMm: 7,
-      stickerWidthMm: 60,
-      stickerHeightMm: 32,
-      gutterXMm: 4,
-      gutterYMm: 3,
-      theme: 'chibachan' as StickerTheme,
-    },
-  },
-  {
-    label: 'Letter · US sheet',
-    hint: '8.5×11in paper, editable sticker stock',
-    values: {
-      ...DEFAULT_NAMETAG_SHEET,
-      paperWidthMm: 215.9,
-      paperHeightMm: 279.4,
-      marginTopMm: 12.7,
-      marginRightMm: 4.8,
-      marginBottomMm: 12.7,
-      marginLeftMm: 4.8,
-      stickerWidthMm: 66,
-      stickerHeightMm: 33.9,
-      gutterXMm: 3,
-      gutterYMm: 3,
-    },
-  },
-  {
-    label: 'Legal · US long sheet',
-    hint: '8.5×14in paper, editable sticker stock',
-    values: {
-      ...DEFAULT_NAMETAG_SHEET,
-      paperWidthMm: 215.9,
-      paperHeightMm: 355.6,
-      marginTopMm: 12.7,
-      marginRightMm: 6,
-      marginBottomMm: 12.7,
-      marginLeftMm: 6,
-      stickerWidthMm: 66,
-      stickerHeightMm: 33.9,
-      gutterXMm: 3,
-      gutterYMm: 3,
-    },
-  },
-  {
-    label: 'B5 · Japanese paper',
-    hint: '182×257mm, editable sticker stock',
-    values: {
-      ...DEFAULT_NAMETAG_SHEET,
-      paperWidthMm: 182,
-      paperHeightMm: 257,
-      marginTopMm: 8,
-      marginRightMm: 6,
-      marginBottomMm: 8,
-      marginLeftMm: 6,
-      stickerWidthMm: 54,
-      stickerHeightMm: 30,
-      gutterXMm: 4,
-      gutterYMm: 3,
-    },
-  },
-  {
-    label: 'A5 · half sheet',
-    hint: '148×210mm, editable sticker stock',
-    values: {
-      ...DEFAULT_NAMETAG_SHEET,
-      paperWidthMm: 148,
-      paperHeightMm: 210,
-      marginTopMm: 7,
-      marginRightMm: 6,
-      marginBottomMm: 7,
-      marginLeftMm: 6,
-      stickerWidthMm: 42,
-      stickerHeightMm: 28,
-      gutterXMm: 3,
-      gutterYMm: 3,
-    },
-  },
-  {
-    label: 'Badge cards · 91×55mm',
-    hint: 'larger cards, still editable',
-    values: {
-      ...DEFAULT_NAMETAG_SHEET,
-      paperWidthMm: 210,
-      paperHeightMm: 297,
-      marginTopMm: 8,
-      marginRightMm: 8,
-      marginBottomMm: 8,
-      marginLeftMm: 8,
-      stickerWidthMm: 91,
-      stickerHeightMm: 55,
-      gutterXMm: 6,
-      gutterYMm: 6,
-    },
-  },
-]
 
 function Field({
   label,
@@ -148,20 +40,54 @@ function Field({
   )
 }
 
-function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventName: string; theme: StickerTheme }) {
-  const themeClass = {
-    plain: 'nametag-card--plain',
-    chibachan: 'nametag-card--chibachan',
-    'classic-red': 'nametag-card--classic',
-    ink: 'nametag-card--ink',
-  }[theme]
+function clamp(min: number, value: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function textFitVars(entry: NametagEntry): CSSProperties {
+  const words = entry.name.split(/\s+/).filter(Boolean)
+  const longestWord = Math.max(...words.map(word => word.length), 0)
+  const multiWordLoad = words.length > 1
+    ? Math.max(longestWord * 1.25, (entry.name.length / (entry.kind === 'guest' ? 2.2 : 2)) * 1.25)
+    : longestWord * 1.2
+  const nameLoad = Math.max(multiWordLoad, entry.name.length * (entry.kind === 'guest' ? 0.48 : 0.55))
+  const visualSubLine = entry.kind === 'guest' ? '' : entry.subLine
+  const metaLoad = Math.max(entry.discordLine.length, visualSubLine.length)
+  const guestPenalty = entry.kind === 'guest' ? 0.45 : 0
+  const metaPenalty = visualSubLine ? clamp(0, metaLoad - 18, 34) * 0.03 : 0
+  const nameMm = clamp(entry.kind === 'guest' ? 4.6 : 3.8, 10.8 - nameLoad * 0.17 - guestPenalty - metaPenalty, entry.kind === 'guest' ? 7.8 : 9.8)
+  const discordMm = clamp(entry.kind === 'guest' ? 2.45 : 1.85, 4.25 - metaLoad * 0.04, visualSubLine ? 3.1 : entry.kind === 'guest' ? 3.35 : 3.9)
+  const metaMm = clamp(1.4, 3 - visualSubLine.length * 0.035, 2.6)
+  const nameRows = entry.kind === 'guest' ? 22 : nameLoad > 30 ? 22 : 25
+  const metaRows = visualSubLine ? 10 : 8
+
+  return {
+    '--nametag-name-mm': `${nameMm.toFixed(2)}mm`,
+    '--nametag-discord-mm': `${discordMm.toFixed(2)}mm`,
+    '--nametag-meta-mm': `${metaMm.toFixed(2)}mm`,
+    '--nametag-name-row-mm': `${nameRows}mm`,
+    '--nametag-meta-row-mm': `${metaRows}mm`,
+  } as CSSProperties
+}
+
+function EntrySticker({ entry, eventName }: { entry: NametagEntry; eventName: string }) {
+  const nameClass = entry.name.length > 34
+    ? 'nametag-card--name-xlong'
+    : entry.name.length > 22
+      ? 'nametag-card--name-long'
+      : ''
+  const showSubLine = entry.kind !== 'guest' && Boolean(entry.subLine)
+  const metaClass = showSubLine ? 'nametag-card--with-meta' : ''
+  const denseClass = entry.discordLine.length > 24 || entry.subLine.length > 24 ? 'nametag-card--dense' : ''
+  const kindClass = entry.kind === 'guest' ? 'nametag-card--guest' : ''
+  const showStamp = entry.kind !== 'guest' && !nameClass
 
   return (
-    <article className={`nametag-card ${themeClass}`}>
+    <article className={`nametag-card nametag-card--plain ${nameClass} ${metaClass} ${denseClass} ${kindClass}`} style={textFitVars(entry)}>
       <div className="nametag-card__header">
         <div>
-          <p className="nametag-card__hello">HELLO</p>
-          <p className="nametag-card__my-name">MY NAME IS</p>
+          <p className="nametag-card__hello">ENTRY PASS</p>
+          <p className="nametag-card__my-name">{eventName}</p>
         </div>
         <div className="nametag-card__number" aria-label={`Entry number ${entry.numberLabel}`}>
           <span>No.</span>
@@ -169,13 +95,32 @@ function EntrySticker({ entry, eventName, theme }: { entry: NametagEntry; eventN
         </div>
       </div>
       <div className="nametag-card__body">
+        {showStamp && <span className="nametag-card__stamp" aria-hidden="true">大衆酒場</span>}
         <p className="nametag-card__name">{entry.name}</p>
-        <p className="nametag-card__discord">{entry.discordLine}</p>
-        {entry.subLine && <p className="nametag-card__meta-row">{entry.subLine}</p>}
+        <div className="nametag-card__identity">
+          <p className="nametag-card__discord">{entry.discordLine}</p>
+          {showSubLine && <p className="nametag-card__meta-row">{entry.subLine}</p>}
+        </div>
       </div>
       <div className="nametag-card__footer">
-        <span>{eventName}</span>
-        <strong>{entry.kind === 'guest' ? 'GUEST PASS' : 'ATTENDEE PASS'}</strong>
+        <span>Offkai Bot</span>
+        <strong>{entry.kind === 'guest' ? '+1 GUEST' : 'OFFKAI'}</strong>
+      </div>
+    </article>
+  )
+}
+
+function BlankSticker({ eventName }: { eventName: string }) {
+  return (
+    <article className="nametag-card nametag-card--plain nametag-card--blank">
+      <div className="nametag-card__body">
+        <div
+          className="nametag-card__blank-lines"
+          aria-hidden="true"
+        >
+          <span>&nbsp;</span>
+          <span>&nbsp;</span>
+        </div>
       </div>
     </article>
   )
@@ -186,13 +131,12 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
   const safeSettings = useMemo(() => normalizeSheetSettings(settings), [settings])
   const layout = useMemo(() => calculateSheetLayout(safeSettings), [safeSettings])
   const entries = useMemo(
-    () => buildNametagEntries(attendees, { includeWaitlist: safeSettings.includeWaitlist }),
-    [attendees, safeSettings.includeWaitlist]
+    () => buildNametagEntries(attendees),
+    [attendees]
   )
   const pages = useMemo(() => chunkNametagEntries(entries, layout.perPage), [entries, layout.perPage])
   const totalSlots = pages.length * layout.perPage
   const blankSlots = Math.max(0, totalSlots - entries.length)
-
   const update = (patch: Partial<NametagSheetSettings>) => setSettings(prev => normalizeSheetSettings({ ...prev, ...patch }))
   const setNumber = (key: keyof NametagSheetSettings) => (next: number) => update({ [key]: next } as Partial<NametagSheetSettings>)
 
@@ -213,13 +157,25 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
         }
         @page { size: ${safeSettings.paperWidthMm}mm ${safeSettings.paperHeightMm}mm; margin: 0; }
         @media print {
-          body { background: white !important; }
+          body { margin: 0 !important; background: white !important; }
           body * { visibility: hidden !important; }
           #nametag-print-root, #nametag-print-root * { visibility: visible !important; }
-          #nametag-print-root { position: absolute !important; inset: 0 auto auto 0 !important; width: var(--paper-w) !important; zoom: 1 !important; }
+          body > div,
+          main,
+          [role="dialog"][aria-label="Nametag printer"],
+          [role="dialog"][aria-label="Nametag printer"] > div,
+          .brand-card,
+          .brand-card > div:last-child,
+          .brand-card > div:last-child > div:last-child {
+            display: contents !important;
+            visibility: visible !important;
+          }
+          [role="dialog"][aria-label="Nametag printer"] { position: static !important; inset: auto !important; overflow: visible !important; padding: 0 !important; background: white !important; backdrop-filter: none !important; }
+          main > :not([role="dialog"]) { display: none !important; }
+          #nametag-print-root { position: static !important; display: block !important; width: var(--paper-w) !important; zoom: 1 !important; }
           .nametag-print-controls { display: none !important; }
-          .nametag-sheet { box-shadow: none !important; margin: 0 !important; break-after: page; page-break-after: always; }
-          .nametag-sheet:last-child { break-after: auto; page-break-after: auto; }
+          .nametag-screen-preview { width: var(--paper-w) !important; zoom: 1 !important; }
+          .nametag-sheet { height: calc(var(--paper-h) - 0.6mm) !important; min-height: 0 !important; overflow: hidden !important; box-shadow: none !important; margin: 0 !important; }
         }
       `}</style>
 
@@ -251,29 +207,8 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
         <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
           <div className="rounded-2xl border-2 border-[#17120F] bg-white p-4 shadow-[3px_3px_0_rgba(23,18,15,0.22)]">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Paper/template</p>
-            <label className="mt-3 grid gap-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#5B3428]">
-              Preset
-              <select
-                aria-label="Nametag sheet preset"
-                onChange={event => {
-                  const preset = PRESETS[Number(event.target.value)]
-                  if (preset) setSettings(preset.values)
-                }}
-                className="rounded-xl border-2 border-[#17120F] bg-white px-3 py-2.5 text-sm font-black text-[#17120F]"
-              >
-                {PRESETS.map((preset, index) => <option key={preset.label} value={index}>{preset.label}</option>)}
-              </select>
-            </label>
-            <p className="mt-2 text-[11px] font-bold text-[#5B3428]">Default matches Avery 5395: Letter, 2 columns × 4 rows, 2⅓×3⅜in badges.</p>
-            <label className="mt-3 flex items-center gap-3 rounded-xl border-2 border-[#17120F] bg-[#FFF8D8] px-3 py-2.5 text-sm font-black text-[#17120F]">
-              <input
-                type="checkbox"
-                checked={safeSettings.includeWaitlist}
-                onChange={event => update({ includeWaitlist: event.target.checked })}
-                className="h-5 w-5 accent-[#E51F1F]"
-              />
-              Include waitlist
-            </label>
+            <p className="mt-3 text-lg font-black uppercase leading-tight text-[#17120F]">Avery 5395 · Letter 2×4</p>
+            <p className="mt-2 text-[11px] font-bold text-[#5B3428]">2⅓×3⅜in badges on US Letter stock. Waitlist hidden from print.</p>
           </div>
 
           <div className="rounded-2xl border-2 border-[#17120F] bg-[#FFD51B] p-4 shadow-[3px_3px_0_rgba(23,18,15,0.22)]">
@@ -316,19 +251,6 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
                 <Field label="Bottom" value={safeSettings.marginBottomMm} onChange={setNumber('marginBottomMm')} />
                 <Field label="Left" value={safeSettings.marginLeftMm} onChange={setNumber('marginLeftMm')} />
               </div>
-              <div className="grid min-w-0 gap-2 rounded-xl bg-white/85 p-3">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#17120F]/70">Style</p>
-                <select
-                  value={safeSettings.theme}
-                  onChange={event => update({ theme: event.target.value as StickerTheme })}
-                  className="rounded-lg border border-[#17120F]/35 bg-white px-2 py-2 text-xs font-black text-[#17120F]"
-                >
-                  <option value="plain">Plain / black ink</option>
-                  <option value="chibachan">High contrast</option>
-                  <option value="classic-red">Classic red</option>
-                  <option value="ink">Black ink</option>
-                </select>
-              </div>
             </div>
           </div>
         </div>
@@ -338,11 +260,11 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
         <div className="nametag-print-controls mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#8B2D1F]">Print section</p>
-            <p className="text-xs font-bold text-[#5B3428]">This framed paper is the only thing sent to print/PDF.</p>
+            <p className="text-xs font-bold text-[#5B3428]">Only the sheet below is sent to print/PDF.</p>
           </div>
         </div>
 
-        <div className="max-h-[380px] overflow-auto rounded-2xl border-2 border-[#17120F] bg-[#E8D395] p-2">
+        <div className="mx-auto flex max-h-[75vh] w-fit max-w-full justify-center overflow-auto rounded-2xl border-2 border-[#17120F] bg-[#E8D395] p-4">
           <div id="nametag-print-root" className="nametag-sheet-stage nametag-screen-preview grid gap-6">
             {pages.map((pageEntries, pageIndex) => (
               <div
@@ -367,7 +289,10 @@ export function NametagSheetGenerator({ attendees, eventName }: { attendees: Att
                   }}
                 >
                   {pageEntries.map(entry => (
-                    <EntrySticker key={entry.id} entry={entry} eventName={eventName} theme={safeSettings.theme} />
+                    <EntrySticker key={entry.id} entry={entry} eventName={eventName} />
+                  ))}
+                  {Array.from({ length: pageIndex === pages.length - 1 ? blankSlots : 0 }, (_, index) => (
+                    <BlankSticker key={`blank:${pageIndex}:${index}`} eventName={eventName} />
                   ))}
                 </div>
               </div>

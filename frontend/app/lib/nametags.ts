@@ -1,7 +1,5 @@
 import type { Attendee } from './types'
 
-export type StickerTheme = 'plain' | 'chibachan' | 'classic-red' | 'ink'
-
 export type NametagSheetSettings = {
   paperWidthMm: number
   paperHeightMm: number
@@ -14,7 +12,6 @@ export type NametagSheetSettings = {
   gutterXMm: number
   gutterYMm: number
   includeWaitlist: boolean
-  theme: StickerTheme
 }
 
 export type NametagEntry = {
@@ -48,7 +45,6 @@ export const DEFAULT_NAMETAG_SHEET: NametagSheetSettings = {
   gutterXMm: 15.7,
   gutterYMm: 5.64,
   includeWaitlist: false,
-  theme: 'plain',
 }
 
 const DEFAULT_BOUNDS = {
@@ -132,8 +128,8 @@ export function buildNametagEntries(attendees: Attendee[], options: { includeWai
         name: guestName,
         number: guestNumber,
         numberLabel: guestNumber == null ? 'GUEST' : String(guestNumber),
-        discordLine: `Guest of @${attendee.username}`,
-        subLine: `Guest of ${primaryName}`,
+        discordLine: `+1 of @${attendee.username}`,
+        subLine: `with ${primaryName}`,
         status: 'attending',
         kind: 'guest',
       })

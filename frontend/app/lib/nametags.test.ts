@@ -4,6 +4,7 @@ import type { Attendee } from './types.ts'
 import {
   buildNametagEntries,
   calculateSheetLayout,
+  chunkNametagEntries,
   DEFAULT_NAMETAG_SHEET,
   normalizeSheetSettings,
 } from './nametags.ts'
@@ -54,8 +55,8 @@ describe('buildNametagEntries', () => {
     assert.equal(entries[0].discordLine, '@tomori')
     assert.equal(entries[0].subLine, '')
     assert.equal('drinkLine' in entries[0], false)
-    assert.equal(entries[1].discordLine, 'Guest of @tomori')
-    assert.equal(entries[1].subLine, 'Guest of Tomori Takamatsu')
+    assert.equal(entries[1].discordLine, '+1 of @tomori')
+    assert.equal(entries[1].subLine, 'with Tomori Takamatsu')
     assert.equal('drinkLine' in entries[1], false)
     assert.equal(entries[1].kind, 'guest')
   })
@@ -65,6 +66,17 @@ describe('buildNametagEntries', () => {
 
     assert.equal(entries.at(-1)?.status, 'waitlist')
     assert.equal(entries.at(-1)?.numberLabel, 'WAIT')
+  })
+
+  it('keeps the last Avery sheet fillable with blank write-on slots', () => {
+    const entries = buildNametagEntries(attendees)
+    const layout = calculateSheetLayout(DEFAULT_NAMETAG_SHEET)
+    const pages = chunkNametagEntries(entries, layout.perPage)
+    const blankSlots = pages.length * layout.perPage - entries.length
+
+    assert.equal(layout.perPage, 8)
+    assert.equal(entries.some(entry => entry.status === 'waitlist'), false)
+    assert.equal(blankSlots, 4)
   })
 })
 
@@ -82,7 +94,6 @@ describe('calculateSheetLayout', () => {
       gutterXMm: 2.5,
       gutterYMm: 2.5,
       includeWaitlist: false,
-      theme: 'plain',
     })
 
     assert.equal(layout.columns, 3)
@@ -104,7 +115,6 @@ describe('calculateSheetLayout', () => {
     assert.equal(DEFAULT_NAMETAG_SHEET.marginBottomMm, 12.7)
     assert.equal(DEFAULT_NAMETAG_SHEET.gutterXMm, 15.7)
     assert.equal(DEFAULT_NAMETAG_SHEET.gutterYMm, 5.64)
-    assert.equal(DEFAULT_NAMETAG_SHEET.theme, 'plain')
     assert.equal(layout.columns, 2)
     assert.equal(layout.rows, 4)
     assert.equal(layout.perPage, 8)
