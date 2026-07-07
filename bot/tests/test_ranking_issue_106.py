@@ -197,6 +197,8 @@ async def test_delete_response_decrements_rank(mock_interaction, prepopulated_ev
     member.name = "TargetUser"
     member.mention = "<@98765>"
 
+    # The command requires a guild context (the fixture's thread channel is accepted)
+    mock_interaction.guild = MagicMock(spec=discord.Guild)
     mock_interaction.response.defer = AsyncMock()
     mock_interaction.followup = MagicMock(send=AsyncMock())
 

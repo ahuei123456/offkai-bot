@@ -96,6 +96,17 @@ def validate_interaction_context(interaction: discord.Interaction):
         raise InvalidChannelTypeError()
 
 
+def validate_guild_context(interaction: discord.Interaction):
+    """Checks if the command is used in a guild text channel or thread.
+
+    For commands that operate on stored event data (or only produce reports) and thus
+    don't need the current channel to be the parent text channel — e.g. organizers
+    running them from inside an event thread.
+    """
+    if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel | discord.Thread):
+        raise InvalidChannelTypeError(expected_type="server text channel or thread")
+
+
 # --- NEW DATETIME VALIDATION FUNCTIONS ---
 
 

@@ -30,6 +30,7 @@ from offkai_bot.util import (
     validate_event_datetime,
     validate_event_deadline,
     validate_event_name,
+    validate_guild_context,
     validate_interaction_context,
 )
 
@@ -221,6 +222,47 @@ def test_validate_interaction_context_wrong_channel_type(mock_interaction, chann
 
     with pytest.raises(InvalidChannelTypeError):
         validate_interaction_context(mock_interaction)
+
+
+# --- Tests for validate_guild_context ---
+
+
+@pytest.mark.parametrize("channel_type", [discord.TextChannel, discord.Thread])
+def test_validate_guild_context_success(mock_interaction, channel_type):
+    """Test validation succeeds in a guild text channel or guild thread."""
+    mock_interaction.guild = MagicMock(spec=discord.Guild)
+    mock_interaction.channel = MagicMock(spec=channel_type)
+    # Should not raise any error
+    try:
+        validate_guild_context(mock_interaction)
+    except InvalidChannelTypeError:
+        pytest.fail("validate_guild_context raised InvalidChannelTypeError unexpectedly")
+
+
+def test_validate_guild_context_no_guild(mock_interaction):
+    """Test validation fails when interaction.guild is None (DM), even with a thread channel."""
+    mock_interaction.guild = None
+    mock_interaction.channel = MagicMock(spec=discord.Thread)
+    with pytest.raises(InvalidChannelTypeError):
+        validate_guild_context(mock_interaction)
+
+
+@pytest.mark.parametrize(
+    "channel_type",
+    [
+        discord.DMChannel,
+        discord.VoiceChannel,
+        discord.CategoryChannel,
+        None,  # Test None channel explicitly
+    ],
+)
+def test_validate_guild_context_wrong_channel_type(mock_interaction, channel_type):
+    """Test validation fails with channel types that are neither TextChannel nor Thread."""
+    mock_interaction.guild = MagicMock(spec=discord.Guild)
+    mock_interaction.channel = MagicMock(spec=channel_type) if channel_type else None
+
+    with pytest.raises(InvalidChannelTypeError):
+        validate_guild_context(mock_interaction)
 
 
 # --- NEW Tests for validate_event_datetime ---
