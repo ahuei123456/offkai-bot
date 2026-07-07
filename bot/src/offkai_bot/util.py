@@ -16,6 +16,7 @@ from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
     EventDeadlineInPastError,
+    EventNameTooLongError,
     InvalidChannelTypeError,
     InvalidDateTimeFormatError,
 )
@@ -65,6 +66,30 @@ def parse_drinks(drinks_str: str | None) -> list[str]:
     return [d.strip() for d in drinks_str.split(",") if d.strip()]
 
 
+# Discord caps both thread names and component/modal custom_ids at 100 characters.
+# The event name is embedded in the modal custom_id as "modal_<event_name>" (6-char
+# prefix), so the hard ceiling is 94; 90 leaves a little headroom.
+MAX_EVENT_NAME_LENGTH = 90
+
+
+def validate_event_name(event_name: str):
+    """
+    Validates that the event name fits within Discord's thread-name and
+    modal custom_id limits.
+
+    Raises:
+        EventNameTooLongError: If the event name exceeds MAX_EVENT_NAME_LENGTH.
+    """
+    if len(event_name) > MAX_EVENT_NAME_LENGTH:
+        _log.info(
+            "Validation failed: Event name length %d exceeds maximum %d.",
+            len(event_name),
+            MAX_EVENT_NAME_LENGTH,
+        )
+        raise EventNameTooLongError(event_name, MAX_EVENT_NAME_LENGTH)
+    _log.debug("Validation success: Event name length %d is within limit.", len(event_name))
+
+
 def validate_interaction_context(interaction: discord.Interaction):
     """Checks if the command is used in a valid guild text channel."""
     if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
@@ -99,7 +124,7 @@ def validate_event_datetime(event_datetime: datetime):
     _log.debug("Validation success: Event datetime %s is in the future.", event_datetime)
 
 
-def validate_event_deadline(event_datetime: datetime, event_deadline: datetime | None):
+def validate_event_deadline(event_datetime: datetime, event_deadline: datetime | None, *, require_future: bool = True):
     """
     Validates that the event deadline is set in the future (compared to current UTC)
     and occurs before the event datetime. If event deadline is None, then no validation is done.
@@ -107,9 +132,12 @@ def validate_event_deadline(event_datetime: datetime, event_deadline: datetime |
     Args:
         event_datetime: The aware UTC datetime of the event.
         event_deadline: The aware UTC datetime of the deadline. Can be None.
+        require_future: Whether the deadline must be in the future. Pass False when
+            re-validating an existing, unchanged deadline (a legitimately passed
+            deadline should not block other modifications).
 
     Raises:
-        DeadlineInPastError: If the event_deadline is not in the future.
+        DeadlineInPastError: If require_future and the event_deadline is not in the future.
         DeadlineAfterEventError: If the event_deadline is not before the event_datetime.
     """
     if not event_deadline:
@@ -118,7 +146,7 @@ def validate_event_deadline(event_datetime: datetime, event_deadline: datetime |
     now_utc = datetime.now(UTC)
 
     # 1. Check if deadline is in the future
-    if event_deadline < now_utc:
+    if require_future and event_deadline < now_utc:
         _log.info("Validation failed: Deadline %s is in the past compared to %s.", event_deadline, now_utc)
         raise EventDeadlineInPastError()
 

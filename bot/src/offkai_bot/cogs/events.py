@@ -24,6 +24,7 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
+from offkai_bot.data.ranking import decrease_rank, migrate_legacy_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
     Response,
@@ -36,6 +37,7 @@ from offkai_bot.data.response import (
     has_complete_attendee_numbers,
     promote_specific_from_waitlist,
     remove_response,
+    restore_waitlist_entry,
     save_responses,
 )
 from offkai_bot.errors import (
@@ -64,6 +66,7 @@ from offkai_bot.util import (
     parse_event_datetime,
     validate_event_datetime,
     validate_event_deadline,
+    validate_event_name,
     validate_guild_context,
     validate_interaction_context,
 )
@@ -173,6 +176,7 @@ class EventsCog(commands.Cog):
         create_role: bool = False,
     ):
         # 1. Business Logic Validation
+        validate_event_name(event_name)
         with contextlib.suppress(EventNotFoundError):
             if get_event(event_name):
                 raise DuplicateEventError(event_name)
@@ -508,15 +512,30 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
-        remove_response(event_name, member.id)
+        removed_response = remove_response(event_name, member.id)
+        decrease_rank(member.id, member.name)
+        freed_spots = 1 + removed_response.extra_people
 
         if event.role_id and interaction.guild:
             await remove_event_role(interaction.guild, member.id, event.role_id)
 
-        await interaction.followup.send(
-            f"🚮 Deleted response from user {member.mention} for '{event_name}'.",
-            ephemeral=True,
-        )
+        # Offer the freed spots to the waitlist, mirroring the self-withdrawal paths.
+        # The delete has already persisted, so promotion failure must not fail the command.
+        message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
+        try:
+            promoted_user_ids = await promote_waitlist_batch(event, self.bot, freed_spots=freed_spots)
+            if promoted_user_ids:
+                message += f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spots."
+        except Exception as e:
+            _log.error(
+                "Waitlist promotion failed after deleting response from user %s for event '%s': %s",
+                member.id,
+                event_name,
+                e,
+                exc_info=True,
+            )
+            message += "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed."
+        await interaction.followup.send(message, ephemeral=True)
 
         if event.thread_id:
             thread = self.bot.get_channel(event.thread_id)
@@ -530,6 +549,24 @@ class EventsCog(commands.Cog):
                 _log.warning("Could not find thread %s to remove user for event '%s'.", event.thread_id, event_name)
         else:
             _log.warning("Event '%s' is missing thread_id, cannot remove user from thread.", event_name)
+
+    @app_commands.command(
+        name="migrate_rank",
+        description="Reassigns a legacy username-keyed rank entry to a member.",
+    )
+    @app_commands.describe(
+        member="The member who should receive the legacy rank entry.",
+        legacy_username="The old username the rank entry is stored under.",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def migrate_rank(self, interaction: discord.Interaction, member: discord.Member, legacy_username: str):
+        validate_interaction_context(interaction)
+        new_rank = migrate_legacy_rank(member.id, member.name, legacy_username)
+        await interaction.response.send_message(
+            f"✅ Migrated legacy rank entry '{legacy_username}' to {member.mention}. Their rank is now {new_rank}.",
+            ephemeral=True,
+        )
 
     @app_commands.command(
         name="promote",
@@ -554,7 +591,7 @@ class EventsCog(commands.Cog):
             )
             return
 
-        promoted_entry = promote_specific_from_waitlist(event_name, user_id)
+        promoted_entry, original_index = promote_specific_from_waitlist(event_name, user_id)
 
         promoted_response = Response(
             user_id=promoted_entry.user_id,
@@ -568,7 +605,13 @@ class EventsCog(commands.Cog):
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
         )
-        add_response_for_event(event, promoted_response)
+        try:
+            add_response_for_event(event, promoted_response)
+        except Exception:
+            # Roll back the waitlist pop so the user isn't dropped from both lists,
+            # restoring them at their original position so they don't jump the queue.
+            restore_waitlist_entry(event_name, promoted_entry, position=original_index)
+            raise
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)

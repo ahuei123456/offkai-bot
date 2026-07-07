@@ -540,6 +540,54 @@ async def test_withdraw_no_promotion_when_waitlist_empty(event_with_capacity, mo
     assert len(responses) == 0
 
 
+@pytest.mark.asyncio
+async def test_batch_promotion_failure_restores_waitlist_entry(event_with_capacity):
+    """If add_response fails mid-promotion, the popped waitlist entry is restored (issue #105)."""
+    from offkai_bot.data.response import EventData, load_responses
+    from offkai_bot.errors import DuplicateResponseError
+    from offkai_bot.interactions import promote_waitlist_batch
+
+    now = datetime.now(UTC)
+    # Seed inconsistent state directly: user 456 is both an attendee and first on the waitlist,
+    # so add_response will raise DuplicateResponseError after the waitlist pop.
+    all_data = load_responses()
+    all_data[event_with_capacity.event_name] = EventData(
+        attendees=[
+            Response(
+                user_id=456,
+                username="StaleUser",
+                extra_people=0,
+                behavior_confirmed=True,
+                arrival_confirmed=True,
+                event_name=event_with_capacity.event_name,
+                timestamp=now,
+                drinks=[],
+            )
+        ],
+        waitlist=[
+            WaitlistEntry(
+                user_id=456,
+                username="StaleUser",
+                extra_people=0,
+                behavior_confirmed=True,
+                arrival_confirmed=True,
+                event_name=event_with_capacity.event_name,
+                timestamp=now,
+                drinks=[],
+            )
+        ],
+    )
+
+    mock_client = MagicMock(spec=discord.Client)
+    mock_client.fetch_user = AsyncMock()
+
+    with pytest.raises(DuplicateResponseError):
+        await promote_waitlist_batch(event_with_capacity, mock_client)
+
+    # The waitlist entry must not be lost.
+    assert [e.user_id for e in get_waitlist(event_with_capacity.event_name)] == [456]
+
+
 # --- Tests for Capacity Overflow Prevention ---
 
 
@@ -794,6 +842,59 @@ async def test_capacity_reached_message_sent_when_filling_event(event_with_capac
         message = mock_interaction2.channel.send.call_args[0][0]
         assert "Maximum capacity has been reached" in message
         assert "waitlist" in message.lower()
+
+
+@pytest.mark.asyncio
+async def test_capacity_reached_message_not_repeated_on_waitlist_signup(
+    event_with_capacity, mock_interaction, mock_cog
+):
+    """Waitlist signups while the event sits at capacity must not re-post the capacity announcement."""
+    # Fill the event to exactly max capacity (3)
+    add_response(
+        event_with_capacity.event_name,
+        Response(
+            user_id=999,
+            username="ExistingUser",
+            extra_people=2,  # 3 people total
+            behavior_confirmed=True,
+            arrival_confirmed=True,
+            event_name=event_with_capacity.event_name,
+            timestamp=datetime.now(UTC),
+            drinks=[],
+        ),
+    )
+
+    # Two more users sign up while at capacity - both go to the waitlist
+    for user_id in (123, 456):
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(spec=discord.Member)
+        interaction.user.id = user_id
+        interaction.user.name = f"WaitlistUser{user_id}"
+        interaction.user.send = AsyncMock()
+        interaction.channel = MagicMock(spec=discord.Thread)
+        interaction.channel.id = 456
+        interaction.channel.send = AsyncMock()
+        interaction.channel.add_user = AsyncMock()
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        modal = GatheringModal(event=event_with_capacity)
+        modal.extra_people_input = MagicMock()
+        modal.extra_people_input.value = "0"
+        modal.behave_checkbox_input = MagicMock()
+        modal.behave_checkbox_input.value = "Yes"
+        modal.arrival_checkbox_input = MagicMock()
+        modal.arrival_checkbox_input.value = "Yes"
+        modal.drink_choice_input = None
+        modal.extras_names_input = MagicMock()
+        modal.extras_names_input.value = ""
+
+        await modal.on_submit(interaction)
+
+        # User was waitlisted, but no announcement was posted to the thread
+        assert not interaction.channel.send.called
+
+    assert len(get_waitlist(event_with_capacity.event_name)) == 2
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ import logging
 import os
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypedDict
 
 # Use relative imports for sibling modules within the package
@@ -222,7 +222,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             behavior_confirmed=behavior_confirmed,
             arrival_confirmed=arrival_confirmed,
             event_name=resp_dict.get("event_name", event_name),
-            timestamp=(ts if ts is not None else datetime.now()),
+            timestamp=(ts if ts is not None else datetime.now(UTC)),
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
@@ -266,7 +266,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             behavior_confirmed=behavior_confirmed,
             arrival_confirmed=arrival_confirmed,
             event_name=entry_dict.get("event_name", event_name),
-            timestamp=(ts if ts is not None else datetime.now()),
+            timestamp=(ts if ts is not None else datetime.now(UTC)),
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
@@ -606,8 +606,8 @@ def add_response(
     return assigned_max_number
 
 
-def remove_response(event_name: str, user_id: int) -> None:
-    """Removes a response for a given user from the specified event's attendees.
+def remove_response(event_name: str, user_id: int) -> Response:
+    """Removes and returns the response for a given user from the specified event's attendees.
 
     Raises:
         ResponseNotFoundError: If no response is found for the given user and event.
@@ -628,6 +628,7 @@ def remove_response(event_name: str, user_id: int) -> None:
         all_data[event_name] = event_data
         save_responses()
         _log.info("Removed response from user %s for event %s.", user_id, event_name)
+        return removed_response
 
 
 def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:
@@ -697,15 +698,25 @@ def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
     return first_entry
 
 
-def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEntry:
+def promote_specific_from_waitlist(event_name: str, user_id: int) -> tuple[WaitlistEntry, int]:
     """
-    Removes and returns a specific user from the waitlist by user_id.
+    Removes a specific user from the waitlist by user_id.
+    Returns the entry and its original waitlist index, so a rollback can
+    restore it at the same position instead of jumping the queue.
 
     Raises:
         ResponseNotFoundError: If the user is not found on the waitlist.
+        DuplicateResponseError: If the user already has an attendee record, so a
+            subsequent add_response would fail after the waitlist entry was removed.
     """
     all_data = load_responses()
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    if any(r.user_id == user_id for r in event_data["attendees"]):
+        _log.warning(
+            "User %s is already an attendee of event %s. Refusing to remove waitlist entry.", user_id, event_name
+        )
+        raise DuplicateResponseError(event_name, user_id)
 
     for i, entry in enumerate(event_data["waitlist"]):
         if entry.user_id == user_id:
@@ -713,9 +724,26 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> WaitlistEnt
             all_data[event_name] = event_data
             save_responses()
             _log.info("Promoted specific user %s from waitlist for event %s.", user_id, event_name)
-            return promoted_entry
+            return promoted_entry, i
 
     raise ResponseNotFoundError(event_name, user_id)
+
+
+def restore_waitlist_entry(event_name: str, entry: WaitlistEntry, position: int = 0) -> None:
+    """
+    Re-inserts a previously popped waitlist entry, used to roll back a failed promotion.
+    Does nothing if the user is already back on the waitlist.
+    """
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+
+    if any(e.user_id == entry.user_id for e in event_data["waitlist"]):
+        return
+
+    event_data["waitlist"].insert(position, entry)
+    all_data[event_name] = event_data
+    save_responses()
+    _log.info("Restored user %s to waitlist for event %s after failed promotion.", entry.user_id, event_name)
 
 
 def calculate_attendance(

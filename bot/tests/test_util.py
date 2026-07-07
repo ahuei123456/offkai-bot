@@ -12,6 +12,7 @@ from offkai_bot.errors import (
     EventDateTimeInPastError,
     EventDeadlineAfterEventError,
     EventDeadlineInPastError,
+    EventNameTooLongError,
     InvalidChannelTypeError,
     InvalidDateTimeFormatError,
 )
@@ -20,6 +21,7 @@ from offkai_bot.errors import (
 # Import build_checkin_url / build_checkin_token for their own test sections below
 from offkai_bot.util import (
     JST,
+    MAX_EVENT_NAME_LENGTH,
     build_checkin_token,
     build_checkin_url,
     generate_checkin_signature,
@@ -27,6 +29,7 @@ from offkai_bot.util import (
     parse_event_datetime,
     validate_event_datetime,
     validate_event_deadline,
+    validate_event_name,
     validate_guild_context,
     validate_interaction_context,
 )
@@ -141,6 +144,33 @@ def test_parse_event_datetime_invalid_values():
 def test_parse_drinks(input_str, expected_list):
     """Test parsing various drink strings."""
     assert parse_drinks(input_str) == expected_list
+
+
+# --- Tests for validate_event_name ---
+
+
+def test_validate_event_name_within_limit():
+    """Test that a normal-length event name passes validation."""
+    validate_event_name("Summer Offkai 2026")  # Should not raise
+
+
+def test_validate_event_name_at_limit():
+    """Test that a name exactly at the maximum length passes validation."""
+    validate_event_name("a" * MAX_EVENT_NAME_LENGTH)  # Should not raise
+
+
+def test_validate_event_name_too_long():
+    """Test that a name over the maximum length raises EventNameTooLongError."""
+    long_name = "a" * (MAX_EVENT_NAME_LENGTH + 1)
+    with pytest.raises(EventNameTooLongError) as exc_info:
+        validate_event_name(long_name)
+    assert exc_info.value.event_name == long_name
+    assert exc_info.value.max_length == MAX_EVENT_NAME_LENGTH
+
+
+def test_validate_event_name_limit_fits_discord_custom_id():
+    """The modal custom_id 'modal_<event_name>' must fit Discord's 100-char cap."""
+    assert len("modal_") + MAX_EVENT_NAME_LENGTH <= 100
 
 
 # --- Tests for validate_interaction_context ---
@@ -309,6 +339,26 @@ def test_validate_event_deadline_past(mock_dt):
 
     with pytest.raises(EventDeadlineInPastError):
         validate_event_deadline(FUTURE_EVENT_AFTER_DEADLINE, PAST_DEADLINE)
+
+
+@patch("offkai_bot.util.datetime")
+def test_validate_event_deadline_past_allowed_when_not_required_future(mock_dt):
+    """Test a past deadline passes when require_future=False, as long as it precedes the event."""
+    mock_dt.now.return_value = NOW_UTC_FOR_DEADLINE
+
+    try:
+        validate_event_deadline(FUTURE_EVENT_AFTER_DEADLINE, PAST_DEADLINE, require_future=False)
+    except (EventDeadlineInPastError, EventDeadlineAfterEventError):
+        pytest.fail("validate_event_deadline raised an error unexpectedly")
+
+
+@patch("offkai_bot.util.datetime")
+def test_validate_event_deadline_ordering_still_checked_when_not_required_future(mock_dt):
+    """Test require_future=False still rejects a deadline that is not before the event time."""
+    mock_dt.now.return_value = NOW_UTC_FOR_DEADLINE
+
+    with pytest.raises(EventDeadlineAfterEventError):
+        validate_event_deadline(EVENT_BEFORE_DEADLINE, FUTURE_DEADLINE, require_future=False)
     mock_dt.now.assert_called_once_with(UTC)
 
 

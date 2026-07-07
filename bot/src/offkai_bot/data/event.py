@@ -475,7 +475,13 @@ def update_event_details(
         # This will raise InvalidDateTimeFormatError immediately if parsing fails
         parsed_datetime = parse_event_datetime(date_time_str)
         validate_event_datetime(parsed_datetime)
-        validate_event_deadline(parsed_datetime, parsed_deadline)
+        if deadline_str is not None:
+            validate_event_deadline(parsed_datetime, parsed_deadline)
+        else:
+            # The deadline isn't being changed, so the new datetime must still come after
+            # it — but an existing deadline that has already passed shouldn't block the
+            # change (that's normal once signups have closed).
+            validate_event_deadline(parsed_datetime, event.event_deadline, require_future=False)
     else:
         validate_event_deadline(event.event_datetime, parsed_deadline)
 

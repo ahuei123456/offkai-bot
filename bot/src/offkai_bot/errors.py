@@ -135,6 +135,14 @@ class NoResponsesFoundError(BotCommandError):
         super().__init__(f"No responses found for '{event_name}'.")
 
 
+class LegacyRankEntryNotFoundError(BotCommandError):
+    """Raised when a manual rank migration references a legacy username key that doesn't exist."""
+
+    def __init__(self, legacy_username: str):
+        self.legacy_username = legacy_username
+        super().__init__(f"❌ No legacy rank entry found for username '{legacy_username}'.")
+
+
 class NoWaitlistEntriesFoundError(BotCommandError):
     """Raised by waitlist command when no waitlist entries exist for an event."""
 
@@ -196,6 +204,18 @@ class EventDeadlineAfterEventError(BotCommandError):
 
     def __init__(self):
         super().__init__("❌ Event deadline must be set *before* the event date/time.")
+
+
+class EventNameTooLongError(BotCommandError):
+    """Raised when the provided event name exceeds the maximum allowed length."""
+
+    def __init__(self, event_name: str, max_length: int):
+        self.event_name = event_name
+        self.max_length = max_length
+        super().__init__(
+            f"❌ Event name is too long ({len(event_name)} characters). "
+            f"Please use a name with at most {max_length} characters."
+        )
 
 
 class CapacityReductionError(BotCommandError):

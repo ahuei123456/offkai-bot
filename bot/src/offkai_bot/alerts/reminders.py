@@ -77,6 +77,13 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
 
             if event.channel_id:
                 role_ping = f"<@&{event.ping_role_id}> " if event.ping_role_id else ""
+                # The client-wide default suppresses all mentions; opt back in for
+                # just the configured ping role so the reminder actually notifies.
+                reminder_mentions = (
+                    discord.AllowedMentions(roles=[discord.Object(id=event.ping_role_id)])
+                    if event.ping_role_id
+                    else None
+                )
 
                 register_alert(
                     event.event_deadline - timedelta(days=1),
@@ -88,6 +95,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         f"See {thread.mention} for details.\n"
                         f"{event.event_name}の登録締切まであと24時間です！"
                         f"詳細は{thread.mention}をご覧ください。",
+                        allowed_mentions=reminder_mentions,
                     ),
                 )
                 _log.info("Registered 24 hour reminder for '%s'.", event.event_name)
@@ -102,6 +110,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         f"See {thread.mention} for details.\n"
                         f"{event.event_name}の登録締切まであと3日です！"
                         f"詳細は{thread.mention}をご覧ください。",
+                        allowed_mentions=reminder_mentions,
                     ),
                 )
                 _log.info("Registered 3 day reminder for '%s'.", event.event_name)
@@ -116,6 +125,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
                         f"See {thread.mention} for details.\n"
                         f"{event.event_name}の登録締切まであと1週間です！"
                         f"詳細は{thread.mention}をご覧ください。",
+                        allowed_mentions=reminder_mentions,
                     ),
                 )
 
