@@ -372,6 +372,56 @@ async def test_on_command_error_fails_sending_response(mock_interaction):
         mock_interaction.followup.send.assert_not_called()
 
 
+async def test_on_command_error_pin_permission_error(mock_interaction):
+    """Test PinPermissionError is sent via the guarded helper (followup, since the command already responded)."""
+    # Arrange
+    original_error = errors.PinPermissionError(
+        MagicMock(spec=discord.Thread, mention="<#123>"),
+        MagicMock(spec=discord.Forbidden),
+    )
+    error = app_commands.CommandInvokeError(mock_interaction.command, original_error)
+    # The command already sent its initial response before the pin failed
+    mock_interaction.response.is_done.return_value = True
+
+    with patch("offkai_bot.main._log") as mock_log:
+        # Act
+        await main.on_command_error(mock_interaction, error)
+
+        # Assert: Sent as a followup, not the initial response
+        mock_interaction.followup.send.assert_awaited_once_with(str(original_error), ephemeral=True)
+        mock_interaction.response.send_message.assert_not_called()
+
+        # Assert: Logged as handled at WARNING level
+        mock_log.log.assert_called_once()
+        call_args, _ = mock_log.log.call_args
+        assert call_args[0] == logging.WARNING
+        log_message = call_args[1] % call_args[2:]
+        assert "Handled (PinPermissionError)" in log_message
+
+
+async def test_on_command_error_pin_permission_error_send_fails(mock_interaction):
+    """Test that a failure sending the PinPermissionError followup is logged, not raised."""
+    # Arrange
+    original_error = errors.PinPermissionError(
+        MagicMock(spec=discord.Thread, mention="<#123>"),
+        MagicMock(spec=discord.Forbidden),
+    )
+    error = app_commands.CommandInvokeError(mock_interaction.command, original_error)
+    mock_interaction.response.is_done.return_value = True
+    send_error = discord.HTTPException(MagicMock(), "Failed to send")
+    mock_interaction.followup.send.side_effect = send_error
+
+    with patch("offkai_bot.main._log") as mock_log:
+        # Act (must not raise)
+        await main.on_command_error(mock_interaction, error)
+
+        # Assert: The send failure was logged
+        mock_log.error.assert_called_once()
+        log_call_args = mock_log.error.call_args[0]
+        log_error_msg = log_call_args[0] % log_call_args[1:]
+        assert "Failed to send error response message" in log_error_msg
+
+
 async def test_on_command_error_no_command_context(mock_interaction):
     """Test error handling when interaction.command is None."""
     # Arrange

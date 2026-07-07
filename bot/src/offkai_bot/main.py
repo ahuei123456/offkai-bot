@@ -156,8 +156,8 @@ async def on_command_error(interaction: discord.Interaction, error: app_commands
         case PinPermissionError() as e:
             log_level = getattr(e, "log_level", logging.WARNING)
             _log.log(log_level, "%s - Handled (%s): %s", user_info, type(e).__name__, e)
-            # The initial response was already sent by the command, so we use a followup
-            await interaction.followup.send(str(e), ephemeral=True)
+            # The initial response was already sent by the command, so this lands on the followup path
+            await _send_error_message(interaction, str(e), user_info)
             return  # Handled
 
         # --- Unified Case for other custom errors ---
