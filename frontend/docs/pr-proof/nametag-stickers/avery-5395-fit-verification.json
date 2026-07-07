@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T17:27:51.024Z",
+  "generatedAt": "2026-07-07T01:14:29.327Z",
   "source": "live localhost admin modal, MOCK_MODE=true, ADMIN_KEY=dev",
   "officialAveryPage": "https://www.avery.com/templates/5395",
   "officialVisibleSpec": "Template 5395 Adhesive Name Badges, Letter 8-1/2 x 11, 2-1/3 x 3-3/8, 8 per sheet",
@@ -33,7 +33,7 @@
     "cardCount": 16,
     "blankCount": 1,
     "hasWaitlistInPrintRoot": false,
-    "text": "ENTRY PASSMyGO!!!!! OffkaiNo.1大衆酒場Tomori Takamatsu@tomori_long_handleOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.2Taki Shiina Plus One+1 of @tomori_long_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.3大衆酒場Anon@anonOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.4大衆酒場Rāna@ranaOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.5Soyo Nagasaki With A Long Name@soyo_nagasaki_very_longOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.6Mutsumi Wakaba Extra Long Guest Name+1 of @soyo_nagasaki_very_longOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.7大衆酒場Sakiko@sakikoOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.8Umiri Yahata Extended Test Name@umiri_yahata_extended_handleOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.9Uika Misumi+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.10Nyamu Yutenji Super Long Plus One+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.11大衆酒場Mashiro@mashiroOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.12大衆酒場Touko@toukoOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.13Nanami+1 of @toukoOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.14大衆酒場Tsukushi@tsukushiOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.15大衆酒場Rui@ruiOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiWriteIN大衆酒場  Offkai BotOFFKAI",
+    "text": "ENTRY PASSMyGO!!!!! OffkaiNo.1大衆酒場Tomori Takamatsu@tomori_long_handleOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.2大衆酒場Taki Shiina Plus One+1 of @tomori_long_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.3大衆酒場Anon@anonOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.4大衆酒場Rāna@ranaOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.5大衆酒場Soyo Nagasaki With A Long Name@soyo_nagasaki_very_longOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.6大衆酒場Mutsumi Wakaba Extra Long Guest Name+1 of @soyo_nagasaki_very_longOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.7大衆酒場Sakiko@sakikoOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.8大衆酒場Umiri Yahata Extended Test Name@umiri_yahata_extended_handleOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.9大衆酒場Uika Misumi+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.10大衆酒場Nyamu Yutenji Super Long Plus One+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.11大衆酒場Mashiro@mashiroOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.12大衆酒場Touko@toukoOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.13大衆酒場Nanami+1 of @toukoOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.14大衆酒場Tsukushi@tsukushiOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.15大衆酒場Rui@ruiOffkai BotOFFKAIENTRY PASSMyGO!!!!! Offkai大衆酒場  Offkai BotOFFKAI",
     "sheets": [
       {
         "page": 1,
@@ -58,7 +58,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.2Taki Shiina Plus One+1 of @tomori_long_handleOffkai Bot+1 GUEST"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.2大衆酒場Taki Shiina Plus One+1 of @tomori_long_handleOffkai Bot+1 GUEST"
           },
           {
             "index": 3,
@@ -85,7 +85,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.5Soyo Nagasaki With A Long Name@soyo_nagasaki_very_longOffkai BotOFFKAI"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.5大衆酒場Soyo Nagasaki With A Long Name@soyo_nagasaki_very_longOffkai BotOFFKAI"
           },
           {
             "index": 6,
@@ -94,7 +94,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.6Mutsumi Wakaba Extra Long Guest Name+1 of @soyo_nagasaki_very_longOffkai Bot+1 GUEST"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.6大衆酒場Mutsumi Wakaba Extra Long Guest Name+1 of @soyo_nagasaki_very_longOffkai Bot+1 GUEST"
           },
           {
             "index": 7,
@@ -112,7 +112,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.8Umiri Yahata Extended Test Name@umiri_yahata_extended_handleOffkai BotOFFKAI"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.8大衆酒場Umiri Yahata Extended Test Name@umiri_yahata_extended_handleOffkai BotOFFKAI"
           }
         ]
       },
@@ -130,7 +130,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.9Uika Misumi+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUEST"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.9大衆酒場Uika Misumi+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUEST"
           },
           {
             "index": 10,
@@ -139,7 +139,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.10Nyamu Yutenji Super Long Plus One+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUEST"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.10大衆酒場Nyamu Yutenji Super Long Plus One+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUEST"
           },
           {
             "index": 11,
@@ -166,7 +166,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": false,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.13Nanami+1 of @toukoOffkai Bot+1 GUEST"
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.13大衆酒場Nanami+1 of @toukoOffkai Bot+1 GUEST"
           },
           {
             "index": 14,
@@ -193,7 +193,7 @@
             "w": 324.0156,
             "h": 224,
             "blank": true,
-            "text": "ENTRY PASSMyGO!!!!! OffkaiWriteIN大衆酒場  Offkai BotOFFKAI"
+            "text": "ENTRY PASSMyGO!!!!! Offkai大衆酒場  Offkai BotOFFKAI"
           }
         ]
       }

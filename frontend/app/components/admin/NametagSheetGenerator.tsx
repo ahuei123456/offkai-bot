@@ -80,7 +80,6 @@ function EntrySticker({ entry, eventName }: { entry: NametagEntry; eventName: st
   const metaClass = showSubLine ? 'nametag-card--with-meta' : ''
   const denseClass = entry.discordLine.length > 24 || entry.subLine.length > 24 ? 'nametag-card--dense' : ''
   const kindClass = entry.kind === 'guest' ? 'nametag-card--guest' : ''
-  const showStamp = entry.kind !== 'guest' && !nameClass
 
   return (
     <article className={`nametag-card nametag-card--plain ${nameClass} ${metaClass} ${denseClass} ${kindClass}`} style={textFitVars(entry)}>
@@ -95,7 +94,7 @@ function EntrySticker({ entry, eventName }: { entry: NametagEntry; eventName: st
         </div>
       </div>
       <div className="nametag-card__body">
-        {showStamp && <span className="nametag-card__stamp" aria-hidden="true">大衆酒場</span>}
+        <span className="nametag-card__stamp" aria-hidden="true">大衆酒場</span>
         <p className="nametag-card__name">{entry.name}</p>
         <div className="nametag-card__identity">
           <p className="nametag-card__discord">{entry.discordLine}</p>
@@ -117,10 +116,6 @@ function BlankSticker({ eventName }: { eventName: string }) {
         <div>
           <p className="nametag-card__hello">ENTRY PASS</p>
           <p className="nametag-card__my-name">{eventName}</p>
-        </div>
-        <div className="nametag-card__number" aria-label="Write-in blank sticker">
-          <span>Write</span>
-          <strong>IN</strong>
         </div>
       </div>
       <div className="nametag-card__body">

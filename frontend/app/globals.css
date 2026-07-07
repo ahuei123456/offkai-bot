@@ -384,11 +384,11 @@ button, a, input {
 
 .nametag-card--plain .nametag-card__number {
   min-width: 16mm;
-  border: 0.45mm solid white;
-  border-radius: 1.1mm;
-  background: white;
-  padding: 0.55mm 1.9mm 0.65mm 1.35mm;
-  color: #111;
+  border: 0;
+  border-radius: 0;
+  background: #111;
+  padding: 0.15mm 0 0.25mm;
+  color: white;
   box-shadow: none;
 }
 
@@ -397,7 +397,7 @@ button, a, input {
 }
 
 .nametag-card--plain .nametag-card__number strong {
-  font-size: clamp(25px, 7mm, 34px);
+  font-size: clamp(26px, 7.2mm, 35px);
 }
 
 .nametag-card--plain .nametag-card__body {
@@ -470,13 +470,13 @@ button, a, input {
   gap: 1.15mm;
 }
 
-.nametag-card--plain.nametag-card--guest .nametag-card__stamp {
-  display: none;
-}
-
+.nametag-card--plain.nametag-card--guest .nametag-card__stamp,
 .nametag-card--plain.nametag-card--name-long .nametag-card__stamp,
 .nametag-card--plain.nametag-card--name-xlong .nametag-card__stamp {
-  display: none;
+  left: 2.6mm;
+  top: 2mm;
+  padding: 0.5mm 1.25mm;
+  font-size: clamp(6px, 1.65mm, 8px);
 }
 
 .nametag-card--plain.nametag-card--guest .nametag-card__name {
@@ -578,22 +578,6 @@ button, a, input {
   justify-items: stretch;
   padding: 0 7.2mm;
   background: transparent;
-}
-
-.nametag-card--plain.nametag-card--blank .nametag-card__number {
-  min-width: 15mm;
-  padding-inline: 1.2mm;
-}
-
-.nametag-card--plain.nametag-card--blank .nametag-card__number span {
-  font-size: clamp(6px, 1.55mm, 8px);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.nametag-card--plain.nametag-card--blank .nametag-card__number strong {
-  font-size: clamp(15px, 4.2mm, 21px);
-  letter-spacing: 0.02em;
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__stamp {
