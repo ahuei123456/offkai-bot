@@ -453,16 +453,20 @@ button, a, input {
 }
 
 .nametag-card--plain.nametag-card--name-long .nametag-card__name {
-  line-height: 0.98;
+  font-size: calc(var(--nametag-name-mm, 10mm) * 0.93);
+  line-height: 0.94;
+  transform: translateY(1.1mm);
 }
 
 .nametag-card--plain.nametag-card--name-xlong .nametag-card__name {
-  line-height: 0.98;
+  font-size: calc(var(--nametag-name-mm, 10mm) * 0.93);
+  line-height: 0.94;
+  transform: translateY(1.1mm);
 }
 
 .nametag-card--plain.nametag-card--with-meta.nametag-card--name-long .nametag-card__name,
 .nametag-card--plain.nametag-card--with-meta.nametag-card--name-xlong .nametag-card__name {
-  line-height: 0.98;
+  line-height: 0.94;
 }
 
 .nametag-card--plain.nametag-card--guest .nametag-card__body {
@@ -473,10 +477,10 @@ button, a, input {
 .nametag-card--plain.nametag-card--guest .nametag-card__stamp,
 .nametag-card--plain.nametag-card--name-long .nametag-card__stamp,
 .nametag-card--plain.nametag-card--name-xlong .nametag-card__stamp {
-  left: 2.6mm;
-  top: 2mm;
-  padding: 0.5mm 1.25mm;
-  font-size: clamp(6px, 1.65mm, 8px);
+  left: 2.4mm;
+  top: 0.65mm;
+  padding: 0.42mm 1.1mm;
+  font-size: clamp(5px, 1.45mm, 7px);
 }
 
 .nametag-card--plain.nametag-card--guest .nametag-card__name {
@@ -489,7 +493,9 @@ button, a, input {
 .nametag-card--plain.nametag-card--guest.nametag-card--name-long .nametag-card__name,
 .nametag-card--plain.nametag-card--guest.nametag-card--name-xlong .nametag-card__name {
   max-width: 68mm;
-  line-height: 0.98;
+  font-size: calc(var(--nametag-name-mm, 10mm) * 0.93);
+  line-height: 0.94;
+  transform: translateY(1.1mm);
 }
 
 .nametag-card--plain .nametag-card__identity {
@@ -574,14 +580,16 @@ button, a, input {
   grid-row: 2;
   grid-template-rows: 1fr;
   grid-template-columns: minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   justify-items: stretch;
-  padding: 0 7.2mm;
+  padding: 8.2mm 7.2mm 0;
   background: transparent;
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__stamp {
   display: block;
+  left: 3mm;
+  top: 2mm;
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__blank-lines {
@@ -593,17 +601,17 @@ button, a, input {
   justify-self: stretch;
   align-content: center;
   justify-items: stretch;
-  gap: 6.8mm;
-  padding: 5mm 5.5mm 4.8mm;
-  border: 0.45mm solid #111;
-  border-radius: 1.2mm;
-  background: rgba(255, 255, 255, 0.94);
+  gap: 7.2mm;
+  padding: 0 2mm;
+  border: 0;
+  background: transparent;
 }
 
 .nametag-card--plain.nametag-card--blank .nametag-card__blank-lines span {
   display: block;
   min-height: 1mm;
-  width: 100%;
+  width: 78%;
+  justify-self: center;
   border-bottom: 1mm solid #111;
 }
 
