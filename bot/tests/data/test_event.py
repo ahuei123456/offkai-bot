@@ -1510,6 +1510,72 @@ def test_create_event_message():
     assert actual_message == expected_message
 
 
+# == interest_check field Tests ==
+
+
+def test_load_event_data_interest_check_defaults_false(mock_paths):
+    """Old JSON without the interest_check key loads as a regular event."""
+    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
+    event_dict = {
+        "event_name": "Legacy Event",
+        "venue": "V1",
+        "address": "A1",
+        "google_maps_link": "g1",
+        "event_datetime": dt1.isoformat(),
+        "event_deadline": None,
+        "channel_id": 1,
+        "thread_id": 11,
+        "message_id": 111,
+        "open": True,
+        "archived": False,
+        "drinks": [],
+    }
+    valid_json = json.dumps([event_dict], indent=4)
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=valid_json)),
+        patch("offkai_bot.data.event._log"),
+    ):
+        events = event_data._load_event_data()
+
+    assert len(events) == 1
+    assert events[0].interest_check is False
+
+
+def test_load_event_data_interest_check_true_round_trips(mock_paths):
+    """An interest_check flag persisted in JSON is loaded back."""
+    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
+    event_dict = {
+        "event_name": "Interest Event",
+        "venue": "TBD",
+        "address": "TBD",
+        "google_maps_link": "",
+        "event_datetime": dt1.isoformat(),
+        "event_deadline": None,
+        "channel_id": 1,
+        "thread_id": 11,
+        "message_id": 111,
+        "open": True,
+        "archived": False,
+        "drinks": [],
+        "interest_check": True,
+    }
+    valid_json = json.dumps([event_dict], indent=4)
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.path.getsize", return_value=100),
+        patch("builtins.open", mock_open(read_data=valid_json)),
+        patch("offkai_bot.data.event._log"),
+    ):
+        events = event_data._load_event_data()
+
+    assert len(events) == 1
+    assert events[0].interest_check is True
+
+
 def test_create_event_message_with_deadline():
     # Simulate event/deadline times (e.g., JST) stored as UTC
     event_naive_jst = datetime(2024, 8, 1, 12, 0, 0)

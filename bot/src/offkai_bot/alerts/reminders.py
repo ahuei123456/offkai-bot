@@ -75,7 +75,9 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
             register_alert(event.event_deadline, CloseOffkaiTask(client=client, event_name=event.event_name))
             _log.info("Registered auto-close task for '%s'.", event.event_name)
 
-            if event.channel_id:
+            # Interest checks are non-binding: auto-close at the deadline, but
+            # never nag the channel with countdown pings.
+            if event.channel_id and not event.interest_check:
                 role_ping = f"<@&{event.ping_role_id}> " if event.ping_role_id else ""
                 # The client-wide default suppresses all mentions; opt back in for
                 # just the configured ping role so the reminder actually notifies.
@@ -297,6 +299,10 @@ def register_checkin_reminder(client: discord.Client, event: Event) -> None:
     unregister_checkin_reminder(event.event_name)
 
     if event.archived:
+        return
+
+    # Interest checks are not real attendance — never send QR/check-in DMs.
+    if event.interest_check:
         return
 
     with contextlib.suppress(AlertTimeInPastError):
