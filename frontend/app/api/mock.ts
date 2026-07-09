@@ -12,6 +12,7 @@ export interface MockEvent {
   event_deadline: string
   open: boolean
   archived: boolean
+  interest_check?: boolean
   drinks: string[]
   max_capacity: number | null
 }

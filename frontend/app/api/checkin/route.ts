@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readEvents, readResponses, readCheckins, writeCheckins, getDefaultEvent } from '../db'
+import { readEvents, readResponses, readCheckins, writeCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
 import type { CheckinRecord } from '../db'
 import { verifyToken } from '../token'
 import { parseEventParam, parseUserId } from '../validation'
@@ -42,6 +42,7 @@ function resolveAttendee(eventName: string, userId: string):
     const ev = MOCK_EVENTS.find(e => e.event_name === eventName)
     if (!ev || !MOCK_ATTENDEES[eventName]) return { ok: false, kind: 'event_not_found' }
     if (ev.archived) return { ok: false, kind: 'event_archived' }
+    if (!isSelectableForCheckin(ev)) return { ok: false, kind: 'event_not_found' }
     const a = findMockAttendee(eventName, userId)
     if (!a || a.status !== 'attending') return { ok: false, kind: 'attendee_not_in_event' }
     return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
@@ -50,6 +51,7 @@ function resolveAttendee(eventName: string, userId: string):
   const ev = readEvents().find(e => e.event_name === eventName)
   if (!ev) return { ok: false, kind: 'event_not_found' }
   if (ev.archived) return { ok: false, kind: 'event_archived' }
+  if (!isSelectableForCheckin(ev)) return { ok: false, kind: 'event_not_found' }
   const er = readResponses()[eventName]
   const a = (er?.attendees || []).find(x => x.user_id === userId)
   if (!a) return { ok: false, kind: 'attendee_not_in_event' }
@@ -121,6 +123,11 @@ function defaultEventName(): string | null {
   return getDefaultEvent(src)?.event_name ?? null
 }
 
+function isAvailableCheckinEvent(eventName: string): boolean {
+  const events = MOCK_MODE ? MOCK_EVENTS : readEvents()
+  return events.some(e => e.event_name === eventName && isSelectableForCheckin(e))
+}
+
 // Shared check-out entry point used by both POST(action=checkout) and DELETE.
 function performCheckout(rawUserId: unknown, rawBodyEvent: unknown, rawQueryEvent: string | null) {
   const userId = parseUserId(rawUserId)
@@ -159,6 +166,9 @@ export async function GET(request: NextRequest) {
   }
   const eventName = requestedEvent || defaultEventName()
   if (!eventName) return NextResponse.json([])
+  if (!isAvailableCheckinEvent(eventName)) {
+    return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
+  }
 
   const checkins = MOCK_MODE ? mockCheckins : readCheckins()
   return NextResponse.json(checkins.filter(c => c.event_name === eventName))

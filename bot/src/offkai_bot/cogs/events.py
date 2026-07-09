@@ -772,7 +772,9 @@ class EventsCog(commands.Cog):
     ):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        get_event(event_name)
+        event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Attendance")
         total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks, sort=sort)
 
         output = _format_attendance_output(event_name, total_count, attendee_list)
@@ -814,6 +816,8 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Attendance reports")
         if event.open or not has_complete_attendee_numbers(event_name):
             await interaction.followup.send(
                 "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",

@@ -146,8 +146,9 @@ export interface EventLike {
   interest_check?: boolean
 }
 
-// Interest checks have no attendance to check in — keep them out of the admin UI.
-function isSelectable(e: EventLike): boolean {
+// Interest checks have no attendance to check in — keep them out of every
+// admin/check-in route, including direct API requests.
+export function isSelectableForCheckin(e: EventLike): boolean {
   return !e.archived && !e.interest_check
 }
 
@@ -156,11 +157,10 @@ function isSelectable(e: EventLike): boolean {
 //    or later — so an event still counts as the default on the day it happens)
 //  - if every event is in the past, the most recent past one
 export function getDefaultEvent<T extends EventLike>(events: T[]): T | null {
-  const dated = events.filter(e => isSelectable(e) && e.event_datetime)
+  const dated = events.filter(e => isSelectableForCheckin(e) && e.event_datetime)
   if (dated.length === 0) {
-    const nonArchived = events.filter(isSelectable)
-    if (nonArchived.length > 0) return nonArchived[nonArchived.length - 1]
-    return events.length > 0 ? events[events.length - 1] : null
+    const selectable = events.filter(isSelectableForCheckin)
+    return selectable.length > 0 ? selectable[selectable.length - 1] : null
   }
 
   const todayKey = jstDayNumber(new Date())
@@ -186,7 +186,7 @@ export function orderEventsForDropdown<T extends EventLike>(events: T[]): T[] {
   const isUpcoming = (e: T) =>
     e.event_datetime ? jstDayNumber(new Date(e.event_datetime)) >= todayKey : false
 
-  const selectable = events.filter(isSelectable)
+  const selectable = events.filter(isSelectableForCheckin)
   const upcoming = selectable.filter(isUpcoming).sort((a, b) => time(a) - time(b))
   const past = selectable.filter(e => !isUpcoming(e)).sort((a, b) => time(b) - time(a))
   return [...upcoming, ...past]

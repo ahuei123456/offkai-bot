@@ -110,6 +110,34 @@ async def test_drinks_rejected_for_interest_check(
     mock_calculate_drinks.assert_not_called()
 
 
+@patch("offkai_bot.cogs.events.calculate_attendance")
+@patch("offkai_bot.cogs.events.get_event")
+async def test_attendance_rejected_for_interest_check(
+    mock_get_event, mock_calculate_attendance, mock_interaction, interest_event, mock_cog
+):
+    mock_get_event.return_value = interest_event
+
+    with pytest.raises(InterestCheckOperationError):
+        await EventsCog.attendance.callback(mock_cog, mock_interaction, event_name=interest_event.event_name)
+
+    mock_calculate_attendance.assert_not_called()
+
+
+@patch("offkai_bot.cogs.events.build_attendee_report_rows")
+@patch("offkai_bot.cogs.events.has_complete_attendee_numbers")
+@patch("offkai_bot.cogs.events.get_event")
+async def test_attendance_report_rejected_for_interest_check(
+    mock_get_event, mock_has_complete_numbers, mock_build_report_rows, mock_interaction, interest_event, mock_cog
+):
+    mock_get_event.return_value = interest_event
+
+    with pytest.raises(InterestCheckOperationError):
+        await EventsCog.attendance_report.callback(mock_cog, mock_interaction, event_name=interest_event.event_name)
+
+    mock_has_complete_numbers.assert_not_called()
+    mock_build_report_rows.assert_not_called()
+
+
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events.validate_interaction_context")

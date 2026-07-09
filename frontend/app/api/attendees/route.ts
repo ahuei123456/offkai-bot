@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readEvents, readResponses, getDefaultEvent } from '../db'
+import { readEvents, readResponses, getDefaultEvent, isSelectableForCheckin } from '../db'
 import { parseEventParam } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES } from '../mock'
 
@@ -18,11 +18,14 @@ export async function GET(request: NextRequest) {
   }
 
   if (MOCK_MODE) {
-    const defaultEvent = getDefaultEvent(MOCK_EVENTS)
-    const eventName = requestedEvent || defaultEvent?.event_name
-    if (!eventName) {
+    const activeEvent = requestedEvent
+      ? MOCK_EVENTS.find(e => e.event_name === requestedEvent && isSelectableForCheckin(e))
+      : getDefaultEvent(MOCK_EVENTS)
+    if (!activeEvent) {
+      if (requestedEvent) return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
       return NextResponse.json({ event_name: 'No Active Event', attendees: [] })
     }
+    const eventName = activeEvent.event_name
     if (!MOCK_ATTENDEES[eventName]) {
       return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
     }
@@ -34,7 +37,7 @@ export async function GET(request: NextRequest) {
   // Resolve which event to show: an explicit (validated) selection, else default.
   let activeEvent
   if (requestedEvent) {
-    activeEvent = events.find(e => e.event_name === requestedEvent && !e.archived)
+    activeEvent = events.find(e => e.event_name === requestedEvent && isSelectableForCheckin(e))
     if (!activeEvent) {
       return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
     }

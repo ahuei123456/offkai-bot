@@ -170,6 +170,33 @@ async def test_interest_modal_submit_rejects_invalid_extra_people(mock_add_respo
     assert "between 0 and 5" in mock_interaction.response.send_message.call_args[0][0]
 
 
+@pytest.mark.parametrize(
+    "event",
+    [
+        make_interest_event(open_=False),
+        make_interest_event(deadline_offset=timedelta(days=-1)),
+    ],
+    ids=["manually_closed", "past_deadline"],
+)
+@patch("offkai_bot.interactions._refresh_interest_check_message", new_callable=AsyncMock)
+@patch("offkai_bot.interactions.add_response")
+async def test_interest_modal_submit_rejects_closed_interest_check(
+    mock_add_response, mock_refresh, mock_interaction, event
+):
+    modal = InterestCheckModal(event=event)
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "2"
+
+    await modal.on_submit(mock_interaction)
+
+    mock_add_response.assert_not_called()
+    mock_refresh.assert_not_awaited()
+    mock_interaction.channel.add_user.assert_not_awaited()
+    mock_interaction.response.send_message.assert_awaited_once()
+    assert "no longer accepting responses" in mock_interaction.response.send_message.call_args[0][0]
+    assert mock_interaction.response.send_message.call_args.kwargs.get("ephemeral") is True
+
+
 @patch("offkai_bot.interactions._refresh_interest_check_message", new_callable=AsyncMock)
 @patch("offkai_bot.interactions.add_response")
 async def test_interest_modal_submit_duplicate_is_ephemeral_error(mock_add_response, mock_refresh, mock_interaction):
@@ -325,6 +352,17 @@ def test_build_interest_check_tally_empty(mock_get_responses):
 
 
 @patch("offkai_bot.event_actions.get_responses")
+def test_build_interest_check_tally_truncates_long_response_list(mock_get_responses):
+    mock_get_responses.return_value = [make_response(index, "a" * 100) for index in range(30)]
+
+    tally = build_interest_check_tally(make_interest_event())
+
+    assert len(tally) <= 2000
+    assert "**Total interested (興味あり合計)**: 30" in tally
+    assert tally.endswith("... (list truncated)")
+
+
+@patch("offkai_bot.event_actions.get_responses")
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.save_event_data")
@@ -351,10 +389,45 @@ async def test_perform_close_event_posts_tally_for_interest_check(
     client = MagicMock(spec=discord.Client)
     await perform_close_event(client, event.event_name)
 
+    mock_assign_numbers.assert_not_called()
+    assert event.max_attendee_number is None
     mock_thread.send.assert_awaited_once()
     sent = mock_thread.send.call_args[0][0]
     assert "Interest check closed" in sent
     assert "**Total interested (興味あり合計)**: 2" in sent
+
+
+@patch("offkai_bot.event_actions.get_responses")
+@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.save_responses")
+@patch("offkai_bot.event_actions.assign_attendee_numbers")
+@patch("offkai_bot.event_actions.set_event_open_status")
+async def test_perform_close_interest_check_truncates_long_close_message(
+    mock_set_status,
+    mock_assign_numbers,
+    mock_save_responses,
+    mock_save_event_data,
+    mock_update_message,
+    mock_fetch_thread,
+    mock_get_responses,
+):
+    event = make_interest_event(open_=False)
+    mock_set_status.return_value = event
+    mock_get_responses.return_value = [make_response(1, "alice", extra_people=1)]
+    mock_thread = MagicMock(spec=discord.Thread)
+    mock_thread.send = AsyncMock()
+    mock_fetch_thread.return_value = mock_thread
+    close_msg = "x" * 3000
+
+    await perform_close_event(MagicMock(spec=discord.Client), event.event_name, close_msg)
+
+    sent = mock_thread.send.call_args[0][0]
+    tally = build_interest_check_tally(event)
+    assert len(sent) <= 2000
+    assert sent.startswith(tally)
+    assert sent == f"{tally}\n\n{close_msg[: 2000 - len(tally) - 2]}"
 
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)

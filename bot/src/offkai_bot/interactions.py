@@ -765,6 +765,12 @@ class InterestCheckModal(ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            # The modal can remain open in a user's client after the interest
+            # check has been closed, so re-check its state at submission time.
+            if not self.event.open or self.event.is_past_deadline:
+                await error_message(interaction, "This interest check is no longer accepting responses.")
+                return
+
             num_extra_people = validate_extra_people_input(self.extra_people_input.value)
 
             new_response = Response(

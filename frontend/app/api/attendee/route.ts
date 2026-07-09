@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readEvents, readResponses, readCheckins, getDefaultEvent } from '../db'
+import { readEvents, readResponses, readCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
 import { verifyToken } from '../token'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
 
@@ -19,12 +19,12 @@ export async function GET(request: NextRequest) {
     // Event is the one the (v2) token is bound to, else the same default the
     // admin dashboard uses — never a divergent "active event" guess.
     const eventName = resolved.eventName || getDefaultEvent(MOCK_EVENTS)?.event_name
-    if (!eventName || !MOCK_ATTENDEES[eventName]) {
+    const ev = MOCK_EVENTS.find(e => e.event_name === eventName)
+    if (!eventName || !ev || !isSelectableForCheckin(ev) || !MOCK_ATTENDEES[eventName]) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
     const mockA = findMockAttendee(eventName, resolved.userId)
     if (!mockA) return NextResponse.json({ error: 'not_found' }, { status: 404 })
-    const ev = MOCK_EVENTS.find(e => e.event_name === eventName)!
     const isCheckedIn = mockCheckins.some(c => c.user_id === mockA.user_id && c.event_name === eventName)
     return NextResponse.json({
       attendee: {
@@ -48,11 +48,13 @@ export async function GET(request: NextRequest) {
   // Resolve the attendee's event: bound by the token (v2) or the shared default.
   let event
   if (resolved.eventName) {
-    event = events.find(e => e.event_name === resolved.eventName && !e.archived)
+    event = events.find(e => e.event_name === resolved.eventName)
   } else {
     event = getDefaultEvent(events)
   }
-  if (!event) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  if (!event || !isSelectableForCheckin(event)) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  }
 
   const responses = readResponses()
   const eventResponses = responses[event.event_name]

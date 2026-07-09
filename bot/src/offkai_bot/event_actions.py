@@ -25,6 +25,7 @@ from offkai_bot.interactions import (
 )
 
 _log = logging.getLogger(__name__)
+_DISCORD_MESSAGE_LIMIT = 2000
 
 
 def get_event_view(event: Event):
@@ -65,6 +66,22 @@ def build_interest_check_tally(event: Event) -> str:
     return output
 
 
+def _build_interest_check_close_message(tally: str, close_msg: str | None) -> str:
+    """Combine an interest-check tally and optional note within Discord's message limit.
+
+    The tally is the closing result, so it takes priority over an organizer's
+    optional note.  The note is truncated (or omitted) when necessary rather
+    than risking Discord rejecting the entire closing message.
+    """
+    if not close_msg:
+        return tally
+
+    available_for_close_msg = _DISCORD_MESSAGE_LIMIT - len(tally) - 2
+    if available_for_close_msg <= 0:
+        return tally
+    return f"{tally}\n\n{close_msg[:available_for_close_msg]}"
+
+
 async def perform_close_event(client: discord.Client, event_name: str, close_msg: str | None = None) -> Event:
     """
     Performs the core logic for closing an event.
@@ -85,7 +102,8 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 
     # 1. Update status in data store (raises EventNotFoundError if not found)
     closed_event = set_event_open_status(event_name, target_open_status=False)
-    closed_event.max_attendee_number = assign_attendee_numbers(event_name)
+    if not closed_event.interest_check:
+        closed_event.max_attendee_number = assign_attendee_numbers(event_name)
 
     # 2. Save the change
     save_responses()
@@ -101,7 +119,7 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
     # when the organizer provided a closing message.
     if closed_event.interest_check:
         tally = build_interest_check_tally(closed_event)
-        thread_message = f"{tally}\n\n{close_msg}" if close_msg else tally
+        thread_message = _build_interest_check_close_message(tally, close_msg)
     elif close_msg:
         thread_message = f"**Responses Closed:**\n{close_msg}"
     else:
