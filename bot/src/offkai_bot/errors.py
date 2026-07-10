@@ -143,6 +143,15 @@ class LegacyRankEntryNotFoundError(BotCommandError):
         super().__init__(f"❌ No legacy rank entry found for username '{legacy_username}'.")
 
 
+class InterestCheckOperationError(BotCommandError):
+    """Raised when a full-signup operation is attempted on an interest-check event."""
+
+    def __init__(self, event_name: str, operation: str):
+        self.event_name = event_name
+        self.operation = operation
+        super().__init__(f"❌ {operation} is not available for interest check '{event_name}'.")
+
+
 class NoWaitlistEntriesFoundError(BotCommandError):
     """Raised by waitlist command when no waitlist entries exist for an event."""
 

@@ -45,6 +45,7 @@ from offkai_bot.errors import (
     BroadcastSendError,
     DuplicateEventError,
     EventNotFoundError,
+    InterestCheckOperationError,
     InvalidChannelTypeError,
     MissingChannelIDError,
     PinPermissionError,
@@ -272,6 +273,98 @@ class EventsCog(commands.Cog):
             _log.error("Failed to pin message due to HTTP error: %s", e)
 
     @app_commands.command(
+        name="create_interest_check",
+        description="Create a lightweight, non-binding interest check in the current channel.",
+    )
+    @app_commands.describe(
+        event_name="The name of the event.",
+        date_time="The tentative event date and time. Examples: '2024-08-15 19:30' or 'tomorrow 7pm'. Assumed JST.",
+        deadline="Optional: When the interest check auto-closes. Examples: '2024-08-15 18:00'. Assumed JST.",
+        announce_msg="Optional: A message to post in the main channel.",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def create_interest_check(
+        self,
+        interaction: discord.Interaction,
+        event_name: str,
+        date_time: str,
+        deadline: str | None = None,
+        announce_msg: str | None = None,
+    ):
+        # 1. Business Logic Validation
+        validate_event_name(event_name)
+        with contextlib.suppress(EventNotFoundError):
+            if get_event(event_name):
+                raise DuplicateEventError(event_name)
+
+        # 2. Input Parsing/Transformation
+        event_datetime = parse_event_datetime(date_time)
+        event_deadline = parse_event_datetime(deadline) if deadline else None
+
+        # 3. Context Validation
+        validate_interaction_context(interaction)
+        validate_event_datetime(event_datetime)
+        validate_event_deadline(event_datetime, event_deadline)
+
+        # 4. Acknowledge the interaction before the slow Discord API calls below
+        # (thread creation, event message send) exceed the 3-second window.
+        await interaction.response.defer()
+
+        # --- Discord Interaction Block ---
+        try:
+            assert isinstance(interaction.channel, discord.TextChannel)
+            thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
+        except discord.HTTPException as e:
+            _log.error("Failed to create thread for '%s': %s", event_name, e)
+            raise ThreadCreationError(event_name, e)
+        except AssertionError:
+            _log.error("Interaction channel was unexpectedly not a TextChannel after validation.")
+            raise InvalidChannelTypeError()
+        # --- End Discord Interaction Block ---
+
+        # Interest checks carry placeholder venue details: only the name, the
+        # tentative date, and the deadline matter for gauging a headcount.
+        new_event = add_event(
+            event_name=event_name,
+            venue="TBD",
+            address="TBD",
+            google_maps_link="",
+            event_datetime=event_datetime,
+            event_deadline=event_deadline,
+            channel_id=interaction.channel.id,
+            thread_id=thread.id,
+            drinks_list=[],
+            announce_msg=announce_msg,
+            max_capacity=None,
+            creator_id=interaction.user.id,
+            interest_check=True,
+        )
+
+        # Registers only the auto-close task for interest checks (see reminders.py).
+        # No check-in reminder: interest checks never send QR/check-in DMs.
+        register_deadline_reminders(self.bot, new_event, thread)
+
+        # 6. Further Discord Interaction
+        await send_event_message(thread, new_event)  # Handles saving after message send
+
+        # 7. User Feedback
+        announce_text = f"# Interest Check: {event_name}\n\n"
+        if announce_msg:
+            announce_text += f"{announce_msg}\n\n"
+        announce_text += f"Let us know if you'd be interested: {thread.mention}"
+        message = await interaction.followup.send(announce_text, wait=True)
+
+        try:
+            await message.pin()
+        except discord.Forbidden as e:
+            if message:
+                _log.warning("Failed to pin message: Missing 'Pins' permission.")
+                raise PinPermissionError(message.channel, e) from e
+        except discord.HTTPException as e:
+            _log.error("Failed to pin message due to HTTP error: %s", e)
+
+    @app_commands.command(
         name="modify_offkai",
         description="Modifies an existing offkai event.",
     )
@@ -309,6 +402,10 @@ class EventsCog(commands.Cog):
 
         old_event = get_event(event_name)
         old_capacity = old_event.max_capacity
+
+        # Interest checks have no drink or capacity machinery to configure.
+        if old_event.interest_check and (drinks is not None or max_capacity is not None):
+            raise InterestCheckOperationError(event_name, "Setting drinks or capacity")
 
         modified_event = update_event_details(
             event_name=event_name,
@@ -513,8 +610,11 @@ class EventsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
         removed_response = remove_response(event_name, member.id)
-        decrease_rank(member.id, member.name)
         freed_spots = 1 + removed_response.extra_people
+
+        # Interest registrations never touched ranks or the waitlist.
+        if not event.interest_check:
+            decrease_rank(member.id, member.name)
 
         if event.role_id and interaction.guild:
             await remove_event_role(interaction.guild, member.id, event.role_id)
@@ -522,20 +622,27 @@ class EventsCog(commands.Cog):
         # Offer the freed spots to the waitlist, mirroring the self-withdrawal paths.
         # The delete has already persisted, so promotion failure must not fail the command.
         message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
-        try:
-            promoted_user_ids = await promote_waitlist_batch(event, self.bot, freed_spots=freed_spots)
-            if promoted_user_ids:
-                message += f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spots."
-        except Exception as e:
-            _log.error(
-                "Waitlist promotion failed after deleting response from user %s for event '%s': %s",
-                member.id,
-                event_name,
-                e,
-                exc_info=True,
-            )
-            message += "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed."
+        if not event.interest_check:
+            try:
+                promoted_user_ids = await promote_waitlist_batch(event, self.bot, freed_spots=freed_spots)
+                if promoted_user_ids:
+                    message += (
+                        f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spots."
+                    )
+            except Exception as e:
+                _log.error(
+                    "Waitlist promotion failed after deleting response from user %s for event '%s': %s",
+                    member.id,
+                    event_name,
+                    e,
+                    exc_info=True,
+                )
+                message += "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed."
         await interaction.followup.send(message, ephemeral=True)
+
+        # Keep the live interested count on the announcement accurate.
+        if event.interest_check:
+            await update_event_message(self.bot, event)
 
         if event.thread_id:
             thread = self.bot.get_channel(event.thread_id)
@@ -582,6 +689,8 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Waitlist promotion")
 
         try:
             user_id = int(username)
@@ -663,7 +772,9 @@ class EventsCog(commands.Cog):
     ):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        get_event(event_name)
+        event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Attendance")
         total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks, sort=sort)
 
         output = _format_attendance_output(event_name, total_count, attendee_list)
@@ -705,6 +816,8 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Attendance reports")
         if event.open or not has_complete_attendee_numbers(event_name):
             await interaction.followup.send(
                 "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
@@ -750,7 +863,9 @@ class EventsCog(commands.Cog):
         self, interaction: discord.Interaction, event_name: str, sort: bool = False, nicknames: bool = False
     ):
         validate_guild_context(interaction)
-        get_event(event_name)
+        event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "The waitlist")
         total_count, waitlisted_list = calculate_waitlist(event_name, nicknames=nicknames, sort=sort)
 
         output = f"**Waitlist for {event_name}**\n\n"
@@ -772,7 +887,9 @@ class EventsCog(commands.Cog):
     @log_command_usage
     async def drinks(self, interaction: discord.Interaction, event_name: str):
         validate_guild_context(interaction)
-        get_event(event_name)
+        event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Drink tracking")
         total_count, drinks_count = calculate_drinks(event_name)
 
         output = f"**Drinks for {event_name}**\n\n"

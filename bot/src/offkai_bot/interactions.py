@@ -42,6 +42,20 @@ async def error_message(interaction: discord.Interaction, message: str):
     await interaction.response.send_message(f"❌ {message}", ephemeral=True)
 
 
+def validate_extra_people_input(extra_people_str: str) -> int:
+    """Validates an extra-people modal input.
+
+    Returns:
+        int specifying the number of extra people.
+
+    Raises:
+        ValidationError: If input is invalid.
+    """
+    if not extra_people_str.isdigit() or not (0 <= int(extra_people_str) <= 5):
+        raise ValidationError("Extra people must be a number between 0 and 5.")
+    return int(extra_people_str)
+
+
 async def modal_error_message(interaction: discord.Interaction, event_name: str, message: str):
     dm_message = f"❌ I couldn't process your response for **{event_name}**.\n\n{message}"
     try:
@@ -307,10 +321,7 @@ class GatheringModal(ui.Modal):
         Raises:
             ValidationError: If input is invalid.
         """
-        if not extra_people_str.isdigit() or not (0 <= int(extra_people_str) <= 5):
-            raise ValidationError("Extra people must be a number between 0 and 5.")
-        num_extra_people = int(extra_people_str)
-        return num_extra_people
+        return validate_extra_people_input(extra_people_str)
 
     def _validate_confirmations(self, behave_str: str, arrival_str: str) -> None:
         """Validates the confirmation inputs.
@@ -721,6 +732,115 @@ class GatheringModal(ui.Modal):
             # No return needed here
 
 
+class InterestCheckModal(ui.Modal):
+    """Minimal modal for interest checks: just the group size, no commitments."""
+
+    def __init__(
+        self,
+        *,
+        event: Event,
+        timeout=None,
+    ):
+        # Short "imodal_" prefix keeps the custom_id within Discord's 100-char
+        # cap for names up to MAX_EVENT_NAME_LENGTH (see GatheringModal).
+        super().__init__(
+            title=_build_modal_title(event.event_name),
+            timeout=timeout,
+            custom_id=f"imodal_{event.event_name}",
+        )
+        self.event = event
+
+        self.extra_people_input: ui.TextInput = ui.TextInput(
+            label="🧑 Extra people you'd bring (0-5)",
+            placeholder="Enter a number between 0-5",
+            required=True,
+            max_length=1,
+            custom_id="interest_extra_people",
+        )
+        self.add_item(self.extra_people_input)
+
+    @property
+    def event_name(self) -> str:
+        return self.event.event_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            # The modal can remain open in a user's client after the interest
+            # check has been closed, so re-check its state at submission time.
+            if not self.event.open or self.event.is_past_deadline:
+                await error_message(interaction, "This interest check is no longer accepting responses.")
+                return
+
+            num_extra_people = validate_extra_people_input(self.extra_people_input.value)
+
+            new_response = Response(
+                user_id=interaction.user.id,
+                username=interaction.user.name,
+                extra_people=num_extra_people,
+                behavior_confirmed=False,
+                arrival_confirmed=False,
+                event_name=self.event.event_name,
+                timestamp=datetime.now(UTC),
+                drinks=[],
+                extras_names=[],
+                display_name=interaction.user.display_name,
+            )
+            add_response(self.event.event_name, new_response)
+
+            # Interest is non-binding: no DM, no rank/milestone update, no role.
+            group_size = 1 + num_extra_people
+            await interaction.response.send_message(
+                f"🙋 Thanks! You're counted as interested in **{self.event.event_name}** "
+                f"({group_size} {'person' if group_size == 1 else 'people'}).\n"
+                f"🙋 ありがとうございます！**{self.event.event_name}**に"
+                f"興味あり（{group_size}名）として記録されました。",
+                ephemeral=True,
+            )
+
+            # Add user to the thread so they can be reached for follow-ups.
+            try:
+                if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                    await interaction.channel.add_user(interaction.user)
+                else:
+                    _log.warning(
+                        "Could not add user %s to thread %s (not a thread?).",
+                        interaction.user.id,
+                        interaction.channel_id,
+                    )
+            except discord.HTTPException as e:
+                _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
+
+            await _refresh_interest_check_message(interaction.client, self.event)
+
+        except ValidationError as e:
+            await error_message(interaction, str(e))
+
+        except DuplicateResponseError as e:
+            # The error message already carries the ❌ prefix.
+            await interaction.response.send_message(str(e), ephemeral=True)
+
+        except Exception as e:
+            _log.error(
+                "Unexpected error during interest check submission for %s: %s",
+                self.event.event_name,
+                e,
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred processing your response.")
+
+
+async def _refresh_interest_check_message(client: discord.Client, event: Event) -> None:
+    """Re-renders the interest check announcement so the live count stays current."""
+    # Imported locally: event_actions imports this module at import time.
+    from offkai_bot.event_actions import update_event_message
+
+    try:
+        await update_event_message(client, event)
+    except Exception as e:
+        # The response is already recorded; a stale count is not worth failing the interaction.
+        _log.error("Failed to refresh interest check message for '%s': %s", event.event_name, e, exc_info=True)
+
+
 # --- Views ---
 class EventView(ui.View):
     def __init__(self, event: Event):  # Expect Event object
@@ -1009,6 +1129,86 @@ class ClosedEvent(EventView):
                 e,
                 exc_info=True,
             )
+
+
+class InterestCheckEvent(EventView):
+    """View for open interest checks: non-binding register/withdraw only."""
+
+    def __init__(self, event: Event):
+        super().__init__(event=event)
+
+    @discord.ui.button(
+        label="🙋 I'm interested",
+        style=discord.ButtonStyle.success,
+        row=0,
+        custom_id="interest_button",
+    )
+    async def register_interest(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(InterestCheckModal(event=self.event))
+
+    @discord.ui.button(
+        label="Withdraw interest",
+        style=discord.ButtonStyle.danger,
+        row=1,
+        custom_id="interest_withdraw_button",
+    )
+    async def withdraw_interest(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            remove_response(self.event.event_name, interaction.user.id)
+        except ResponseNotFoundError:
+            await error_message(
+                interaction,
+                f"You have not registered interest in **{self.event.event_name}**.",
+            )
+            return
+        except Exception as e:
+            _log.error(
+                "Unexpected error during interest withdrawal for %s by %s: %s",
+                self.event.event_name,
+                interaction.user.id,
+                e,
+                exc_info=True,
+            )
+            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+            return
+
+        # Interest is non-binding: no warning DMs, no rank change, no waitlist promotion.
+        await interaction.response.send_message(
+            f"👋 Your interest in **{self.event.event_name}** has been withdrawn.\n"
+            f"👋 **{self.event.event_name}**への興味ありが取り消されました。",
+            ephemeral=True,
+        )
+
+        try:
+            if interaction.channel and isinstance(interaction.channel, discord.Thread):
+                await interaction.channel.remove_user(interaction.user)
+        except discord.HTTPException as e:
+            _log.error(
+                "Failed to remove user %s from thread %s: %s",
+                interaction.user.id,
+                interaction.channel_id,
+                e,
+            )
+
+        await _refresh_interest_check_message(interaction.client, self.event)
+
+
+class InterestCheckClosedEvent(EventView):
+    """View for closed interest checks: the tally is a snapshot, no more input."""
+
+    def __init__(self, event: Event):
+        super().__init__(event=event)
+
+    @discord.ui.button(
+        label="Interest check closed",
+        style=discord.ButtonStyle.secondary,
+        disabled=True,
+        row=0,
+        custom_id="interest_closed_button",
+    )
+    async def closed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # This button is disabled, so this callback shouldn't trigger
+        await interaction.response.send_message("This interest check is closed.", ephemeral=True)
 
 
 class PostDeadlineEvent(EventView):

@@ -74,6 +74,7 @@ class Event:
     max_attendee_number: int | None = None  # Highest attendee number assigned after close
     ping_role_id: int | None = None  # Discord role ID to ping in deadline reminders
     role_id: int | None = None  # Discord role ID for event participants
+    interest_check: bool = False  # Lightweight interest gauge instead of a binding signup
 
     @property
     def has_drinks(self):
@@ -116,6 +117,15 @@ class Event:
 
         role_line = f"\n🏷️ **Role (ロール)**: <@&{self.role_id}>" if self.role_id else ""
 
+        if self.interest_check:
+            # Interest checks carry placeholder venue/address data — show only
+            # what is meaningful, and flag the date as tentative.
+            return (
+                f"📅 **Event Name (イベント名)**: {self.event_name}\n"
+                f"🕑 **Tentative Date (仮日程)**: {dt_str}\n"
+                f"📅 **Deadline (締切)**: {deadline_str}"
+            )
+
         return (
             f"📅 **Event Name (イベント名)**: {self.event_name}\n"
             f"🍽️ **Venue (会場)**: {self.venue}\n"
@@ -135,6 +145,20 @@ def create_event_message(event: Event) -> str:
     """Creates the full Discord message content for an event announcement."""
     # Use the format_details method from the Event dataclass
     event_details = event.format_details()
+
+    if event.interest_check:
+        interested_count = sum(1 + r.extra_people for r in get_responses(event.event_name))
+        message_block = f"{event.message}\n\n" if event.message else ""
+        return (
+            f"📊 **Interest Check (興味アンケート)**\n\n"
+            f"{event_details}\n\n"
+            f"{message_block}"
+            f"🙋 **Interested so far (現在の興味あり人数)**: {interested_count}\n\n"
+            "This is not a signup — we just want a rough headcount. "
+            "Click the button below if you'd be interested in coming!\n"
+            "これは参加登録ではありません。おおよその人数を把握するためのものです。"
+            "興味がある方は下のボタンをクリックしてください！"
+        )
 
     return (
         f"{event_details}\n\n"  # Event details first
@@ -265,6 +289,7 @@ def _load_event_data() -> list[Event]:
                         max_attendee_number=event_dict.get("max_attendee_number"),
                         ping_role_id=event_dict.get("ping_role_id"),
                         role_id=event_dict.get("role_id"),
+                        interest_check=event_dict.get("interest_check", False),
                     )
                 else:
                     # Old format, so we ignore channel_id and event_deadline
@@ -288,6 +313,7 @@ def _load_event_data() -> list[Event]:
                         max_attendee_number=event_dict.get("max_attendee_number"),
                         ping_role_id=event_dict.get("ping_role_id"),
                         role_id=event_dict.get("role_id"),
+                        interest_check=event_dict.get("interest_check", False),
                     )
                     _log.info(
                         "Found old events.json format for %s. Successfully converted to new format.",
@@ -399,6 +425,7 @@ def add_event(
     creator_id: int | None = None,  # Discord user ID of the event creator
     ping_role_id: int | None = None,  # Discord role ID to ping in deadline reminders
     role_id: int | None = None,  # Discord role ID for event participants
+    interest_check: bool = False,  # Lightweight interest gauge instead of a binding signup
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
 
@@ -425,6 +452,7 @@ def add_event(
         creator_id=creator_id,
         ping_role_id=ping_role_id,
         role_id=role_id,
+        interest_check=interest_check,
     )
 
     # Step 3: State Modification

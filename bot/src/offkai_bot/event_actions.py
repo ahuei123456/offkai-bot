@@ -8,7 +8,7 @@ from offkai_bot.data.event import (
     save_event_data,
     set_event_open_status,
 )
-from offkai_bot.data.response import assign_attendee_numbers, save_responses
+from offkai_bot.data.response import assign_attendee_numbers, get_responses, save_responses
 from offkai_bot.errors import (
     BotCommandError,
     MissingChannelIDError,
@@ -16,19 +16,70 @@ from offkai_bot.errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
-from offkai_bot.interactions import ClosedEvent, OpenEvent, PostDeadlineEvent
+from offkai_bot.interactions import (
+    ClosedEvent,
+    InterestCheckClosedEvent,
+    InterestCheckEvent,
+    OpenEvent,
+    PostDeadlineEvent,
+)
 
 _log = logging.getLogger(__name__)
+_DISCORD_MESSAGE_LIMIT = 2000
 
 
 def get_event_view(event: Event):
     """Determines the appropriate view for an event based on its state."""
+    if event.interest_check:
+        if not event.open or event.is_past_deadline:
+            return InterestCheckClosedEvent(event)
+        return InterestCheckEvent(event)
     if not event.open:
         return ClosedEvent(event)
     elif event.is_past_deadline:
         return PostDeadlineEvent(event)
     else:
         return OpenEvent(event)
+
+
+def build_interest_check_tally(event: Event) -> str:
+    """Builds the final bilingual tally message posted when an interest check closes."""
+    responses = get_responses(event.event_name)
+    total = sum(1 + r.extra_people for r in responses)
+
+    lines = []
+    for response in responses:
+        name = response.display_name or response.username
+        extras = f" (+{response.extra_people})" if response.extra_people else ""
+        lines.append(f"- {name}{extras}")
+
+    output = (
+        f"📊 **Interest check closed for {event.event_name}!**\n"
+        f"📊 **{event.event_name}の興味アンケートが終了しました！**\n\n"
+        f"🙋 **Total interested (興味あり合計)**: {total}\n"
+    )
+    if lines:
+        output += "\n" + "\n".join(lines)
+
+    if len(output) > 1900:
+        output = output[:1900] + "\n... (list truncated)"
+    return output
+
+
+def _build_interest_check_close_message(tally: str, close_msg: str | None) -> str:
+    """Combine an interest-check tally and optional note within Discord's message limit.
+
+    The tally is the closing result, so it takes priority over an organizer's
+    optional note.  The note is truncated (or omitted) when necessary rather
+    than risking Discord rejecting the entire closing message.
+    """
+    if not close_msg:
+        return tally
+
+    available_for_close_msg = _DISCORD_MESSAGE_LIMIT - len(tally) - 2
+    if available_for_close_msg <= 0:
+        return tally
+    return f"{tally}\n\n{close_msg[:available_for_close_msg]}"
 
 
 async def perform_close_event(client: discord.Client, event_name: str, close_msg: str | None = None) -> Event:
@@ -51,7 +102,8 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 
     # 1. Update status in data store (raises EventNotFoundError if not found)
     closed_event = set_event_open_status(event_name, target_open_status=False)
-    closed_event.max_attendee_number = assign_attendee_numbers(event_name)
+    if not closed_event.interest_check:
+        closed_event.max_attendee_number = assign_attendee_numbers(event_name)
 
     # 2. Save the change
     save_responses()
@@ -62,13 +114,23 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
     await update_event_message(client, closed_event)
     _log.info("Updated persistent message for event '%s'.", event_name)
 
-    # 4. Send closing message to thread (if provided and possible)
-    if close_msg:
+    # 4. Send closing message to thread (if applicable and possible).
+    # Interest checks always post a final tally; regular events only post
+    # when the organizer provided a closing message.
+    if closed_event.interest_check:
+        tally = build_interest_check_tally(closed_event)
+        thread_message = _build_interest_check_close_message(tally, close_msg)
+    elif close_msg:
+        thread_message = f"**Responses Closed:**\n{close_msg}"
+    else:
+        thread_message = None
+
+    if thread_message:
         try:
             # Fetch the thread using the helper.
             thread = await fetch_thread_for_event(client, closed_event)
             try:
-                await thread.send(f"**Responses Closed:**\n{close_msg}")
+                await thread.send(thread_message)
                 _log.info("Sent closing message to thread %s for event '%s'.", thread.id, event_name)
             except discord.HTTPException as e:
                 _log.warning("Could not send closing message to thread %s for event '%s': %s", thread.id, event_name, e)

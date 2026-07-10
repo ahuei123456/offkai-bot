@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --test app/api/interest-checks.test.ts"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",

@@ -43,7 +43,11 @@ def mock_thread():
 @pytest.fixture
 def mock_event():
     """Fixture for a generic mock Event object."""
-    return MagicMock(spec=Event)
+    event = MagicMock(spec=Event)
+    # A bare MagicMock attribute is truthy, which would misroute get_event_view
+    # into the interest-check branch.
+    event.interest_check = False
+    return event
 
 
 @pytest.fixture

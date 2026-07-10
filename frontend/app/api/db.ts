@@ -12,6 +12,8 @@ export interface Event {
   archived: boolean
   drinks: string[]
   max_capacity: number | null
+  // Non-binding interest gauges; excluded from the check-in admin UI.
+  interest_check?: boolean
 }
 
 export interface BotAttendee {
@@ -141,6 +143,13 @@ export interface EventLike {
   event_name: string
   event_datetime: string | null
   archived: boolean
+  interest_check?: boolean
+}
+
+// Interest checks have no attendance to check in — keep them out of every
+// admin/check-in route, including direct API requests.
+export function isSelectableForCheckin(e: EventLike): boolean {
+  return !e.archived && !e.interest_check
 }
 
 // Default event for the admin dropdown (issue #77):
@@ -148,11 +157,10 @@ export interface EventLike {
 //    or later — so an event still counts as the default on the day it happens)
 //  - if every event is in the past, the most recent past one
 export function getDefaultEvent<T extends EventLike>(events: T[]): T | null {
-  const dated = events.filter(e => !e.archived && e.event_datetime)
+  const dated = events.filter(e => isSelectableForCheckin(e) && e.event_datetime)
   if (dated.length === 0) {
-    const nonArchived = events.filter(e => !e.archived)
-    if (nonArchived.length > 0) return nonArchived[nonArchived.length - 1]
-    return events.length > 0 ? events[events.length - 1] : null
+    const selectable = events.filter(isSelectableForCheckin)
+    return selectable.length > 0 ? selectable[selectable.length - 1] : null
   }
 
   const todayKey = jstDayNumber(new Date())
@@ -178,9 +186,8 @@ export function orderEventsForDropdown<T extends EventLike>(events: T[]): T[] {
   const isUpcoming = (e: T) =>
     e.event_datetime ? jstDayNumber(new Date(e.event_datetime)) >= todayKey : false
 
-  const selectable = events.filter(e => !e.archived)
+  const selectable = events.filter(isSelectableForCheckin)
   const upcoming = selectable.filter(isUpcoming).sort((a, b) => time(a) - time(b))
   const past = selectable.filter(e => !isUpcoming(e)).sort((a, b) => time(b) - time(a))
   return [...upcoming, ...past]
 }
-
