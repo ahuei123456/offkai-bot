@@ -1,5 +1,5 @@
 'use client'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useAdminData } from '../hooks/useAdminData'
 import { useScanner } from '../hooks/useScanner'
 import { AdminLogin } from '../components/admin/AdminLogin'
@@ -8,9 +8,11 @@ import { FilterBar } from '../components/admin/FilterBar'
 import { AttendeeRow } from '../components/admin/AttendeeRow'
 import { WaitlistList } from '../components/admin/WaitlistList'
 import { ScanPopup } from '../components/admin/ScanPopup'
+import { NametagSheetGenerator } from '../components/admin/NametagSheetGenerator'
 
 export default function AdminPage() {
   const data = useAdminData()
+  const [nametagDialogOpen, setNametagDialogOpen] = useState(false)
   const scanner = useScanner({
     adminKey: data.key,
     selectedEvent: data.selectedEvent,
@@ -48,6 +50,7 @@ export default function AdminPage() {
         waitlistCount={data.waitlistCount}
         scanning={scanner.scanning}
         onToggleScan={scanner.scanning ? scanner.stopScanner : scanner.startScanner}
+        onOpenNametags={() => setNametagDialogOpen(true)}
       />
 
       <FilterBar
@@ -83,6 +86,23 @@ export default function AdminPage() {
 
       {scanner.scanResult && (
         <ScanPopup result={scanner.scanResult} popupMsLeft={scanner.popupMsLeft} onDismiss={scanner.dismissPopup} />
+      )}
+
+      {nametagDialogOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-[#17120F]/70 p-3 backdrop-blur-sm md:p-6" role="dialog" aria-modal="true" aria-label="Nametag printer">
+          <div className="mx-auto flex max-w-6xl flex-col gap-3">
+            <div className="nametag-print-controls flex justify-end">
+              <button
+                type="button"
+                onClick={() => setNametagDialogOpen(false)}
+                className="min-h-[44px] rounded-xl border-2 border-[#17120F] bg-white px-4 py-2 text-xs font-black uppercase tracking-widest text-[#17120F] shadow-[3px_3px_0_#FFD51B]"
+              >
+                Close
+              </button>
+            </div>
+            <NametagSheetGenerator attendees={data.attendees} eventName={data.eventName} />
+          </div>
+        </div>
       )}
     </main>
   )
