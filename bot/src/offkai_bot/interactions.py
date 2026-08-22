@@ -1410,4 +1410,3 @@ class PostDeadlineEvent(EventView):
                 e,
                 exc_info=True,
             )
-

@@ -284,4 +284,3 @@ async def test_promote_invalid_username(
     call_args = mock_interaction.followup.send.call_args
     assert "Invalid user selection" in call_args[0][0]
     assert call_args[1]["ephemeral"] is True
-

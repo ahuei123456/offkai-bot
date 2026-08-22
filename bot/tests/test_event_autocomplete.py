@@ -367,4 +367,3 @@ async def test_waitlist_autocomplete_event_not_found(mock_get_waitlist, mock_int
 
     choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "")
     assert choices == []
-

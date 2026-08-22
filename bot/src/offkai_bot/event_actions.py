@@ -336,4 +336,3 @@ async def update_event_message(client: discord.Client, event: Event):
         # Send a new message (handles missing ID or NotFound error during fetch)
         _log.info("Sending new event message for '%s' to thread %s.", event.event_name, thread.id)
         await send_event_message(thread, event)
-

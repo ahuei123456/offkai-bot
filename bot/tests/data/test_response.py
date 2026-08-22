@@ -2020,4 +2020,3 @@ def test_assign_attendee_numbers_uses_effective_name_order(mock_paths):
 
     assert alpha.attendee_number == 1
     assert zeta.attendee_number == 2
-

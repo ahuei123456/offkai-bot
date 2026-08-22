@@ -900,4 +900,3 @@ def calculate_drinks(event_name: str) -> tuple[int, dict[str, int]]:
     else:
         _log.info("No drinks found for '%s'.", event_name)
         return 0, {}
-

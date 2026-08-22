@@ -1681,4 +1681,3 @@ async def test_withdraw_fails_when_user_not_registered(event_with_capacity, mock
     assert mock_interaction.response.send_message.called
     error_call = mock_interaction.response.send_message.call_args
     assert "have not registered" in str(error_call).lower() or "cannot withdraw" in str(error_call).lower()
-

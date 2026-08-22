@@ -90,4 +90,3 @@ async def test_combined_confirmation_accepts_case_and_surrounding_whitespace():
 )
 async def test_resolve_submitted_display_name(submitted, discord_name, username, expected):
     assert resolve_submitted_display_name(submitted, discord_name, username) == expected
-

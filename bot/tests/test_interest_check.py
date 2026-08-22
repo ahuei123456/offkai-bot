@@ -498,4 +498,3 @@ def test_register_checkin_reminder_skipped_for_interest_check():
     register_checkin_reminder(client, event)
 
     assert not any(tasks for tasks in alerts._scheduled_tasks.values())
-
