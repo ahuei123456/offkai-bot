@@ -451,8 +451,7 @@ class GatheringModal(ui.Modal):
             await interaction.user.send(confirmation_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
-                f"✅ Your attendance is confirmed as **{recorded_name}**! "
-                "I've sent you a DM with the details.",
+                f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
                 ephemeral=True,
             )
         except (discord.Forbidden, discord.HTTPException):
@@ -539,8 +538,7 @@ class GatheringModal(ui.Modal):
             await interaction.user.send(waitlist_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
-                f"📋 You've been added to the waitlist as **{recorded_name}**! "
-                "I've sent you a DM with the details.",
+                f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
                 ephemeral=True,
             )
         except (discord.Forbidden, discord.HTTPException):
