@@ -337,8 +337,8 @@ async def test_waitlist_autocomplete_returns_matching_choices(
     assert choices[0].value == "1001"
     assert choices[1].name == "Bob M (@bob)"
     assert choices[1].value == "1002"
-    # charlie has no display_name, falls back to username
-    assert choices[2].name == "charlie (@charlie)"
+    # charlie has no display_name, so the username is shown only once
+    assert choices[2].name == "charlie"
     assert choices[2].value == "1003"
 
 
@@ -367,3 +367,4 @@ async def test_waitlist_autocomplete_event_not_found(mock_get_waitlist, mock_int
 
     choices = await EventsCog.waitlist_user_autocomplete(mock_cog, mock_interaction, "")
     assert choices == []
+

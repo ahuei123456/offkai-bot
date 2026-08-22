@@ -53,6 +53,25 @@ class WaitlistEntry:
     display_name: str | None = None
 
 
+def get_effective_display_name(entry: Response | WaitlistEntry) -> str:
+    """Return the event snapshot name, falling back safely for legacy records."""
+
+    if isinstance(entry.display_name, str):
+        display_name = entry.display_name.strip()
+        if display_name:
+            return display_name
+    return entry.username
+
+
+def format_organizer_name(entry: Response | WaitlistEntry, *, nicknames: bool = False) -> str:
+    """Format an entry for organizer-facing attendance and waitlist output."""
+
+    effective_name = get_effective_display_name(entry)
+    if not nicknames or effective_name == entry.username:
+        return effective_name
+    return f"{effective_name} (@{entry.username})"
+
+
 @dataclass(frozen=True)
 class AttendeeReportRow:
     attendee_number: int
@@ -509,7 +528,7 @@ def build_attendee_report_rows(event_name: str) -> list[AttendeeReportRow]:
             rows.append(
                 AttendeeReportRow(
                     attendee_number=response.attendee_number,
-                    name=response.username,
+                    name=get_effective_display_name(response),
                     type="primary",
                     registered_by_username=response.username,
                     registered_by_display_name=response.display_name or "",
@@ -548,7 +567,10 @@ def assign_attendee_numbers(event_name: str) -> int:
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
 
     next_number = 1
-    for response in sorted(event_data["attendees"], key=lambda r: (r.username.casefold(), r.user_id)):
+    for response in sorted(
+        event_data["attendees"],
+        key=lambda r: (get_effective_display_name(r).casefold(), r.user_id),
+    ):
         next_number = _assign_group_numbers(response, next_number)
 
     all_data[event_name] = event_data
@@ -755,7 +777,7 @@ def calculate_attendance(
 
     Args:
         event_name: The name of the event.
-        nicknames: If True, show display names alongside usernames when they differ.
+        nicknames: If True, include the Discord username for disambiguation.
         drinks: If True, append each attendee's drink choice.
         sort: If True, sort based on the main user and bundle extras after them.
             Ignored for completely numbered events so stored numbers display in sequence.
@@ -774,15 +796,16 @@ def calculate_attendance(
 
     has_complete_attendee_numbers = _has_complete_attendee_numbers(responses)
     if sort and not has_complete_attendee_numbers:
-        responses = sorted(responses, key=lambda r: r.username.lower())
+        responses = sorted(
+            responses,
+            key=lambda r: (get_effective_display_name(r).casefold(), r.user_id),
+        )
 
     attendee_names: list[str] = []
     total_count = 0
     for response in responses:
         # Add the main person
-        name = response.username
-        if nicknames and response.display_name and response.display_name != response.username:
-            name = f"{response.username} ({response.display_name})"
+        name = format_organizer_name(response, nicknames=nicknames)
         if drinks:
             drink = response.drinks[0] if response.drinks else "N/A"
             name = f"{name} - {drink}"
@@ -794,7 +817,7 @@ def calculate_attendance(
             raw_name = response.extras_names[i] if i < len(response.extras_names) else ""
             stripped_name = raw_name.strip() if isinstance(raw_name, str) else ""
             name = stripped_name or " "
-            name += f" ({response.username} +{i + 1})"
+            name += f" ({get_effective_display_name(response)} +{i + 1})"
             if drinks:
                 drink_index = i + 1
                 drink = response.drinks[drink_index] if drink_index < len(response.drinks) else "N/A"
@@ -816,7 +839,7 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False, sort: bool =
 
     Args:
         event_name: The name of the event.
-        nicknames: If True, show display names alongside usernames when they differ.
+        nicknames: If True, include the Discord username for disambiguation.
         sort: If True, sort based on the main user and bundle extras after them.
 
     Returns:
@@ -832,14 +855,15 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False, sort: bool =
         raise NoWaitlistEntriesFoundError(event_name)
 
     if sort:
-        entries = sorted(entries, key=lambda e: e.username.lower())
+        entries = sorted(
+            entries,
+            key=lambda e: (get_effective_display_name(e).casefold(), e.user_id),
+        )
 
     waitlisted_names = []
     total_count = 0
     for entry in entries:
-        name = entry.username
-        if nicknames and entry.display_name and entry.display_name != entry.username:
-            name = f"{entry.username} ({entry.display_name})"
+        name = format_organizer_name(entry, nicknames=nicknames)
         waitlisted_names.append(name)
         total_count += 1
 
@@ -847,7 +871,7 @@ def calculate_waitlist(event_name: str, *, nicknames: bool = False, sort: bool =
             raw_name = entry.extras_names[i] if i < len(entry.extras_names) else ""
             stripped_name = raw_name.strip() if isinstance(raw_name, str) else ""
             name = stripped_name or " "
-            name += f" ({entry.username} +{i + 1})"
+            name += f" ({get_effective_display_name(entry)} +{i + 1})"
             waitlisted_names.append(name)
             total_count += 1
 
@@ -876,3 +900,4 @@ def calculate_drinks(event_name: str) -> tuple[int, dict[str, int]]:
     else:
         _log.info("No drinks found for '%s'.", event_name)
         return 0, {}
+

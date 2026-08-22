@@ -12,6 +12,7 @@ from offkai_bot.data.response import (
     WaitlistEntry,
     add_response,
     add_to_waitlist,
+    get_effective_display_name,
     get_responses,
     get_waitlist,
     promote_from_waitlist,
@@ -54,6 +55,18 @@ def validate_extra_people_input(extra_people_str: str) -> int:
     if not extra_people_str.isdigit() or not (0 <= int(extra_people_str) <= 5):
         raise ValidationError("Extra people must be a number between 0 and 5.")
     return int(extra_people_str)
+
+
+def resolve_submitted_display_name(
+    submitted_name: str,
+    discord_display_name: str,
+    username: str,
+) -> str:
+    """Resolve a submitted preferred name to the event-specific snapshot value."""
+
+    submitted = submitted_name.strip() if isinstance(submitted_name, str) else ""
+    discord_name = discord_display_name.strip() if isinstance(discord_display_name, str) else ""
+    return submitted or discord_name or username
 
 
 async def modal_error_message(interaction: discord.Interaction, event_name: str, message: str):
@@ -262,7 +275,13 @@ class GatheringModal(ui.Modal):
         )
         self.event = event
 
-        # Define fields (consider making drink choice conditional later if needed)
+        self.preferred_name_input: ui.TextInput = ui.TextInput(
+            label="Name you'd like us to use",
+            placeholder="Optional; leave blank to use your Discord display name",
+            required=False,
+            max_length=32,
+            custom_id="preferred_name",
+        )
         self.extra_people_input: ui.TextInput = ui.TextInput(
             label="🧑 I am bringing extra people (0-5)",
             placeholder="Enter a number between 0-5",
@@ -270,22 +289,20 @@ class GatheringModal(ui.Modal):
             max_length=1,
             custom_id="extra_people",
         )
-        self.behave_checkbox_input: ui.TextInput = ui.TextInput(
-            label="✔ I will behave",
-            placeholder="You must type 'Yes'",
+        self.confirmation_input: ui.TextInput = ui.TextInput(
+            label="I agree to behave and arrive on time",
+            placeholder="Type Yes to confirm both",
             required=True,
-            custom_id="behave_confirm",
+            custom_id="behavior_arrival_confirm",
         )
-        self.arrival_checkbox_input: ui.TextInput = ui.TextInput(
-            label="✔ I will arrive on time",  # Changed wording slightly
-            placeholder="You must type 'Yes'",
-            required=True,
-            custom_id="arrival_confirm",
-        )
-        # Add other items
+        # These aliases keep older integrations from failing while the modal
+        # itself uses one combined confirmation field.
+        self.behave_checkbox_input: ui.TextInput = self.confirmation_input
+        self.arrival_checkbox_input: ui.TextInput = self.confirmation_input
+
+        self.add_item(self.preferred_name_input)
         self.add_item(self.extra_people_input)
-        self.add_item(self.behave_checkbox_input)
-        self.add_item(self.arrival_checkbox_input)
+        self.add_item(self.confirmation_input)
 
         # Dynamically add drink choice only if needed
         self.drink_choice_input: ui.TextInput | None = None
@@ -323,18 +340,11 @@ class GatheringModal(ui.Modal):
         """
         return validate_extra_people_input(extra_people_str)
 
-    def _validate_confirmations(self, behave_str: str, arrival_str: str) -> None:
-        """Validates the confirmation inputs.
+    def _validate_confirmations(self, confirmation_str: str, arrival_str: str | None = None) -> None:
+        """Validate the combined acknowledgement, accepting case and padding variations."""
 
-        Returns:
-            Tuple containing (behavior_confirmed, arrival_confirmed).
-
-        Raises:
-            ValidationError: If confirmations are not 'Yes'.
-        """
-        behavior_confirmed = behave_str.lower() == "yes"
-        arrival_confirmed = arrival_str.lower() == "yes"
-        if not behavior_confirmed or not arrival_confirmed:
+        confirmations = (confirmation_str,) if arrival_str is None else (confirmation_str, arrival_str)
+        if not all(isinstance(value, str) and value.strip().casefold() == "yes" for value in confirmations):
             raise ValidationError("Please confirm behavior and arrival by typing 'Yes'.")
 
     def _validate_drinks(self, drink_choice_str: str, total_people: int) -> list[str]:
@@ -405,6 +415,7 @@ class GatheringModal(ui.Modal):
 
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
+        recorded_name = get_effective_display_name(response)
         rsvp_url = build_checkin_url(response.user_id, response.event_name)
         rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
         rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
@@ -414,12 +425,14 @@ class GatheringModal(ui.Modal):
         drinks_msg_jp = f"\n🍺 飲み物: {', '.join(response.drinks)}" if response.drinks else ""
         confirmation_message = (
             f"✅ Attendance confirmed for **{self.event.event_name}**!\n"
+            f"👤 Name recorded: {recorded_name}\n"
             f"👥 Bringing: {response.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
             f"{drinks_msg}"
             f"{rsvp_link_msg}\n\n"
             f"✅ 参加確定: **{self.event.event_name}**\n"
+            f"👤 登録名: {recorded_name}\n"
             f"👥 同伴者: {response.extra_people}名\n"
             f"✔ 行動確認済み\n"
             f"✔ 到着確認済み"
@@ -438,7 +451,9 @@ class GatheringModal(ui.Modal):
             await interaction.user.send(confirmation_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
-                "✅ Your attendance is confirmed! I've sent you a DM with the details.", ephemeral=True
+                f"✅ Your attendance is confirmed as **{recorded_name}**! "
+                "I've sent you a DM with the details.",
+                ephemeral=True,
             )
         except (discord.Forbidden, discord.HTTPException):
             # If DM fails, fall back to sending an ephemeral message in the channel
@@ -488,16 +503,19 @@ class GatheringModal(ui.Modal):
 
     async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
         """Handles actions after a user is added to the waitlist."""
+        recorded_name = get_effective_display_name(entry)
         # 1. Create the waitlist confirmation message
         drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
         drinks_msg_jp = f"\n🍺 飲み物: {', '.join(entry.drinks)}" if entry.drinks else ""
         waitlist_message = (
             f"📋 You've been added to the waitlist for **{self.event.event_name}**!\n"
+            f"👤 Name recorded: {recorded_name}\n"
             f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
             f"{drinks_msg}\n\n"
             f"📋 **{self.event.event_name}**のウェイトリストに追加されました！\n"
+            f"👤 登録名: {recorded_name}\n"
             f"👥 同伴者: {entry.extra_people}名\n"
             f"✔ 行動確認済み\n"
             f"✔ 到着確認済み"
@@ -521,7 +539,9 @@ class GatheringModal(ui.Modal):
             await interaction.user.send(waitlist_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
-                "📋 You've been added to the waitlist! I've sent you a DM with the details.", ephemeral=True
+                f"📋 You've been added to the waitlist as **{recorded_name}**! "
+                "I've sent you a DM with the details.",
+                ephemeral=True,
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
@@ -544,6 +564,7 @@ class GatheringModal(ui.Modal):
         self, interaction: discord.Interaction, entry: WaitlistEntry, total_people_in_group: int, remaining_spots: int
     ):
         """Handles actions when a user's group exceeds capacity and is added to waitlist."""
+        recorded_name = get_effective_display_name(entry)
         # 1. Create the capacity exceeded + waitlist message
         drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
         drinks_msg_jp = f"\n🍺 飲み物: {', '.join(entry.drinks)}" if entry.drinks else ""
@@ -552,6 +573,7 @@ class GatheringModal(ui.Modal):
             f"for **{self.event.event_name}**.\n"
             f"Only {remaining_spots} spot(s) remaining out of {self.event.max_capacity} total.\n\n"
             f"📋 For now you will be added to the waiting list.\n"
+            f"👤 Name recorded: {recorded_name}\n"
             f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
             f"✔ Behavior Confirmed\n"
             f"✔ Arrival Confirmed"
@@ -560,6 +582,7 @@ class GatheringModal(ui.Modal):
             f"**{self.event.event_name}**の定員を超えてしまいます。\n"
             f"定員{self.event.max_capacity}名中、残り{remaining_spots}名分です。\n\n"
             f"📋 現在ウェイトリストに追加されています。\n"
+            f"👤 登録名: {recorded_name}\n"
             f"👥 同伴者: {entry.extra_people}名\n"
             f"✔ 行動確認済み\n"
             f"✔ 到着確認済み"
@@ -580,7 +603,7 @@ class GatheringModal(ui.Modal):
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 "📋 Your group exceeds capacity. You've been added to the waitlist! "
-                "I've sent you a DM with the details.",
+                f"Your name is recorded as **{recorded_name}**. I've sent you a DM with the details.",
                 ephemeral=True,
             )
         except (discord.Forbidden, discord.HTTPException):
@@ -618,21 +641,42 @@ class GatheringModal(ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         # 1. Get Input Values
+        preferred_name_str = self.preferred_name_input.value
         extra_people_str = self.extra_people_input.value
-        behave_confirm_str = self.behave_checkbox_input.value
-        arrival_confirm_str = self.arrival_checkbox_input.value
+        confirmation_str = self.confirmation_input.value
         drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
         extra_names_str = self.extras_names_input.value
 
         try:
             # 2. Validate Inputs using Helpers (Raises ValidationError on failure)
             num_extra_people = self._validate_extra_people(extra_people_str)
-            self._validate_confirmations(behave_confirm_str, arrival_confirm_str)
+            # Older callers may still replace the two compatibility aliases.
+            # Prefer the combined field whenever it has a value.
+            if not isinstance(confirmation_str, str) or not confirmation_str.strip():
+                aliases_replaced = (
+                    self.behave_checkbox_input is not self.confirmation_input
+                    or self.arrival_checkbox_input is not self.confirmation_input
+                )
+                if aliases_replaced:
+                    self._validate_confirmations(
+                        self.behave_checkbox_input.value,
+                        self.arrival_checkbox_input.value,
+                    )
+                else:
+                    self._validate_confirmations(confirmation_str)
+            else:
+                self._validate_confirmations(confirmation_str)
             selected_drinks = self._validate_drinks(drink_choice_str, num_extra_people + 1)
             extra_people_names = self._validate_extra_people_names(extra_names_str, num_extra_people)
 
             # 3. Calculate total people in this registration
             total_people_in_group = 1 + num_extra_people
+            username = interaction.user.name
+            resolved_display_name = resolve_submitted_display_name(
+                preferred_name_str,
+                getattr(interaction.user, "display_name", ""),
+                username,
+            )
 
             # 4. Check if event has reached capacity, if deadline has passed, or if event is closed
             is_past_deadline = self.event.is_past_deadline
@@ -653,7 +697,7 @@ class GatheringModal(ui.Modal):
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
-                    display_name=interaction.user.display_name,
+                    display_name=resolved_display_name,
                 )
 
                 add_to_waitlist(self.event.event_name, new_entry)
@@ -678,7 +722,7 @@ class GatheringModal(ui.Modal):
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
-                    display_name=interaction.user.display_name,
+                    display_name=resolved_display_name,
                 )
 
                 # Add to waitlist
@@ -699,7 +743,7 @@ class GatheringModal(ui.Modal):
                     timestamp=datetime.now(UTC),
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
-                    display_name=interaction.user.display_name,
+                    display_name=resolved_display_name,
                 )
 
                 add_response(self.event.event_name, new_response)
@@ -750,6 +794,13 @@ class InterestCheckModal(ui.Modal):
         )
         self.event = event
 
+        self.preferred_name_input: ui.TextInput = ui.TextInput(
+            label="Name you'd like us to use",
+            placeholder="Optional; leave blank to use your Discord display name",
+            required=False,
+            max_length=32,
+            custom_id="preferred_name",
+        )
         self.extra_people_input: ui.TextInput = ui.TextInput(
             label="🧑 Extra people you'd bring (0-5)",
             placeholder="Enter a number between 0-5",
@@ -757,6 +808,7 @@ class InterestCheckModal(ui.Modal):
             max_length=1,
             custom_id="interest_extra_people",
         )
+        self.add_item(self.preferred_name_input)
         self.add_item(self.extra_people_input)
 
     @property
@@ -772,6 +824,11 @@ class InterestCheckModal(ui.Modal):
                 return
 
             num_extra_people = validate_extra_people_input(self.extra_people_input.value)
+            resolved_display_name = resolve_submitted_display_name(
+                self.preferred_name_input.value,
+                getattr(interaction.user, "display_name", ""),
+                interaction.user.name,
+            )
 
             new_response = Response(
                 user_id=interaction.user.id,
@@ -783,7 +840,7 @@ class InterestCheckModal(ui.Modal):
                 timestamp=datetime.now(UTC),
                 drinks=[],
                 extras_names=[],
-                display_name=interaction.user.display_name,
+                display_name=resolved_display_name,
             )
             add_response(self.event.event_name, new_response)
 
@@ -791,8 +848,10 @@ class InterestCheckModal(ui.Modal):
             group_size = 1 + num_extra_people
             await interaction.response.send_message(
                 f"🙋 Thanks! You're counted as interested in **{self.event.event_name}** "
+                f"as **{resolved_display_name}** "
                 f"({group_size} {'person' if group_size == 1 else 'people'}).\n"
                 f"🙋 ありがとうございます！**{self.event.event_name}**に"
+                f"{resolved_display_name}さんとして"
                 f"興味あり（{group_size}名）として記録されました。",
                 ephemeral=True,
             )
@@ -1353,3 +1412,4 @@ class PostDeadlineEvent(EventView):
                 e,
                 exc_info=True,
             )
+

@@ -5,7 +5,13 @@ from unittest.mock import mock_open, patch
 
 import pytest
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
-from offkai_bot.data.response import EventData, Response, WaitlistEntry
+from offkai_bot.data.response import (
+    EventData,
+    Response,
+    WaitlistEntry,
+    format_organizer_name,
+    get_effective_display_name,
+)
 from offkai_bot.errors import DuplicateResponseError, NoWaitlistEntriesFoundError, ResponseNotFoundError
 
 # Import the module we are testing
@@ -1210,7 +1216,7 @@ def test_calculate_attendance_with_drinks_and_nicknames(mock_paths):
         total_count, attendee_names = response_data.calculate_attendance("Event ND", nicknames=True, drinks=True)
 
     assert total_count == 2
-    assert attendee_names == ["foo (goo) - tea", "bar (foo +1) - juice"]
+    assert attendee_names == ["goo (@foo) - tea", "bar (goo +1) - juice"]
 
 
 # --- Tests for display_name field ---
@@ -1312,7 +1318,7 @@ def test_calculate_attendance_nicknames_true(mock_paths):
         total_count, attendee_names = response_data.calculate_attendance("Event N", nicknames=True)
 
     assert total_count == 1
-    assert attendee_names[0] == "foo (goo)"
+    assert attendee_names[0] == "goo (@foo)"
 
 
 def test_calculate_attendance_nicknames_false(mock_paths):
@@ -1335,7 +1341,7 @@ def test_calculate_attendance_nicknames_false(mock_paths):
         total_count, attendee_names = response_data.calculate_attendance("Event N", nicknames=False)
 
     assert total_count == 1
-    assert attendee_names[0] == "foo"
+    assert attendee_names[0] == "goo"
 
 
 def test_calculate_attendance_nicknames_same_as_username(mock_paths):
@@ -1467,7 +1473,7 @@ def test_calculate_waitlist_nicknames_true(mock_paths):
         total_count, waitlisted_names = response_data.calculate_waitlist("Event W", nicknames=True)
 
     assert total_count == 1
-    assert waitlisted_names[0] == "foo (goo)"
+    assert waitlisted_names[0] == "goo (@foo)"
 
 
 def test_calculate_waitlist_nicknames_false(mock_paths):
@@ -1490,7 +1496,7 @@ def test_calculate_waitlist_nicknames_false(mock_paths):
         total_count, waitlisted_names = response_data.calculate_waitlist("Event W", nicknames=False)
 
     assert total_count == 1
-    assert waitlisted_names[0] == "foo"
+    assert waitlisted_names[0] == "goo"
 
 
 def test_calculate_waitlist_empty(mock_paths):
@@ -1899,7 +1905,7 @@ def test_build_attendee_report_rows_sorts_by_attendee_number(mock_paths):
     rows = response_data.build_attendee_report_rows("Event N")
 
     assert [row.attendee_number for row in rows] == [1, 5, 6]
-    assert rows[0].name == "First"
+    assert rows[0].name == "FirstDisplay"
     assert rows[0].type == "primary"
     assert rows[0].registered_by_display_name == "FirstDisplay"
     assert rows[0].guest_index is None
@@ -1910,3 +1916,108 @@ def test_build_attendee_report_rows_sorts_by_attendee_number(mock_paths):
     assert rows[2].registered_by_user_id == 2
     assert rows[2].guest_index == 1
     assert rows[2].drink == "Soda"
+
+
+def test_effective_display_name_handles_missing_null_and_blank_legacy_values():
+    response = RESP_1_OBJ
+    blank_response = Response(
+        user_id=1,
+        username="legacy-user",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Legacy",
+        timestamp=NOW,
+        display_name="  ",
+    )
+    waitlist_entry = WaitlistEntry(
+        user_id=2,
+        username="waitlisted-user",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Legacy",
+        timestamp=NOW,
+        display_name=None,
+    )
+
+    assert get_effective_display_name(response) == "User1"
+    assert get_effective_display_name(blank_response) == "legacy-user"
+    assert get_effective_display_name(waitlist_entry) == "waitlisted-user"
+
+
+def test_format_organizer_name_uses_preferred_name_and_avoids_duplicates():
+    response = RESP_5_OBJ
+    same_name = Response(
+        user_id=1,
+        username="same-name",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Names",
+        timestamp=NOW,
+        display_name="same-name",
+    )
+
+    assert format_organizer_name(response) == "FancyNick"
+    assert format_organizer_name(response, nicknames=True) == "FancyNick (@User5)"
+    assert format_organizer_name(same_name, nicknames=True) == "same-name"
+
+
+def test_attendance_sorting_uses_effective_name_and_user_id_tiebreaker(mock_paths):
+    later_id = Response(
+        user_id=20,
+        username="zeta",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Sort",
+        timestamp=NOW,
+        display_name="alice",
+    )
+    earlier_id = Response(
+        user_id=10,
+        username="beta",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Sort",
+        timestamp=NOW,
+        display_name="Alice",
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event Sort": make_event_data([later_id, earlier_id])}
+
+    _, attendee_names = response_data.calculate_attendance("Event Sort", sort=True)
+
+    assert attendee_names == ["Alice", "alice"]
+    assert response_data.get_responses("Event Sort") == [later_id, earlier_id]
+
+
+def test_assign_attendee_numbers_uses_effective_name_order(mock_paths):
+    zeta = Response(
+        user_id=1,
+        username="zeta",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Numbering",
+        timestamp=NOW,
+        display_name="Zed",
+    )
+    alpha = Response(
+        user_id=2,
+        username="alpha",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name="Event Numbering",
+        timestamp=NOW,
+        display_name="Ada",
+    )
+    response_data.RESPONSE_DATA_CACHE = {"Event Numbering": make_event_data([zeta, alpha])}
+
+    response_data.assign_attendee_numbers("Event Numbering")
+
+    assert alpha.attendee_number == 1
+    assert zeta.attendee_number == 2
+

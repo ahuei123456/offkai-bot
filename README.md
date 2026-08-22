@@ -52,7 +52,7 @@ This bot replaces manual methods of collecting attendance such as:
   - Support for bringing extra people (+0 to +5 guests)
   - Behavior and arrival time confirmations
   - Optional drink preferences tracking
-  - Display name (nickname) capture and optional display in attendance/waitlist lists
+  - Optional event-specific preferred-name capture for attendees and interest checks
   - View current attendance count and attendee list
 
 - **📋 Waitlist System**
@@ -78,6 +78,13 @@ This bot replaces manual methods of collecting attendance such as:
   - Withdrawal allowed even after event is closed or deadline passed
   - Post-deadline withdrawal warnings inform users of their responsibilities
   - Unified data structure with automatic migration from legacy format
+
+- **🏷️ Names and Identity**
+  - RSVP forms optionally ask for the name organizers should use
+  - Blank or whitespace-only input falls back to the user's current Discord display name, then username
+  - Names are trimmed and snapshotted per event; later Discord nickname changes do not rewrite existing responses
+  - Discord `user_id` remains authoritative, while usernames remain available to organizers for auditing and disambiguation
+  - Duplicate preferred names are allowed, and changing a submitted name requires withdrawing and responding again
 
 - **💬 Communication Tools**
   - Broadcast messages to all event attendees
@@ -337,7 +344,7 @@ uv run ty check
 ### Attendance Management
 
 - `/attendance` - View list of attendees
-  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False), drinks (optional, default: False; shows per-attendee drink choices)
+  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False; includes `@username` for disambiguation), drinks (optional, default: False; shows per-attendee drink choices)
 
 - `/drinks` - View drinks summary
   - Parameters: event_name
@@ -349,7 +356,7 @@ uv run ty check
   - Parameters: event_name, username (autocomplete)
 
 - `/waitlist` - View waitlisted users
-  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False)
+  - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False; includes `@username` for disambiguation)
 
 ### Communication
 
@@ -364,6 +371,8 @@ Users interact with events through Discord buttons:
 - **"Withdraw Attendance"** - Cancel registration
 - **"Join Waitlist"** - Join the waitlist when event is full or closed
 - **"Attendance Count"** - View current registration count
+
+The RSVP and interest-check forms include an optional **Name you'd like us to use** field. The submitted value is trimmed and stored with that event. Leaving it blank uses the current Discord display name (or username if no display name is available). Organizers see the preferred name by default; setting `nicknames=True` on `/attendance` or `/waitlist` adds `@username` so duplicate preferred names can be distinguished.
 
 ## Reporting Issues
 
@@ -524,3 +533,4 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+

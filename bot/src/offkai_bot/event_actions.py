@@ -8,7 +8,7 @@ from offkai_bot.data.event import (
     save_event_data,
     set_event_open_status,
 )
-from offkai_bot.data.response import assign_attendee_numbers, get_responses, save_responses
+from offkai_bot.data.response import assign_attendee_numbers, get_effective_display_name, get_responses, save_responses
 from offkai_bot.errors import (
     BotCommandError,
     MissingChannelIDError,
@@ -49,7 +49,7 @@ def build_interest_check_tally(event: Event) -> str:
 
     lines = []
     for response in responses:
-        name = response.display_name or response.username
+        name = get_effective_display_name(response)
         extras = f" (+{response.extra_people})" if response.extra_people else ""
         lines.append(f"- {name}{extras}")
 
@@ -336,3 +336,4 @@ async def update_event_message(client: discord.Client, event: Event):
         # Send a new message (handles missing ID or NotFound error during fetch)
         _log.info("Sending new event message for '%s' to thread %s.", event.event_name, thread.id)
         await send_event_message(thread, event)
+

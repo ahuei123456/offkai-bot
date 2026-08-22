@@ -114,6 +114,7 @@ async def test_promote_success(
     added_response = mock_add_response_for_event.call_args[0][1]
     assert added_response.user_id == 99999
     assert added_response.username == "waitlistuser"
+    assert added_response.display_name == "WaitlistUser"
 
     mock_interaction.followup.send.assert_awaited_once()
     assert "Promoted user" in mock_interaction.followup.send.call_args[0][0]
@@ -283,3 +284,4 @@ async def test_promote_invalid_username(
     call_args = mock_interaction.followup.send.call_args
     assert "Invalid user selection" in call_args[0][0]
     assert call_args[1]["ephemeral"] is True
+
