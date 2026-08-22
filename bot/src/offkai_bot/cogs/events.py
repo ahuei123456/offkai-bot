@@ -33,6 +33,7 @@ from offkai_bot.data.response import (
     calculate_drinks,
     calculate_waitlist,
     clear_attendee_numbers,
+    format_organizer_name,
     get_waitlist,
     has_complete_attendee_numbers,
     promote_specific_from_waitlist,
@@ -757,7 +758,7 @@ class EventsCog(commands.Cog):
     @app_commands.describe(
         event_name="The name of the event.",
         sort="Whether to sort the attendance list. (default: False)",
-        nicknames="Whether to show display names alongside usernames. (default: False)",
+        nicknames="Whether to include the Discord username for disambiguation. (default: False)",
         drinks="Whether to show each attendee's drink choice. (default: False)",
     )
     @app_commands.checks.has_role("Offkai Organizer")
@@ -855,7 +856,7 @@ class EventsCog(commands.Cog):
     @app_commands.describe(
         event_name="The name of the event.",
         sort="Whether to sort the waitlist. (default: False)",
-        nicknames="Whether to show display names alongside usernames. (default: False)",
+        nicknames="Whether to include the Discord username for disambiguation. (default: False)",
     )
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
@@ -965,8 +966,7 @@ class EventsCog(commands.Cog):
 
         choices = []
         for entry in waitlist:
-            display = entry.display_name or entry.username
-            label = f"{display} (@{entry.username})"
+            label = format_organizer_name(entry, nicknames=True)
             if current.lower() in label.lower():
                 choices.append(app_commands.Choice(name=label[:100], value=str(entry.user_id)))
         return choices[:25]

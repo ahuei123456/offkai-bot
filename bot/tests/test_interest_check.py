@@ -120,6 +120,14 @@ async def test_interest_modal_custom_id_fits_discord_limit_for_max_length_name()
     assert len(modal.title) <= 45
 
 
+async def test_interest_modal_includes_preferred_name_field():
+    modal = InterestCheckModal(event=make_interest_event())
+
+    assert [field.custom_id for field in modal.children] == ["preferred_name", "interest_extra_people"]
+    assert modal.preferred_name_input.required is False
+    assert modal.preferred_name_input.max_length == 32
+
+
 # --- InterestCheckModal.on_submit ---
 
 
@@ -131,6 +139,8 @@ async def test_interest_modal_submit_records_noncommittal_response(
 ):
     event = make_interest_event()
     modal = InterestCheckModal(event=event)
+    modal.preferred_name_input = MagicMock()
+    modal.preferred_name_input.value = "  Interested Name  "
     modal.extra_people_input = MagicMock()
     modal.extra_people_input.value = "2"
 
@@ -143,6 +153,7 @@ async def test_interest_modal_submit_records_noncommittal_response(
     assert recorded.arrival_confirmed is False
     assert recorded.drinks == []
     assert recorded.extras_names == []
+    assert recorded.display_name == "Interested Name"
 
     # Non-binding: no rank/milestone machinery, no DM.
     mock_update_rank.assert_not_called()
