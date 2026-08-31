@@ -252,6 +252,99 @@ async def test_modal_adds_to_responses_when_not_at_capacity(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("existing_extra", "submitted_extra", "expected_waitlist"),
+    [
+        (None, 0, False),  # regular attendee response
+        (2, 0, True),  # event already full
+        (1, 1, True),  # the submitted group would exceed capacity
+    ],
+)
+async def test_modal_persists_trimmed_preferred_name_for_each_capacity_path(
+    event_with_capacity,
+    mock_interaction,
+    existing_extra,
+    submitted_extra,
+    expected_waitlist,
+):
+    mock_interaction.user.display_name = "Discord Nick"
+    if existing_extra is not None:
+        add_response(
+            event_with_capacity.event_name,
+            Response(
+                user_id=999,
+                username="ExistingUser",
+                extra_people=existing_extra,
+                behavior_confirmed=True,
+                arrival_confirmed=True,
+                event_name=event_with_capacity.event_name,
+                timestamp=datetime.now(UTC),
+                drinks=[],
+            ),
+        )
+
+    modal = GatheringModal(event=event_with_capacity)
+    modal.preferred_name_input = MagicMock()
+    modal.preferred_name_input.value = "  Preferred 名  "
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = str(submitted_extra)
+    modal.confirmation_input = MagicMock()
+    modal.confirmation_input.value = " yes "
+    modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = "Guest" if submitted_extra else ""
+
+    await modal.on_submit(mock_interaction)
+
+    if expected_waitlist:
+        recorded = get_waitlist(event_with_capacity.event_name)[-1]
+    else:
+        recorded = get_responses(event_with_capacity.event_name)[-1]
+    assert recorded.display_name == "Preferred 名"
+    assert recorded.behavior_confirmed is True
+    assert recorded.arrival_confirmed is True
+
+
+@pytest.mark.asyncio
+async def test_modal_blank_preferred_name_uses_discord_display_name(event_with_capacity, mock_interaction):
+    mock_interaction.user.display_name = "Discord Nick"
+    modal = GatheringModal(event=event_with_capacity)
+    modal.preferred_name_input = MagicMock()
+    modal.preferred_name_input.value = " \t"
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "0"
+    modal.confirmation_input = MagicMock()
+    modal.confirmation_input.value = "YES"
+    modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = ""
+
+    await modal.on_submit(mock_interaction)
+
+    assert get_responses(event_with_capacity.event_name)[-1].display_name == "Discord Nick"
+
+
+@pytest.mark.asyncio
+async def test_modal_invalid_combined_confirmation_does_not_persist(event_with_capacity, mock_interaction):
+    modal = GatheringModal(event=event_with_capacity)
+    modal.preferred_name_input = MagicMock()
+    modal.preferred_name_input.value = "Preferred"
+    modal.extra_people_input = MagicMock()
+    modal.extra_people_input.value = "0"
+    modal.confirmation_input = MagicMock()
+    modal.confirmation_input.value = "No"
+    modal.drink_choice_input = None
+    modal.extras_names_input = MagicMock()
+    modal.extras_names_input.value = ""
+
+    await modal.on_submit(mock_interaction)
+
+    assert get_responses(event_with_capacity.event_name) == []
+    assert get_waitlist(event_with_capacity.event_name) == []
+    assert mock_interaction.response.send_message.called or mock_interaction.user.send.called
+
+
+@pytest.mark.asyncio
 @patch("offkai_bot.interactions.add_to_waitlist")
 @patch("offkai_bot.interactions.add_response")
 async def test_modal_adds_to_waitlist_when_at_capacity(
