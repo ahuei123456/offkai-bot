@@ -86,8 +86,18 @@ export const MOCK_ATTENDEES: Record<string, MockAttendee[]> = {
     { user_id: '201', username: 'lisa', display_name: 'Lisa', drinks: ['Sapporo Beer (L)'], extra_people: 1, extras_names: ['Ako'], attendee_number: 2, extras_attendee_numbers: [3], status: 'attending' },
   ],
   'MyGO!!!!! Offkai': [
-    { user_id: '300', username: 'tomori', display_name: 'Tomori', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], attendee_number: 1, extras_attendee_numbers: [], status: 'attending' },
-    { user_id: '301', username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], attendee_number: 2, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '300', username: 'tomori_long_handle', display_name: 'Tomori Takamatsu', drinks: ['Cream Soda (L)'], extra_people: 1, extras_names: ['Taki Shiina Plus One'], attendee_number: 1, extras_attendee_numbers: [2], status: 'attending' },
+    { user_id: '301', username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], attendee_number: 3, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '302', username: 'rana', display_name: 'Rāna', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], attendee_number: 4, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '303', username: 'soyo_nagasaki_very_long', display_name: 'Soyo Nagasaki With A Long Name', drinks: ['Oolong Tea (L)'], extra_people: 1, extras_names: ['Mutsumi Wakaba Extra Long Guest Name'], attendee_number: 5, extras_attendee_numbers: [6], status: 'attending' },
+    { user_id: '304', username: 'sakiko', display_name: 'Sakiko', drinks: ['Highball (L)'], extra_people: 0, extras_names: [], attendee_number: 7, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '305', username: 'umiri_yahata_extended_handle', display_name: 'Umiri Yahata Extended Test Name', drinks: ['Fresh Lemon Sour (L)'], extra_people: 2, extras_names: ['Uika Misumi', 'Nyamu Yutenji Super Long Plus One'], attendee_number: 8, extras_attendee_numbers: [9, 10], status: 'attending' },
+    { user_id: '306', username: 'mashiro', display_name: 'Mashiro', drinks: ['Coca-Cola (L)'], extra_people: 0, extras_names: [], attendee_number: 11, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '307', username: 'touko', display_name: 'Touko', drinks: ['Cream Soda (L)'], extra_people: 1, extras_names: ['Nanami'], attendee_number: 12, extras_attendee_numbers: [13], status: 'attending' },
+    { user_id: '308', username: 'tsukushi', display_name: 'Tsukushi', drinks: ['Oolong Tea (L)'], extra_people: 0, extras_names: [], attendee_number: 14, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '309', username: 'rui', display_name: 'Rui', drinks: ['Sapporo Beer (L)'], extra_people: 0, extras_names: [], attendee_number: 15, extras_attendee_numbers: [], status: 'attending' },
+    { user_id: '310', username: 'rikki', display_name: 'Rikki', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], status: 'waitlist' },
+    { user_id: '311', username: 'mortis', display_name: 'Mortis', drinks: ['Cream Soda (L)'], extra_people: 0, extras_names: [], status: 'waitlist' },
   ],
 }
 
