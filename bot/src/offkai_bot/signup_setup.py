@@ -1,12 +1,20 @@
 """Private organizer draft UI; publication uses the normal event creation path."""
 
+import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 import discord
 from discord import ui
 
 PAYMENT_METHODS = ("PayPay", "Wise/Revolut", "PayID", "PayNow", "GCash", "PayPal", "Interac")
 NO_SHOW_POLICY = "No-show payments are not refunded."
+_log = logging.getLogger(__name__)
+
+
+@dataclass
+class PublicationState:
+    resources_may_exist: bool = False
 
 
 class ActionSelect(ui.Select):
@@ -47,7 +55,7 @@ class SignupSetup(ui.View):
         self,
         owner_id: int,
         drinks: list[str],
-        create: Callable[[dict | None, discord.Interaction], Awaitable[None]],
+        create: Callable[[dict | None, discord.Interaction, PublicationState], Awaitable[None]],
     ):
         super().__init__(timeout=900)
         self.owner_id = owner_id
@@ -56,6 +64,8 @@ class SignupSetup(ui.View):
         self.methods: list[str] = []
         self.instructions: dict[str, str] = {}
         self.finished = False
+        self.publishing = False
+        self.publication = PublicationState()
         presets = [
             ("preferred_name", "Preferred name"),
             ("guests", "Guest count and names"),
@@ -110,7 +120,7 @@ class SignupSetup(ui.View):
         organizer = isinstance(interaction.user, discord.Member) and any(
             role.name == "Offkai Organizer" for role in interaction.user.roles
         )
-        if interaction.user.id == self.owner_id and organizer and not self.finished:
+        if interaction.user.id == self.owner_id and organizer and not self.finished and not self.publishing:
             return True
         await interaction.response.send_message(
             "This draft is unavailable or belongs to another organizer.", ephemeral=True
@@ -153,9 +163,31 @@ class SignupSetup(ui.View):
         except ValueError as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
-        self.finished = True
-        await self.create(config, interaction)
-        self.stop()
+        if self.publishing or self.finished:
+            await interaction.response.send_message("This draft is already publishing or finished.", ephemeral=True)
+            return
+        self.publishing = True
+        try:
+            await self.create(config, interaction, self.publication)
+        except Exception:
+            _log.exception("Custom event publication failed")
+            if self.publication.resources_may_exist:
+                self.finished = True
+                self.stop()
+                message = "Publication may have created an event or thread. Check it before starting another draft."
+            else:
+                message = (
+                    "Creation failed before any resources were created. Your draft is saved; you can retry Create."
+                )
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        else:
+            self.finished = True
+            self.stop()
+        finally:
+            self.publishing = False
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.danger, row=3)
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):

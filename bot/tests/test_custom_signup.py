@@ -144,7 +144,7 @@ async def test_setup_publish_uses_selected_configuration():
     setup.instructions["PayPal"] = "Organizer text"
     await setup.publish.callback(source)
     create.assert_awaited_once_with(
-        {"fields": ["payment_method"], "payment_methods": {"PayPal": "Organizer text"}}, source
+        {"fields": ["payment_method"], "payment_methods": {"PayPal": "Organizer text"}}, source, setup.publication
     )
 
 
@@ -292,3 +292,86 @@ async def test_custom_command_stays_draft_until_create(custom_event):
         await setup.publish.callback(source)
         create.assert_awaited_once()
         assert create.call_args.args[-1] == setup.configuration()
+
+
+@pytest.mark.parametrize("failure", ["rejected_thread", "unknown_thread", "after_thread"])
+async def test_draft_retry_only_before_resources_exist(custom_event, failure):
+    source = interaction(42)
+    source.channel.id = 456
+    source.response.is_done.return_value = True
+    announcement = MagicMock(spec=discord.Message)
+    announcement.pin = AsyncMock()
+    source.followup.send.return_value = announcement
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 789
+    thread.mention = "<#789>"
+    cog = EventsCog(MagicMock())
+    await EventsCog.create_offkai.callback(
+        cog,
+        source,
+        "Retry Synthetic",
+        "Venue",
+        "Address",
+        "https://synthetic.invalid/maps",
+        custom_event.event_datetime.isoformat(),
+        form="custom",
+    )
+    setup = source.response.send_message.call_args.kwargs["view"]
+    setup.fields = ["payment_method"]
+    setup.methods = ["PayNow"]
+    setup.instructions["PayNow"] = "Keep these instructions"
+    expected = setup.configuration()
+    if failure == "rejected_thread":
+        exception = discord.Forbidden(MagicMock(status=403), "Thread creation rejected")
+        source.channel.create_thread = AsyncMock(side_effect=[exception, thread])
+    elif failure == "unknown_thread":
+        source.channel.create_thread = AsyncMock(side_effect=TimeoutError("Response unknown"))
+    else:
+        source.channel.create_thread = AsyncMock(return_value=thread)
+    with (
+        patch("offkai_bot.cogs.events.register_deadline_reminders"),
+        patch("offkai_bot.cogs.events.register_checkin_reminder"),
+        patch("offkai_bot.cogs.events.send_event_message", new=AsyncMock()) as send,
+    ):
+        if failure == "after_thread":
+            send.side_effect = RuntimeError("Announcement failed")
+        await setup.publish.callback(source)
+        assert not setup.publishing
+        assert setup.configuration() == expected
+        if failure == "rejected_thread":
+            assert not setup.finished and not setup.publication.resources_may_exist
+            assert await setup.interaction_check(source)
+            assert "retry" in source.followup.send.call_args.args[0]
+            await setup.publish.callback(source)
+            assert setup.finished and setup.publication.resources_may_exist
+            assert source.channel.create_thread.await_count == 2
+        else:
+            assert setup.finished and setup.publication.resources_may_exist
+            assert not await setup.interaction_check(source)
+            await setup.publish.callback(interaction(42))
+            assert source.channel.create_thread.await_count == 1
+
+
+async def test_draft_blocks_concurrent_publication_without_finishing():
+    import asyncio
+
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def create(config, source, publication):
+        started.set()
+        await finish.wait()
+
+    source = interaction(42)
+    setup = SignupSetup(42, [], create)
+    task = asyncio.create_task(setup.publish.callback(source))
+    await started.wait()
+    try:
+        assert setup.publishing and not setup.finished
+        assert not await setup.interaction_check(interaction(42))
+        await setup.publish.callback(interaction(42))
+        assert setup.publishing and not setup.finished
+    finally:
+        finish.set()
+        await task
+    assert setup.finished and not setup.publishing

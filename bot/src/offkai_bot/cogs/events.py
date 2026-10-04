@@ -64,7 +64,7 @@ from offkai_bot.event_actions import (
 )
 from offkai_bot.interactions import promote_waitlist_batch
 from offkai_bot.role_management import assign_event_role, create_event_role, remove_event_role
-from offkai_bot.signup_setup import SignupSetup
+from offkai_bot.signup_setup import PublicationState, SignupSetup
 from offkai_bot.util import (
     log_command_usage,
     parse_drinks,
@@ -204,7 +204,7 @@ class EventsCog(commands.Cog):
         validate_event_datetime(event_datetime)
         validate_event_deadline(event_datetime, event_deadline)
 
-        async def create(config: dict | None, source: discord.Interaction):
+        async def create(config: dict | None, source: discord.Interaction, publication: PublicationState | None = None):
             await self._create_event(
                 source,
                 event_name,
@@ -219,6 +219,7 @@ class EventsCog(commands.Cog):
                 ping_role_id,
                 create_role,
                 config,
+                publication=publication,
             )
 
         if form == "custom":
@@ -245,6 +246,7 @@ class EventsCog(commands.Cog):
         ping_role_id: int | None,
         create_role: bool,
         signup_form: dict | None,
+        publication: PublicationState | None = None,
     ):
         # Recheck a draft's identity and dates at publication time.
         with contextlib.suppress(EventNotFoundError):
@@ -264,8 +266,13 @@ class EventsCog(commands.Cog):
         # --- Discord Interaction Block ---
         try:
             assert isinstance(interaction.channel, discord.TextChannel)
+            if publication is not None:
+                publication.resources_may_exist = True
             thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
         except discord.HTTPException as e:
+            # Explicit rejection means no thread; transport/server failures remain ambiguous.
+            if publication is not None and e.status in (400, 401, 403, 404):
+                publication.resources_may_exist = False
             _log.error("Failed to create thread for '%s': %s", event_name, e)
             raise ThreadCreationError(event_name, e)
         except AssertionError:

@@ -83,7 +83,7 @@ export function RSVPCard({ data, token }: { data: AttendeeData; token: string })
       </div>
 
       <div className="p-6 space-y-4">
-        <PaymentCard key={eventName} token={token} method={attendee.payment_method as string | null}
+        <PaymentCard key={`${eventName}:${token}`} token={token} method={attendee.payment_method as string | null}
           instructions={attendee.payment_instructions as string | null}
           payment={(attendee.payment as PaymentRecord) ?? { paid: false, proof: null }}
           available={!!attendee.proof_upload_available} />

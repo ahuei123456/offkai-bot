@@ -6,8 +6,7 @@ import { usePass } from './hooks/usePass'
 import { LoadingScreen, NoToken, InvalidToken } from './components/pass/StateScreens'
 import { RSVPCard } from './components/pass/RSVPCard'
 
-function AttendeeView() {
-  const token = useSearchParams().get('token')
+function AttendeeView({ token }: { token: string | null }) {
   const { view, data } = usePass(token)
   const { t } = useT()
 
@@ -20,11 +19,16 @@ function AttendeeView() {
   return null
 }
 
+function TokenView() {
+  const token = useSearchParams().get('token')
+  return <AttendeeView key={token ?? 'no-token'} token={token} />
+}
+
 export default function Page() {
   return (
     <Suspense fallback={<LoadingScreen />}>
       <LangProvider>
-        <AttendeeView />
+        <TokenView />
       </LangProvider>
     </Suspense>
   )
