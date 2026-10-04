@@ -15,7 +15,24 @@ export async function POST(request: NextRequest) {
   const length = Number(request.headers.get('content-length'))
   if (length > MAX_IMAGE_BYTES + 64 * 1024) return error('image_too_large', 413)
   try {
-    const form = await request.formData()
+    if (!request.body) return error('missing_image', 400)
+    const reader = request.body.getReader()
+    const chunks: Uint8Array[] = []
+    let bytes = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > MAX_IMAGE_BYTES + 64 * 1024) {
+        await reader.cancel()
+        return error('image_too_large', 413)
+      }
+      chunks.push(value)
+    }
+    const multipart = Buffer.concat(chunks)
+    const form = await new Response(new Uint8Array(multipart), {
+      headers: { 'Content-Type': request.headers.get('content-type') || '' },
+    }).formData()
     const raw = form.get('token')
     const token = verifyToken(typeof raw === 'string' ? raw : '')
     if (!token) return error('unauthorized', 401)

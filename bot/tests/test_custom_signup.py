@@ -236,3 +236,25 @@ async def test_synthetic_cross_stack_fixture(custom_event, tmp_path):
         ("replies.json", replies),
     ]:
         (fixture_dir / filename).write_text(json.dumps(value, cls=DataclassJSONEncoder))
+
+
+async def test_long_custom_reply_is_one_embed_message(custom_event):
+    custom_event.event_name = "🎉" * 90
+    custom_event.signup_form["payment_methods"]["PayNow"] = "Instructions " + "x" * 987
+    events.EVENT_DATA_CACHE = [custom_event]
+    responses.RESPONSE_DATA_CACHE = {}
+    source = interaction()
+    modal = GatheringModal(event=custom_event, payment_method="PayNow")
+    modal.preferred_name_input._value = "N" * 32
+    modal.extra_people_input._value = "5"
+    modal.extras_names_input._value = ",".join(["G" * 31] * 5)
+    modal.confirmation_input._value = "Yes"
+    token = build_checkin_token(source.user.id, custom_event.event_name, "synthetic-test-key")
+    link = "https://synthetic.invalid/" + "a" * 100 + "/?token=" + token
+    with patch("offkai_bot.interactions.build_checkin_url", return_value=link):
+        await modal.on_submit(source)
+    source.user.send.assert_awaited_once()
+    description = source.user.send.call_args.kwargs["embed"].description
+    assert len(description) > 2000
+    assert len(description) <= 4096
+    assert link in description and "Instructions" in description

@@ -463,7 +463,10 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            await interaction.user.send(confirmation_message)
+            if self.event.signup_form and len(confirmation_message) > 2000:
+                await interaction.user.send(embed=discord.Embed(description=confirmation_message))
+            else:
+                await interaction.user.send(confirmation_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
@@ -471,7 +474,12 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # If DM fails, fall back to sending an ephemeral message in the channel
-            await interaction.response.send_message(confirmation_message, ephemeral=True)
+            if self.event.signup_form and len(confirmation_message) > 2000:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=confirmation_message), ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(confirmation_message, ephemeral=True)
 
         # 3. Update rank and announce milestones regardless of whether the DM succeeded
         update_rank(interaction.user.id, interaction.user.name)
@@ -553,7 +561,10 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            await interaction.user.send(waitlist_message)
+            if self.event.signup_form and len(waitlist_message) > 2000:
+                await interaction.user.send(embed=discord.Embed(description=waitlist_message))
+            else:
+                await interaction.user.send(waitlist_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
@@ -561,7 +572,12 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            await interaction.response.send_message(waitlist_message, ephemeral=True)
+            if self.event.signup_form and len(waitlist_message) > 2000:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=waitlist_message), ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(waitlist_message, ephemeral=True)
 
         # 4. Add user to the thread
         try:
@@ -618,7 +634,10 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            await interaction.user.send(waitlist_message)
+            if self.event.signup_form and len(waitlist_message) > 2000:
+                await interaction.user.send(embed=discord.Embed(description=waitlist_message))
+            else:
+                await interaction.user.send(waitlist_message)
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 "📋 Your group exceeds capacity. You've been added to the waitlist! "
@@ -627,7 +646,12 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            await interaction.response.send_message(waitlist_message, ephemeral=True)
+            if self.event.signup_form and len(waitlist_message) > 2000:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=waitlist_message), ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(waitlist_message, ephemeral=True)
 
         # 4. Add user to the thread
         try:
