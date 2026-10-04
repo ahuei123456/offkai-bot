@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attendee, AdminFilter, CheckinRecord } from '../lib/types'
 
 const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
@@ -8,6 +8,8 @@ const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
 // check-in/out actions, and the filtered/derived view data. The scanner hook is
 // kept separate and feeds successful scans back via `applyScanCheckin`.
 export function useAdminData() {
+  const selectedEventRef = useRef('')
+  const eventGeneration = useRef(0)
   const [key, setKey] = useState('')
   const [authed, setAuthed] = useState(false)
   const [keyInput, setKeyInput] = useState('')
@@ -24,18 +26,24 @@ export function useAdminData() {
   const [stickyIds, setStickyIds] = useState<Set<string>>(new Set())
 
   const loadCheckins = useCallback(async (adminKey: string, ev: string) => {
+    const generation = eventGeneration.current
+    if (selectedEventRef.current !== ev) return
     const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
     const res = await fetch(`/api/checkin?key=${encodeURIComponent(adminKey)}${evParam}`)
     if (!res.ok) return
     const chk: CheckinRecord[] = await res.json()
+    if (generation !== eventGeneration.current || selectedEventRef.current !== ev) return
     setCheckins(Object.fromEntries(chk.map(c => [c.user_id, c])))
   }, [])
 
   const loadAttendees = useCallback(async (adminKey: string, ev: string) => {
+    const generation = eventGeneration.current
+    if (selectedEventRef.current !== ev) return false
     const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
     const res = await fetch(`/api/attendees?key=${encodeURIComponent(adminKey)}${evParam}`)
     if (!res.ok) return false
     const { event_name, attendees: att } = await res.json()
+    if (generation !== eventGeneration.current || selectedEventRef.current !== ev) return false
     setEventName(event_name)
     setAttendees(att)
     return true
@@ -48,6 +56,8 @@ export function useAdminData() {
     const { events: evs, default_event_name } = await evRes.json()
     const startEvent: string = default_event_name || (evs[0]?.event_name ?? '')
     setEvents(evs)
+    selectedEventRef.current = startEvent
+    eventGeneration.current += 1
     setSelectedEvent(startEvent)
     const ok = await loadAttendees(adminKey, startEvent)
     if (!ok) return false
@@ -86,6 +96,8 @@ export function useAdminData() {
   // Switch the viewed event (resets transient view state at the source, not in
   // an effect, per react-hooks guidance).
   const changeEvent = useCallback((next: string) => {
+    selectedEventRef.current = next
+    eventGeneration.current += 1
     setSelectedEvent(next)
     setStickyIds(new Set())
   }, [])
@@ -130,14 +142,16 @@ export function useAdminData() {
   }, [key, selectedEvent])
 
   const updatePayment = useCallback(async (userId: string, paid: boolean) => {
+    // An event switch can leave the previous rows visible while the new list loads.
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
     const res = await fetch('/api/payment?key=' + encodeURIComponent(key), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, event_name: selectedEvent, paid }),
+      body: JSON.stringify({ user_id: userId, event_name: eventName, paid }),
     })
     if (!res.ok) return false
     await loadAttendees(key, selectedEvent)
     return true
-  }, [key, selectedEvent, loadAttendees])
+  }, [key, selectedEvent, eventName, loadAttendees])
 
   // Record a successful camera scan into the check-in map (no sticky — scans
   // aren't undo-in-place like the manual buttons).

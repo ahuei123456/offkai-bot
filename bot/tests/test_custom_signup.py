@@ -238,12 +238,20 @@ async def test_synthetic_cross_stack_fixture(custom_event, tmp_path):
         (fixture_dir / filename).write_text(json.dumps(value, cls=DataclassJSONEncoder))
 
 
-async def test_long_custom_reply_is_one_embed_message(custom_event):
+@pytest.mark.parametrize("outcome", ["confirmed", "waitlist", "capacity_exceeded"])
+@pytest.mark.parametrize("dm_fails", [False, True])
+async def test_long_custom_reply_is_one_embed_message(custom_event, outcome, dm_fails):
     custom_event.event_name = "🎉" * 90
     custom_event.signup_form["payment_methods"]["PayNow"] = "Instructions " + "x" * 987
     events.EVENT_DATA_CACHE = [custom_event]
     responses.RESPONSE_DATA_CACHE = {}
     source = interaction()
+    if outcome == "waitlist":
+        custom_event.open = False
+    elif outcome == "capacity_exceeded":
+        custom_event.max_capacity = 1
+    if dm_fails:
+        source.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM blocked")
     modal = GatheringModal(event=custom_event, payment_method="PayNow")
     modal.preferred_name_input._value = "N" * 32
     modal.extra_people_input._value = "5"
@@ -254,7 +262,33 @@ async def test_long_custom_reply_is_one_embed_message(custom_event):
     with patch("offkai_bot.interactions.build_checkin_url", return_value=link):
         await modal.on_submit(source)
     source.user.send.assert_awaited_once()
-    description = source.user.send.call_args.kwargs["embed"].description
+    delivery = source.response.send_message if dm_fails else source.user.send
+    description = delivery.call_args.kwargs["embed"].description
     assert len(description) > 2000
     assert len(description) <= 4096
     assert link in description and "Instructions" in description
+
+
+async def test_custom_command_stays_draft_until_create(custom_event):
+    source = interaction(42)
+    cog = EventsCog(MagicMock())
+    with patch.object(cog, "_create_event", new=AsyncMock()) as create:
+        await EventsCog.create_offkai.callback(
+            cog,
+            source,
+            "New Synthetic",
+            "Venue",
+            "Address",
+            "https://synthetic.invalid/maps",
+            custom_event.event_datetime.isoformat(),
+            form="custom",
+        )
+        create.assert_not_awaited()
+        setup = source.response.send_message.call_args.kwargs["view"]
+        assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+        setup.fields = ["payment_method", "no_show"]
+        setup.methods = ["PayNow"]
+        setup.instructions["PayNow"] = "Synthetic organizer instructions"
+        await setup.publish.callback(source)
+        create.assert_awaited_once()
+        assert create.call_args.args[-1] == setup.configuration()

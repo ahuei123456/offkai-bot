@@ -100,6 +100,21 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       return proofRoute.POST(new NextRequest('http://localhost/api/payment-proof', { method: 'POST', body: form }))
     }
     assert.equal((await upload('bad-token')).status, 401)
+    // Chunked body with an oversized ignored part must stop before token parsing.
+    let consumed = 0
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { consumed += 64 * 1024; controller.enqueue(new Uint8Array(64 * 1024)) },
+      cancel() { cancelled = true },
+    })
+    const oversizedRequest = new NextRequest('http://localhost/api/payment-proof', {
+      method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=synthetic' },
+      body: stream, duplex: 'half',
+    } as RequestInit)
+    assert.equal(oversizedRequest.headers.get('content-length'), null)
+    assert.equal((await proofRoute.POST(oversizedRequest)).status, 413)
+    assert.equal(cancelled, true)
+    assert.ok(consumed <= 10 * 1024 * 1024 + 3 * 64 * 1024)
     assert.equal((await upload(signedToken(otherUid, eventNames[0]))).status, 404)
     assert.equal((await upload(signedToken(uid, eventNames[0]), Buffer.from('not an image'))).status, 400)
     assert.equal((await upload(signedToken(uid, eventNames[0]), Buffer.alloc(10 * 1024 * 1024 + 1))).status, 413)
@@ -173,6 +188,13 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     assert.equal(payments.proofExpiry('2026-11-30T14:00:00Z'), '2027-02-28T17:00:00.000Z')
     const small = await sharp({ create: { width: 100, height: 50, channels: 3, background: 'blue' } }).png().toBuffer()
     assert.equal((await sharp(await payments.normalizeProof(small)).metadata()).width, 100)
+    for (const format of ['webp', 'gif'] as const) {
+      const image = await sharp(small).toFormat(format).toBuffer()
+      assert.equal((await sharp(await payments.normalizeProof(image)).metadata()).format, 'webp')
+    }
+    const tooManyPixels = await sharp({ create: { width: 8000, height: 6000, channels: 3, background: 'white' } })
+      .png().toBuffer()
+    await assert.rejects(() => payments.normalizeProof(tooManyPixels))
   } finally {
     if (previousDir === undefined) delete process.env.BOT_DATA_DIR; else process.env.BOT_DATA_DIR = previousDir
     if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey

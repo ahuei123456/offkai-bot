@@ -66,9 +66,9 @@ export default function AdminPage() {
         <div className="space-y-2">
           {data.filtered.map(a => (
             <AttendeeRow
-              key={a.user_id}
+              key={`${data.eventName}:${a.user_id}`}
               attendee={a}
-              adminKey={data.key} eventName={data.selectedEvent} onPayment={data.updatePayment}
+              adminKey={data.key} eventName={data.eventName} onPayment={data.updatePayment}
               checkin={data.checkins[a.user_id]}
               onCheckin={data.manualCheckin}
               onCheckout={data.manualCheckout}
@@ -79,7 +79,7 @@ export default function AdminPage() {
           )}
         </div>
 
-        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} adminKey={data.key} eventName={data.selectedEvent} onPayment={data.updatePayment} />}
+        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} adminKey={data.key} eventName={data.eventName} onPayment={data.updatePayment} />}
       </div>
 
       {scanner.scanResult && (
