@@ -8,6 +8,7 @@ import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
+from offkai_bot.alerts import alerts
 from offkai_bot.alerts.alerts import register_alert
 from offkai_bot.alerts.task import CloseOffkaiTask, SendMessageTask
 
@@ -21,8 +22,6 @@ from offkai_bot.errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
-
-from offkai_bot.alerts import alerts
 
 # pytest marker for async tests
 pytestmark = pytest.mark.asyncio

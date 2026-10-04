@@ -6,6 +6,9 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+
+# Import the module and functions to test
+from offkai_bot.alerts import alerts
 from offkai_bot.alerts.reminders import register_deadline_reminders, unregister_deadline_reminders
 from offkai_bot.alerts.task import (  # Import base Task for type hinting
     CloseOffkaiTask,
@@ -16,9 +19,6 @@ from offkai_bot.alerts.task import (  # Import base Task for type hinting
 from offkai_bot.data.event import Event
 from offkai_bot.errors import AlertTimeInPastError
 from offkai_bot.util import JST  # Import the JST timezone object
-
-# Import the module and functions to test
-from offkai_bot.alerts import alerts
 
 # --- Fixtures ---
 

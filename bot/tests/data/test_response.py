@@ -4,6 +4,9 @@ from datetime import UTC, datetime
 from unittest.mock import mock_open, patch
 
 import pytest
+
+# Import the module we are testing
+from offkai_bot.data import response as response_data
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
 from offkai_bot.data.response import (
     EventData,
@@ -13,9 +16,6 @@ from offkai_bot.data.response import (
     get_effective_display_name,
 )
 from offkai_bot.errors import DuplicateResponseError, NoWaitlistEntriesFoundError, ResponseNotFoundError
-
-# Import the module we are testing
-from offkai_bot.data import response as response_data
 
 # --- Test Data ---
 NOW = datetime.now(UTC)

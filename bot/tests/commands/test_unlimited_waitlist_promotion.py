@@ -4,12 +4,11 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from offkai_bot.data import event as event_data
+from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event
 from offkai_bot.data.response import Response, WaitlistEntry, add_response, add_to_waitlist, get_responses, get_waitlist
 from offkai_bot.interactions import PostDeadlineEvent, get_current_attendance_count, promote_waitlist_batch
-
-from offkai_bot.data import event as event_data
-from offkai_bot.data import response as response_data
 
 
 @pytest.fixture(autouse=True)
