@@ -3,6 +3,8 @@ import csv
 import io
 import logging
 import re
+from datetime import datetime
+from typing import Literal
 
 import discord
 from discord import app_commands
@@ -62,6 +64,7 @@ from offkai_bot.event_actions import (
 )
 from offkai_bot.interactions import promote_waitlist_batch
 from offkai_bot.role_management import assign_event_role, create_event_role, remove_event_role
+from offkai_bot.signup_setup import SignupSetup
 from offkai_bot.util import (
     log_command_usage,
     parse_drinks,
@@ -176,6 +179,7 @@ class EventsCog(commands.Cog):
         max_capacity: int | None = None,
         ping_role: str | None = None,
         create_role: bool = False,
+        form: Literal["default", "custom"] = "default",
     ):
         # 1. Business Logic Validation
         validate_event_name(event_name)
@@ -200,10 +204,62 @@ class EventsCog(commands.Cog):
         validate_event_datetime(event_datetime)
         validate_event_deadline(event_datetime, event_deadline)
 
+        async def create(config: dict | None, source: discord.Interaction):
+            await self._create_event(
+                source,
+                event_name,
+                venue,
+                address,
+                google_maps_link,
+                event_datetime,
+                event_deadline,
+                drinks_list,
+                announce_msg,
+                max_capacity,
+                ping_role_id,
+                create_role,
+                config,
+            )
+
+        if form == "custom":
+            await interaction.response.send_message(
+                "Configure the signup form. Nothing is published until Create.",
+                view=SignupSetup(interaction.user.id, drinks_list, create),
+                ephemeral=True,
+            )
+        else:
+            await create(None, interaction)
+
+    async def _create_event(
+        self,
+        interaction: discord.Interaction,
+        event_name: str,
+        venue: str,
+        address: str,
+        google_maps_link: str,
+        event_datetime: datetime,
+        event_deadline: datetime | None,
+        drinks_list: list[str],
+        announce_msg: str | None,
+        max_capacity: int | None,
+        ping_role_id: int | None,
+        create_role: bool,
+        signup_form: dict | None,
+    ):
+        # Recheck a draft's identity and dates at publication time.
+        with contextlib.suppress(EventNotFoundError):
+            if get_event(event_name):
+                raise DuplicateEventError(event_name)
+        validate_interaction_context(interaction)
+        validate_event_datetime(event_datetime)
+        validate_event_deadline(event_datetime, event_deadline)
         # 4. Acknowledge the interaction before the slow Discord API calls below
         # (thread/role creation, event message send) exceed the 3-second window.
         # The confirmation is a public announcement, so defer non-ephemerally.
-        await interaction.response.defer()
+        if signup_form is not None:
+            await interaction.response.defer(thinking=True)
+        else:
+            await interaction.response.defer()
 
         # --- Discord Interaction Block ---
         try:
@@ -249,6 +305,7 @@ class EventsCog(commands.Cog):
             creator_id=interaction.user.id,
             ping_role_id=ping_role_id,
             role_id=role_id,
+            signup_form=signup_form,
         )
 
         register_deadline_reminders(self.bot, new_event, thread)
@@ -714,6 +771,8 @@ class EventsCog(commands.Cog):
             drinks=promoted_entry.drinks,
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
+            payment_method=promoted_entry.payment_method,
+            no_show_agreed=promoted_entry.no_show_agreed,
         )
         try:
             add_response_for_event(event, promoted_response)

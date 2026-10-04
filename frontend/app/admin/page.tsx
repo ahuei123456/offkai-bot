@@ -68,6 +68,7 @@ export default function AdminPage() {
             <AttendeeRow
               key={a.user_id}
               attendee={a}
+              adminKey={data.key} eventName={data.selectedEvent} onPayment={data.updatePayment}
               checkin={data.checkins[a.user_id]}
               onCheckin={data.manualCheckin}
               onCheckout={data.manualCheckout}
@@ -78,7 +79,7 @@ export default function AdminPage() {
           )}
         </div>
 
-        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} />}
+        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} adminKey={data.key} eventName={data.selectedEvent} onPayment={data.updatePayment} />}
       </div>
 
       {scanner.scanResult && (

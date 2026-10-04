@@ -30,6 +30,9 @@ jobs:
           cd frontend
           npm ci --legacy-peer-deps
 
+      - name: Run native Node tests
+        run: npm test --prefix frontend
+
       - name: Run linter
         run: |
           cd frontend

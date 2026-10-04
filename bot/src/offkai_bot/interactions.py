@@ -26,6 +26,7 @@ from offkai_bot.errors import (
 )
 from offkai_bot.messages import MILESTONE_MESSAGES
 from offkai_bot.role_management import assign_event_role, remove_event_role
+from offkai_bot.signup_setup import ActionSelect
 from offkai_bot.util import build_checkin_url
 
 _log = logging.getLogger(__name__)
@@ -201,6 +202,8 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
             drinks=promoted_entry.drinks,
             extras_names=promoted_entry.extras_names,
             display_name=promoted_entry.display_name,
+            payment_method=promoted_entry.payment_method,
+            no_show_agreed=promoted_entry.no_show_agreed,
         )
         try:
             add_response_for_event(event, promoted_response)
@@ -266,6 +269,7 @@ class GatheringModal(ui.Modal):
         self,
         *,
         event: Event,
+        payment_method: str | None = None,
         timeout=None,
     ):
         super().__init__(
@@ -274,6 +278,8 @@ class GatheringModal(ui.Modal):
             custom_id=f"modal_{event.event_name}",
         )
         self.event = event
+        self.payment_method = payment_method
+        self.fields = event.signup_form.get("fields", []) if event.signup_form else None
 
         self.preferred_name_input: ui.TextInput = ui.TextInput(
             label="Name you'd like us to use",
@@ -300,13 +306,17 @@ class GatheringModal(ui.Modal):
         self.behave_checkbox_input: ui.TextInput = self.confirmation_input
         self.arrival_checkbox_input: ui.TextInput = self.confirmation_input
 
-        self.add_item(self.preferred_name_input)
-        self.add_item(self.extra_people_input)
+        if self.fields is None or "preferred_name" in self.fields:
+            self.add_item(self.preferred_name_input)
+        if self.fields is None or "guests" in self.fields:
+            self.add_item(self.extra_people_input)
+        if self.fields and "no_show" in self.fields:
+            self.confirmation_input.placeholder = "Yes: behave, arrive on time; no-show payments are not refunded"
         self.add_item(self.confirmation_input)
 
         # Dynamically add drink choice only if needed
         self.drink_choice_input: ui.TextInput | None = None
-        if self.event.has_drinks:
+        if self.event.has_drinks and (self.fields is None or "drinks" in self.fields):
             self.drink_choice_input = ui.TextInput(
                 label="🍺 Drink choice(s) for you",  # Show available drinks
                 placeholder=f"Choose from: {', '.join(self.event.drinks)}. Separate with commas.",
@@ -319,9 +329,11 @@ class GatheringModal(ui.Modal):
             label="👥 Extras names",  # Show available drinks
             placeholder="Enter you extras names. Separate with commas.",
             required=False,
+            max_length=160 if self.fields is not None else None,
             custom_id="extras_names",
         )
-        self.add_item(self.extras_names_input)
+        if self.fields is None or "guests" in self.fields:
+            self.add_item(self.extras_names_input)
 
     @property
     def event_name(self) -> str:
@@ -357,7 +369,7 @@ class GatheringModal(ui.Modal):
             ValidationError: If drink input is invalid.
         """
         selected_drinks: list[str] = []
-        if self.event.has_drinks:
+        if self.event.has_drinks and (self.fields is None or "drinks" in self.fields):
             if not drink_choice_str:
                 raise ValidationError("Please specify your drink choice(s).")
 
@@ -446,6 +458,9 @@ class GatheringModal(ui.Modal):
             f"すべての結果に対して、全責任を負います。"
         )
 
+        if self.event.signup_form:
+            confirmation_message = render_custom_reply(self.event, response, "Attendance confirmed")
+
         # 2. Attempt to DM the user first
         try:
             await interaction.user.send(confirmation_message)
@@ -533,6 +548,9 @@ class GatheringModal(ui.Modal):
             f"主催者から追加料金が請求される場合があります。"
         )
 
+        if self.event.signup_form:
+            waitlist_message = render_custom_reply(self.event, entry, "Waitlisted — attendance is not confirmed")
+
         # 2. Attempt to DM the user first
         try:
             await interaction.user.send(waitlist_message)
@@ -595,6 +613,9 @@ class GatheringModal(ui.Modal):
             f"主催者から追加料金が請求される場合があります。"
         )
 
+        if self.event.signup_form:
+            waitlist_message = render_custom_reply(self.event, entry, "Waitlisted — attendance is not confirmed")
+
         # 2. Attempt to DM the user first
         try:
             await interaction.user.send(waitlist_message)
@@ -640,12 +661,15 @@ class GatheringModal(ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         # 1. Get Input Values
         preferred_name_str = self.preferred_name_input.value
-        extra_people_str = self.extra_people_input.value
+        extra_people_str = self.extra_people_input.value if self.fields is None or "guests" in self.fields else "0"
         confirmation_str = self.confirmation_input.value
         drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
-        extra_names_str = self.extras_names_input.value
+        extra_names_str = self.extras_names_input.value if self.fields is None or "guests" in self.fields else ""
 
         try:
+            methods = (self.event.signup_form or {}).get("payment_methods", {})
+            if methods and self.payment_method not in methods:
+                raise ValidationError("Please choose an enabled payment method before signing up.")
             # 2. Validate Inputs using Helpers (Raises ValidationError on failure)
             num_extra_people = self._validate_extra_people(extra_people_str)
             # Older callers may still replace the two compatibility aliases.
@@ -696,6 +720,8 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
+                    payment_method=self.payment_method,
+                    no_show_agreed=bool(self.fields and "no_show" in self.fields),
                 )
 
                 add_to_waitlist(self.event.event_name, new_entry)
@@ -721,6 +747,8 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
+                    payment_method=self.payment_method,
+                    no_show_agreed=bool(self.fields and "no_show" in self.fields),
                 )
 
                 # Add to waitlist
@@ -742,6 +770,8 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
+                    payment_method=self.payment_method,
+                    no_show_agreed=bool(self.fields and "no_show" in self.fields),
                 )
 
                 add_response(self.event.event_name, new_response)
@@ -934,7 +964,7 @@ class OpenEvent(EventView):
     )
     async def respond(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Pass the Event object to the modal
-        await interaction.response.send_modal(GatheringModal(event=self.event))
+        await start_signup(interaction, self.event)
 
     @discord.ui.button(
         label="Withdraw Attendance",
@@ -1058,7 +1088,7 @@ class ClosedEvent(EventView):
     )
     async def join_waitlist(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Show the modal to join waitlist
-        await interaction.response.send_modal(GatheringModal(event=self.event))
+        await start_signup(interaction, self.event)
 
     @discord.ui.button(
         label="Withdraw Attendance",
@@ -1282,7 +1312,7 @@ class PostDeadlineEvent(EventView):
     )
     async def join_waitlist(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Show the same modal, but it will add to waitlist since deadline has passed
-        await interaction.response.send_modal(GatheringModal(event=self.event))
+        await start_signup(interaction, self.event)
 
     @discord.ui.button(
         label="Withdraw Attendance",
@@ -1410,3 +1440,63 @@ class PostDeadlineEvent(EventView):
                 e,
                 exc_info=True,
             )
+
+
+def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: str) -> str:
+    """One complete private payload, including instructions for waitlisted groups."""
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    instruction = methods.get(entry.payment_method, "")
+    guests = ", ".join(entry.extras_names)
+    lines = [
+        f"{status}: {event.event_name}",
+        f"Name recorded: {get_effective_display_name(entry)}",
+        f"Group: {1 + entry.extra_people} people" + (f" ({guests})" if guests else ""),
+        "Behavior and on-time arrival: agreed",
+    ]
+    if entry.payment_method:
+        lines.extend([f"Payment method: {entry.payment_method}", instruction])
+    if entry.no_show_agreed:
+        lines.append("No-show / no-refund policy: agreed. Payments for no-shows are not refunded.")
+    url = build_checkin_url(entry.user_id, event.event_name)
+    if url:
+        lines.append(f"RSVP / payment proof / QR code: {url}")
+    return "\n".join(lines)
+
+
+async def start_signup(interaction: discord.Interaction, event: Event):
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    if methods:
+        policy = (
+            "No-show payments are not refunded.\n" if "no_show" in (event.signup_form or {}).get("fields", []) else ""
+        )
+        await interaction.response.send_message(
+            "Choose your payment method, then complete your signup.\n" + policy,
+            view=PaymentSelection(event, interaction.user.id),
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_modal(GatheringModal(event=event))
+
+
+class PaymentSelection(ui.View):
+    def __init__(self, event: Event, owner_id: int):
+        super().__init__(timeout=300)
+        self.event = event
+        self.owner_id = owner_id
+        select = ActionSelect(
+            placeholder="Payment method",
+            options=[discord.SelectOption(label=name) for name in (event.signup_form or {}).get("payment_methods", {})],
+        )
+
+        async def selected(interaction: discord.Interaction):
+            method = select.values[0]
+            await interaction.response.send_modal(GatheringModal(event=event, payment_method=method))
+
+        select.handler = selected
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.owner_id:
+            return True
+        await error_message(interaction, "This signup belongs to another user.")
+        return False

@@ -6,6 +6,8 @@ import type { AttendeeData } from '../../lib/types'
 import { BrandSign } from '../BrandSign'
 import { LiveClock } from '../LiveClock'
 import { LanternGarland, KaraageBoat } from '../izakaya-art'
+import { PaymentCard } from './PaymentCard'
+import type { PaymentRecord } from '../../lib/types'
 import { DrinkCard } from './DrinkCard'
 
 export function RSVPCard({ data, token }: { data: AttendeeData; token: string }) {
@@ -81,6 +83,10 @@ export function RSVPCard({ data, token }: { data: AttendeeData; token: string })
       </div>
 
       <div className="p-6 space-y-4">
+        <PaymentCard key={eventName} token={token} method={attendee.payment_method as string | null}
+          instructions={attendee.payment_instructions as string | null}
+          payment={(attendee.payment as PaymentRecord) ?? { paid: false, proof: null }}
+          available={!!attendee.proof_upload_available} />
         <div className="brand-card rounded-2xl overflow-hidden">
           <div className={`${isWaitlist ? 'bg-[#F59E0B]' : 'bg-[#17120F]'} p-3 flex justify-between items-center`}>
             <span className="text-[10px] font-black text-white tracking-[0.22em] uppercase">{t.entryPass}</span>

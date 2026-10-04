@@ -33,6 +33,8 @@ class Response:
     timestamp: datetime
     drinks: list[str] = field(default_factory=list)
     extras_names: list[str] = field(default_factory=list)
+    payment_method: str | None = None
+    no_show_agreed: bool = False
     display_name: str | None = None
     attendee_number: int | None = None
     extras_attendee_numbers: list[int] = field(default_factory=list)
@@ -50,6 +52,8 @@ class WaitlistEntry:
     timestamp: datetime
     drinks: list[str] = field(default_factory=list)
     extras_names: list[str] = field(default_factory=list)
+    payment_method: str | None = None
+    no_show_agreed: bool = False
     display_name: str | None = None
 
 
@@ -245,6 +249,8 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
+            payment_method=resp_dict.get("payment_method"),
+            no_show_agreed=resp_dict.get("no_show_agreed", False),
             attendee_number=attendee_number,
             extras_attendee_numbers=extras_attendee_numbers,
         )
@@ -289,6 +295,8 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
+            payment_method=entry_dict.get("payment_method"),
+            no_show_agreed=entry_dict.get("no_show_agreed", False),
         )
     except (TypeError, ValueError) as e:
         _log.error("Error creating WaitlistEntry object for event %s from dict %s: %s", event_name, entry_dict, e)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, readCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
+import { getPayment, proofExpiry } from '../payments'
 import { verifyToken } from '../token'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
 
@@ -80,6 +81,11 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     attendee: {
+      payment_method: attendee.payment_method ?? null,
+      payment_instructions: activeInstructions(event, attendee.payment_method),
+      payment: getPayment(event.event_name, uid),
+      proof_upload_available: !!event.event_datetime && Date.parse(proofExpiry(event.event_datetime)) > Date.now(),
+      no_show_agreed: attendee.no_show_agreed ?? false,
       status: isWaitlist ? 'waitlist' : 'attending',
       username: attendee.username,
       display_name: attendee.display_name || attendee.username,
@@ -103,4 +109,8 @@ export async function GET(request: NextRequest) {
       max_capacity: event.max_capacity || 0,
     },
   })
+}
+
+function activeInstructions(event: import('../db').Event, method: string | null | undefined) {
+  return method ? event.signup_form?.payment_methods[method] ?? null : null
 }

@@ -14,6 +14,7 @@ export interface Event {
   max_capacity: number | null
   // Non-binding interest gauges; excluded from the check-in admin UI.
   interest_check?: boolean
+  signup_form?: { fields: string[]; payment_methods: Record<string, string> } | null
 }
 
 export interface BotAttendee {
@@ -28,6 +29,8 @@ export interface BotAttendee {
   behavior_confirmed: boolean
   arrival_confirmed: boolean
   event_name: string
+  payment_method?: string | null
+  no_show_agreed?: boolean
   timestamp: string
   // Sequential per-event entry numbers assigned by the bot: the primary's own
   // number, then one per guest. Null/empty until the host numbers the event.

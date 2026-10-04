@@ -76,9 +76,12 @@ export function useAdminData() {
   // Poll check-ins for the selected event every 10s.
   useEffect(() => {
     if (!authed || !selectedEvent) return
-    const id = setInterval(() => loadCheckins(key, selectedEvent), 10_000)
+    const id = setInterval(() => {
+      loadCheckins(key, selectedEvent)
+      loadAttendees(key, selectedEvent)
+    }, 10_000)
     return () => clearInterval(id)
-  }, [authed, selectedEvent, key, loadCheckins])
+  }, [authed, selectedEvent, key, loadCheckins, loadAttendees])
 
   // Switch the viewed event (resets transient view state at the source, not in
   // an effect, per react-hooks guidance).
@@ -126,6 +129,16 @@ export function useAdminData() {
     }
   }, [key, selectedEvent])
 
+  const updatePayment = useCallback(async (userId: string, paid: boolean) => {
+    const res = await fetch('/api/payment?key=' + encodeURIComponent(key), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, event_name: selectedEvent, paid }),
+    })
+    if (!res.ok) return false
+    await loadAttendees(key, selectedEvent)
+    return true
+  }, [key, selectedEvent, loadAttendees])
+
   // Record a successful camera scan into the check-in map (no sticky — scans
   // aren't undo-in-place like the manual buttons).
   const applyScanCheckin = useCallback((record: CheckinRecord) => {
@@ -161,7 +174,7 @@ export function useAdminData() {
   return {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
-    attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
+    updatePayment, attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,
     waitlistCount: waitlist.length,

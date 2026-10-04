@@ -1,4 +1,5 @@
 'use client'
+import { PaymentControl } from './PaymentControl'
 import { drinkDot } from '../../lib/format'
 import type { Attendee, CheckinRecord } from '../../lib/types'
 
@@ -7,7 +8,11 @@ export function AttendeeRow({
   checkin,
   onCheckin,
   onCheckout,
+  adminKey, eventName, onPayment,
 }: {
+  adminKey: string
+  eventName: string
+  onPayment: (userId: string, paid: boolean) => Promise<boolean>
   attendee: Attendee
   checkin?: CheckinRecord
   onCheckin: (userId: string) => void
@@ -77,6 +82,7 @@ export function AttendeeRow({
           </button>
         </div>
       </div>
+      <PaymentControl attendee={a} adminKey={adminKey} eventName={eventName} onPayment={onPayment} />
     </div>
   )
 }
