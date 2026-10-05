@@ -26,7 +26,7 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
-from offkai_bot.data.ranking import decrease_rank, migrate_legacy_rank
+from offkai_bot.data.ranking import migrate_legacy_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
     Response,
@@ -39,7 +39,6 @@ from offkai_bot.data.response import (
     get_waitlist,
     has_complete_attendee_numbers,
     promote_specific_from_waitlist,
-    remove_response,
     restore_waitlist_entry,
     save_responses,
 )
@@ -63,7 +62,8 @@ from offkai_bot.event_actions import (
     update_event_message,
 )
 from offkai_bot.interactions import promote_waitlist_batch
-from offkai_bot.role_management import assign_event_role, create_event_role, remove_event_role
+from offkai_bot.registration_removal import remove_registration
+from offkai_bot.role_management import assign_event_role, create_event_role
 from offkai_bot.signup_setup import PublicationState, SignupSetup
 from offkai_bot.util import (
     log_command_usage,
@@ -676,53 +676,13 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
-        removed_response = remove_response(event_name, member.id)
-        freed_spots = 1 + removed_response.extra_people
-
-        # Interest registrations never touched ranks or the waitlist.
-        if not event.interest_check:
-            decrease_rank(member.id, member.name)
-
-        if event.role_id and interaction.guild:
-            await remove_event_role(interaction.guild, member.id, event.role_id)
-
-        # Offer the freed spots to the waitlist, mirroring the self-withdrawal paths.
-        # The delete has already persisted, so promotion failure must not fail the command.
+        result = await remove_registration(self.bot, event, member, interaction.guild)
         message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
-        if not event.interest_check:
-            try:
-                promoted_user_ids = await promote_waitlist_batch(event, self.bot, freed_spots=freed_spots)
-                if promoted_user_ids:
-                    message += (
-                        f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spots."
-                    )
-            except Exception as e:
-                _log.error(
-                    "Waitlist promotion failed after deleting response from user %s for event '%s': %s",
-                    member.id,
-                    event_name,
-                    e,
-                    exc_info=True,
-                )
-                message += "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed."
+        if result["promoted"]:
+            message += f"\n⬆️ Promoted {len(result['promoted'])} user(s) from the waitlist to fill the freed spots."
+        for warning in result["warnings"]:
+            message += f"\n⚠️ {warning}"
         await interaction.followup.send(message, ephemeral=True)
-
-        # Keep the live interested count on the announcement accurate.
-        if event.interest_check:
-            await update_event_message(self.bot, event)
-
-        if event.thread_id:
-            thread = self.bot.get_channel(event.thread_id)
-            if isinstance(thread, discord.Thread):
-                try:
-                    await thread.remove_user(member)
-                    _log.info("Removed user %s from thread %s for event '%s'.", member.id, thread.id, event_name)
-                except discord.HTTPException as e:
-                    _log.error("Failed to remove user %s from thread %s: %s", member.id, thread.id, e)
-            else:
-                _log.warning("Could not find thread %s to remove user for event '%s'.", event.thread_id, event_name)
-        else:
-            _log.warning("Event '%s' is missing thread_id, cannot remove user from thread.", event_name)
 
     @app_commands.command(
         name="migrate_rank",

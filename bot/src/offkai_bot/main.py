@@ -10,6 +10,7 @@ from discord.ext import commands
 
 # --- Updated Imports ---
 from offkai_bot import config
+from offkai_bot.admin_api import start_admin_api
 from offkai_bot.alerts.alerts import start_alert_loop
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 from offkai_bot.config import get_config
@@ -106,6 +107,13 @@ class OffkaiClient(commands.Bot):
 
         await load_and_update_events(self)
         start_alert_loop(self)
+        self.admin_api = await start_admin_api(self)
+
+    async def close(self):
+        runner = getattr(self, "admin_api", None)
+        if runner:
+            await runner.cleanup()
+        await super().close()
 
 
 intents = discord.Intents.default()

@@ -175,6 +175,18 @@ Running via Docker Compose automatically launches both the Discord bot and the N
    docker compose logs -f
    ```
 
+### Admin registration removal
+
+The admin panel can remove a confirmed attendee or waitlisted user from the selected event.
+Confirmed removal frees the whole group's places, runs the existing waitlist promotion,
+and removes the user from the Discord thread. Discord cleanup failures are reported after removal.
+
+Compose configures a private bot API on port 8091 without publishing it to the host.
+For local development, set `ADMIN_API_PORT=8091` for the bot (host defaults to `127.0.0.1`)
+and `BOT_ADMIN_URL=http://127.0.0.1:8091` for the frontend. Both use the same `ADMIN_KEY`.
+Without `ADMIN_API_PORT`, the bot API remains disabled. Keep this connection private;
+the browser calls the existing frontend admin API, which forwards the action to the bot.
+
 ### Running the Bot Standalone (Without Frontend)
 
 If you only want to run the Discord bot and do not need the Next.js web application, you have two options:

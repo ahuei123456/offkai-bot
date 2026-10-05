@@ -204,8 +204,8 @@ async def test_delete_response_decrements_rank(mock_interaction, prepopulated_ev
 
     with (
         patch("offkai_bot.cogs.events.get_event") as mock_get_event,
-        patch("offkai_bot.cogs.events.remove_response") as mock_remove,
-        patch("offkai_bot.cogs.events.decrease_rank") as mock_decrease,
+        patch("offkai_bot.registration_removal.remove_response") as mock_remove,
+        patch("offkai_bot.registration_removal.decrease_rank") as mock_decrease,
     ):
         mock_get_event.return_value = prepopulated_event_cache[0]
         cog.bot.get_channel.return_value = None

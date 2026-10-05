@@ -24,6 +24,7 @@ export function useAdminData() {
   // Rows the admin just checked in/out — kept visible regardless of the active
   // filter so a mistaken action can be undone in place (e.g. on the Pending tab).
   const [stickyIds, setStickyIds] = useState<Set<string>>(new Set())
+  const [removalWarnings, setRemovalWarnings] = useState<string[]>([])
 
   const loadCheckins = useCallback(async (adminKey: string, ev: string) => {
     const generation = eventGeneration.current
@@ -100,6 +101,7 @@ export function useAdminData() {
     eventGeneration.current += 1
     setSelectedEvent(next)
     setStickyIds(new Set())
+    setRemovalWarnings([])
   }, [])
 
   const changeFilter = useCallback((next: AdminFilter) => {
@@ -153,6 +155,22 @@ export function useAdminData() {
     return true
   }, [key, selectedEvent, eventName, loadAttendees])
 
+  const removeRegistration = useCallback(async (userId: string) => {
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
+    const generation = eventGeneration.current
+    const response = await fetch('/api/registration/remove?key=' + encodeURIComponent(key), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, event_name: eventName }),
+    })
+    const result = await response.json().catch(() => ({}))
+    // Refresh even after an ambiguous failure; a persisted removal cannot be retried blindly.
+    await loadAttendees(key, eventName)
+    if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
+      setRemovalWarnings(response.ok ? result.warnings ?? [] : [])
+    }
+    return response.ok && result.removed === true
+  }, [key, selectedEvent, eventName, loadAttendees])
+
   // Record a successful camera scan into the check-in map (no sticky — scans
   // aren't undo-in-place like the manual buttons).
   const applyScanCheckin = useCallback((record: CheckinRecord) => {
@@ -189,6 +207,7 @@ export function useAdminData() {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
     updatePayment, attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
+    removeRegistration, removalWarnings,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,
     waitlistCount: waitlist.length,

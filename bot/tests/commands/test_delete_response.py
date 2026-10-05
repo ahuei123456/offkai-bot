@@ -75,10 +75,10 @@ def mock_event_obj(sample_event_list):
 # --- Test Cases ---
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_success(
     mock_log,
     mock_get_event,
@@ -140,10 +140,10 @@ async def test_delete_response_success(
     mock_log.error.assert_not_called()  # Check no error logs
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_promotes_from_waitlist(
     mock_log,
     mock_get_event,
@@ -182,10 +182,10 @@ async def test_delete_response_promotes_from_waitlist(
     )
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_multi_person_unlimited_event_bounds_promotion(
     mock_log,
     mock_get_event,
@@ -225,10 +225,10 @@ async def test_delete_response_multi_person_unlimited_event_bounds_promotion(
     )
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_promotion_failure_still_confirms_and_cleans_up(
     mock_log,
     mock_get_event,
@@ -278,10 +278,10 @@ async def test_delete_response_promotion_failure_still_confirms_and_cleans_up(
     assert mock_log.error.call_args[0][2] == event_name_target
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_success_no_channel_id(
     mock_log,
     mock_get_event,
@@ -326,10 +326,10 @@ async def test_delete_response_success_no_channel_id(
     mock_log.error.assert_not_called()
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_success_thread_not_found(
     mock_log,
     mock_get_event,
@@ -374,10 +374,10 @@ async def test_delete_response_success_thread_not_found(
     mock_log.error.assert_not_called()
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_success_remove_user_fails(
     mock_log,
     mock_get_event,
@@ -425,10 +425,10 @@ async def test_delete_response_success_remove_user_fails(
     mock_log.info.assert_not_called()
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_event_not_found(
     mock_log,
     mock_get_event,
@@ -461,10 +461,10 @@ async def test_delete_response_event_not_found(
     mock_cog.bot.get_channel.assert_not_called()
 
 
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
-@patch("offkai_bot.cogs.events._log")
+@patch("offkai_bot.registration_removal._log")
 async def test_delete_response_response_not_found_in_data(
     mock_log,
     mock_get_event,

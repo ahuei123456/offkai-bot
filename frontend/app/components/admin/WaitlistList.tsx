@@ -1,10 +1,12 @@
 'use client'
 import { PaymentControl } from './PaymentControl'
+import { RemoveRegistration } from './RemoveRegistration'
 import type { Attendee } from '../../lib/types'
 
-export function WaitlistList({ waitlist, adminKey, eventName, onPayment }: {
+export function WaitlistList({ waitlist, adminKey, eventName, onPayment, onRemove }: {
   waitlist: Attendee[]; adminKey: string; eventName: string
   onPayment: (userId: string, paid: boolean) => Promise<boolean>
+  onRemove: (userId: string) => Promise<boolean>
 }) {
   if (waitlist.length === 0) return null
   return (
@@ -19,6 +21,7 @@ export function WaitlistList({ waitlist, adminKey, eventName, onPayment }: {
             <p className="font-bold text-[#17120F] text-sm">{a.display_name || a.username}</p>
           </div>
             <PaymentControl attendee={a} adminKey={adminKey} eventName={eventName} onPayment={onPayment} />
+            <RemoveRegistration attendee={a} onRemove={onRemove} />
           </div>
         ))}
       </div>
