@@ -12,12 +12,39 @@ from offkai_bot.config import get_config
 from offkai_bot.data.event import get_event
 from offkai_bot.errors import EventNotFoundError, ResponseNotFoundError
 from offkai_bot.event_actions import fetch_thread_for_event
+from offkai_bot.payment_proof import registered_payment_events
 from offkai_bot.registration_removal import remove_registration
 
 _log = logging.getLogger(__name__)
 
 
 def create_admin_app(client: discord.Client) -> web.Application:
+    async def confirm_payment(request: web.Request) -> web.Response:
+        key = get_config().get("ADMIN_KEY", "")
+        if not key or not hmac.compare_digest(request.headers.get("Authorization", ""), f"Bearer {key}"):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        if not client.is_ready():
+            return web.json_response({"error": "bot_unavailable"}, status=503)
+        try:
+            body = await request.json()
+        except (ValueError, UnicodeDecodeError):
+            return web.json_response({"error": "invalid_request"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"error": "invalid_request"}, status=400)
+        event_name, user_id = body.get("event_name"), body.get("user_id")
+        if not isinstance(user_id, str) or not re.fullmatch(r"[0-9]{16,22}", user_id):
+            return web.json_response({"error": "invalid_request"}, status=400)
+        if not isinstance(event_name, str) or not event_name or len(event_name) > 100:
+            return web.json_response({"error": "invalid_request"}, status=400)
+        if not any(event.event_name == event_name for event in registered_payment_events(int(user_id))):
+            return web.json_response({"error": "not_found"}, status=404)
+        try:
+            user = client.get_user(int(user_id)) or await client.fetch_user(int(user_id))
+            await user.send(f"Payment confirmed for {event_name}!")
+        except discord.HTTPException:
+            return web.json_response({"error": "dm_failed"}, status=502)
+        return web.json_response({"sent": True})
+
     async def remove(request: web.Request) -> web.Response:
         settings = get_config()
         key = settings.get("ADMIN_KEY", "")
@@ -62,6 +89,7 @@ def create_admin_app(client: discord.Client) -> web.Application:
 
     app = web.Application(client_max_size=4096)
     app.router.add_post("/registrations/remove", remove)
+    app.router.add_post("/payments/confirm", confirm_payment)
     return app
 
 

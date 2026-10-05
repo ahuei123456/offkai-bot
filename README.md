@@ -187,6 +187,18 @@ and `BOT_ADMIN_URL=http://127.0.0.1:8091` for the frontend. Both use the same `A
 Without `ADMIN_API_PORT`, the bot API remains disabled. Keep this connection private;
 the browser calls the existing frontend admin API, which forwards the action to the bot.
 
+### Payment proof by DM
+
+Registered attendees and waitlisted users can DM `payment proof <event name>` with one screenshot.
+`proof payment <event name>` and `i paid <event name>` also work. Names ignore case, spaces and punctuation;
+unique partial names and clear minor typos are accepted. Ambiguous names require clarification before upload.
+Only private DMs are handled. Images use the existing frontend upload/compression/replacement pipeline.
+The bot acknowledges successful storage; marking an unpaid user paid in admin sends a confirmation DM.
+Notification failure is reported in admin without undoing the saved payment status.
+
+Set the bot's `PROOF_UPLOAD_URL` to the frontend's internal base URL when different from `FRONTEND_URL`.
+Compose already sets this. Local development falls back to `FRONTEND_URL` and uses the private bot API above.
+
 ### Running the Bot Standalone (Without Frontend)
 
 If you only want to run the Discord bot and do not need the Next.js web application, you have two options:

@@ -58,7 +58,7 @@ export default function AdminPage() {
       />
 
       <div className="p-4 space-y-4 lg:p-6">
-        {data.removalWarnings.map((warning, index) => <p key={index} role="status" className="brand-card rounded-xl p-3 text-sm">{warning}</p>)}
+        {data.actionWarnings.map((warning, index) => <p key={index} role="status" className="brand-card rounded-xl p-3 text-sm">{warning}</p>)}
         {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
         <div className={`brand-card rounded-2xl overflow-hidden ${scanner.scanning ? '' : 'hidden'}`}>
           <div id={scanner.scannerDivId} className="w-full" />

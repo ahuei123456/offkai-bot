@@ -95,3 +95,26 @@ async def test_admin_removal_refuses_an_unready_bot(monkeypatch):
     async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
         reply = await http.post("/registrations/remove", json={}, headers={"Authorization": "Bearer synthetic-admin"})
         assert reply.status == 503
+
+
+async def test_payment_confirmation_requires_auth_registration_and_reports_dm_failure(monkeypatch):
+    uid = 101000000000000001
+    event = Event("Payment test", "Venue", "Address", "", datetime.now(UTC))
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+    client = MagicMock(spec=discord.Client)
+    client.is_ready.return_value = True
+    client.get_user.return_value = user
+    monkeypatch.setattr(admin_api, "get_config", lambda: {"ADMIN_KEY": "synthetic-admin"})
+    monkeypatch.setattr(admin_api, "registered_payment_events", lambda user_id: [event] if user_id == uid else [])
+    payload = {"event_name": event.event_name, "user_id": str(uid)}
+    headers = {"Authorization": "Bearer synthetic-admin"}
+    async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
+        assert (await http.post("/payments/confirm", json=payload)).status == 401
+        assert (
+            await http.post("/payments/confirm", json={**payload, "event_name": "Other"}, headers=headers)
+        ).status == 404
+        user.send.assert_not_awaited()
+        assert (await http.post("/payments/confirm", json=payload, headers=headers)).status == 200
+        user.send.assert_awaited_once_with("Payment confirmed for Payment test!")
+        user.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "DM blocked")
+        assert (await http.post("/payments/confirm", json=payload, headers=headers)).status == 502

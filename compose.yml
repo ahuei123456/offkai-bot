@@ -11,6 +11,7 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - GUILDS=${GUILDS}
       - FRONTEND_URL=${FRONTEND_URL}
+      - PROOF_UPLOAD_URL=http://chibachanners-frontend:8090
       - ADMIN_KEY=${ADMIN_KEY}
       - ADMIN_API_HOST=0.0.0.0
       - ADMIN_API_PORT=8091

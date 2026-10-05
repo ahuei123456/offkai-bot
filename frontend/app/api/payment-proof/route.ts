@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '../token'
 import { parseEventParam, parseUserId } from '../validation'
 import { paymentRegistration, tokenPaymentRegistration } from '../payment-access'
-import { MAX_IMAGE_BYTES, proofExpiry, readProof, saveProof } from '../payments'
+import { getPayment, MAX_IMAGE_BYTES, proofExpiry, readProof, saveProof } from '../payments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -44,9 +44,10 @@ export async function POST(request: NextRequest) {
     if (!(image instanceof File)) return error('missing_image', 400)
     if (image.size > MAX_IMAGE_BYTES) return error('image_too_large', 413)
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(image.type)) return error('invalid_image', 400)
+    const replaced = !!getPayment(registration.event.event_name, token.userId).proof
     const payment = await saveProof(registration.event.event_name, token.userId, eventStart,
       Buffer.from(await image.arrayBuffer()))
-    return NextResponse.json({ payment }, { headers: PRIVATE_HEADERS })
+    return NextResponse.json({ payment, replaced }, { headers: PRIVATE_HEADERS })
   } catch {
     return error('invalid_image_or_storage_error', 400)
   }

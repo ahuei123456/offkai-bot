@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
+import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 import sharp from 'sharp'
@@ -57,6 +58,26 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
   const modules = compileRoutes()
   const previousDir = process.env.BOT_DATA_DIR
   const previousKey = process.env.ADMIN_KEY
+  const previousBotUrl = process.env.BOT_ADMIN_URL
+  const notifications: unknown[] = []
+  let failNotification = false
+  const bot = createServer(async (req, res) => {
+    assert.equal(req.url, '/payments/confirm')
+    assert.equal(req.headers.authorization, 'Bearer synthetic-test-key')
+    let body = ''
+    for await (const chunk of req) body += chunk
+    const payload = JSON.parse(body)
+    // The state must already be persisted when the callback arrives.
+    const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'payments.json'), 'utf8'))
+    assert.equal(saved[payload.event_name][payload.user_id].paid, true)
+    notifications.push(payload)
+    res.writeHead(failNotification ? 502 : 200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(failNotification ? { error: 'dm_failed' } : { sent: true }))
+  })
+  await new Promise<void>(resolve => bot.listen(0, '127.0.0.1', resolve))
+  const botAddress = bot.address()
+  assert.ok(botAddress && typeof botAddress !== 'string')
+  process.env.BOT_ADMIN_URL = `http://127.0.0.1:${botAddress.port}`
   process.env.BOT_DATA_DIR = dataDir
   process.env.ADMIN_KEY = 'synthetic-test-key'
   process.env.MOCK_MODE = 'false'
@@ -127,9 +148,14 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       let paid = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: true }))
       assert.equal(paid.status, 200)
       assert.equal((await paid.json()).payment.proof, null)
+      const count = notifications.length
+      await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: true }))
+      assert.equal(notifications.length, count, 'Repeated Mark paid must not send another DM')
       const uploaded = await upload(token)
       assert.equal(uploaded.status, 200)
-      assert.equal((await uploaded.json()).payment.paid, true)
+      const uploadedData = await uploaded.json()
+      assert.equal(uploadedData.payment.paid, true)
+      assert.equal(uploadedData.replaced, false)
       const read = await proofRoute.GET(request('/api/payment-proof?token=' + token))
       assert.equal(read.status, 200)
       assert.equal(read.headers.get('cache-control'), 'private, no-store')
@@ -150,12 +176,22 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       paid = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: false }))
       assert.equal((await paid.json()).payment.paid, false)
       // Replacing a proof preserves unpaid status and removes the old image.
-      assert.equal((await (await upload(token)).json()).payment.paid, false)
+      const replacement = await (await upload(token)).json()
+      assert.equal(replacement.payment.paid, false)
+      assert.equal(replacement.replaced, true)
       await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: true }))
       const list = await (await attendeesRoute.GET(request(`/api/attendees?key=synthetic-test-key&event=${encodeURIComponent(name)}`))).json()
       assert.equal(list.attendees[0].user_id, uid)
       assert.equal(list.attendees[0].payment.paid, true)
     }
+    assert.equal(notifications.length, 4)
+    failNotification = true
+    await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: eventNames[0], user_id: uid, paid: false }))
+    const failedDm = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: eventNames[0], user_id: uid, paid: true }))
+    assert.equal(failedDm.status, 200)
+    const persisted = await failedDm.json()
+    assert.equal(persisted.payment.paid, true)
+    assert.match(persisted.warning, /confirmation DM/)
     assert.equal(fs.readdirSync(path.join(dataDir, 'payment-proofs')).length, 2)
     assert.notEqual(payments.getPayment(eventNames[0], uid).proof.filename, payments.getPayment(eventNames[1], uid).proof.filename)
     assert.equal((await proofRoute.GET(request('/api/payment-proof?token=' + signedToken(otherUid, eventNames[0])))).status, 404)
@@ -198,6 +234,8 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       .png().toBuffer()
     await assert.rejects(() => payments.normalizeProof(tooManyPixels))
   } finally {
+    await new Promise<void>((resolve, reject) => bot.close(error => error ? reject(error) : resolve()))
+    if (previousBotUrl === undefined) delete process.env.BOT_ADMIN_URL; else process.env.BOT_ADMIN_URL = previousBotUrl
     if (previousDir === undefined) delete process.env.BOT_DATA_DIR; else process.env.BOT_DATA_DIR = previousDir
     if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey
     fs.rmSync(modules, { recursive: true, force: true })

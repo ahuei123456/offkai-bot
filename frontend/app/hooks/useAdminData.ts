@@ -24,7 +24,7 @@ export function useAdminData() {
   // Rows the admin just checked in/out — kept visible regardless of the active
   // filter so a mistaken action can be undone in place (e.g. on the Pending tab).
   const [stickyIds, setStickyIds] = useState<Set<string>>(new Set())
-  const [removalWarnings, setRemovalWarnings] = useState<string[]>([])
+  const [actionWarnings, setActionWarnings] = useState<string[]>([])
 
   const loadCheckins = useCallback(async (adminKey: string, ev: string) => {
     const generation = eventGeneration.current
@@ -101,7 +101,7 @@ export function useAdminData() {
     eventGeneration.current += 1
     setSelectedEvent(next)
     setStickyIds(new Set())
-    setRemovalWarnings([])
+    setActionWarnings([])
   }, [])
 
   const changeFilter = useCallback((next: AdminFilter) => {
@@ -146,12 +146,17 @@ export function useAdminData() {
   const updatePayment = useCallback(async (userId: string, paid: boolean) => {
     // An event switch can leave the previous rows visible while the new list loads.
     if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
+    const generation = eventGeneration.current
     const res = await fetch('/api/payment?key=' + encodeURIComponent(key), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId, event_name: eventName, paid }),
     })
+    const result = await res.json().catch(() => ({}))
     if (!res.ok) return false
     await loadAttendees(key, selectedEvent)
+    if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
+      setActionWarnings(result.warning ? [result.warning] : [])
+    }
     return true
   }, [key, selectedEvent, eventName, loadAttendees])
 
@@ -166,7 +171,7 @@ export function useAdminData() {
     // Refresh even after an ambiguous failure; a persisted removal cannot be retried blindly.
     await loadAttendees(key, eventName)
     if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
-      setRemovalWarnings(response.ok ? result.warnings ?? [] : [])
+      setActionWarnings(response.ok ? result.warnings ?? [] : [])
     }
     return response.ok && result.removed === true
   }, [key, selectedEvent, eventName, loadAttendees])
@@ -207,7 +212,7 @@ export function useAdminData() {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
     updatePayment, attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
-    removeRegistration, removalWarnings,
+    removeRegistration, actionWarnings,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,
     waitlistCount: waitlist.length,

@@ -27,6 +27,7 @@ from offkai_bot.event_actions import (
     fetch_thread_for_event,
     update_event_message,
 )
+from offkai_bot.payment_proof import handle_payment_proof
 
 # --- End Updated Imports ---
 
@@ -76,6 +77,10 @@ class OffkaiClient(commands.Bot):
             help_command=None,
             allowed_mentions=discord.AllowedMentions.none(),
         )
+
+    async def on_message(self, message: discord.Message):
+        if not await handle_payment_proof(message):
+            await self.process_commands(message)
 
     async def setup_hook(self):
         # Load extensions (Cogs)
