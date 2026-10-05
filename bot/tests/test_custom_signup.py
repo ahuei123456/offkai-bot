@@ -17,6 +17,7 @@ from offkai_bot.util import build_checkin_token
 
 @pytest.fixture
 def custom_event():
+    responses.RESPONSE_DATA_CACHE = {}
     return Event(
         event_name="Synthetic Custom",
         venue="Venue",
@@ -50,6 +51,35 @@ def interaction(user_id=191524132624531458):
     return value
 
 
+async def submit_payment(source, values=None, agreement=" Yes "):
+    """Submit the real second modal after the details step's private Continue button."""
+    view = source.response.send_message.call_args.kwargs["view"]
+    await view.continue_signup.callback(source)
+    payment = source.response.send_modal.call_args.args[0]
+    submitted = []
+    if payment.payment_method_input is not None:
+        submitted.append(
+            {
+                "type": 18,
+                "component": {
+                    "type": 3,
+                    "custom_id": "payment_method",
+                    "values": ["PayNow"] if values is None else values,
+                },
+            }
+        )
+    if payment.no_show_input is not None:
+        submitted.append({"type": 1, "components": [{"type": 4, "custom_id": "no_show_agreement", "value": agreement}]})
+    source.response.send_message.reset_mock()
+    await payment._scheduled_task(source, submitted, {})
+    return payment
+
+
+async def complete_signup(modal, source):
+    await modal.on_submit(source)
+    await submit_payment(source)
+
+
 @pytest.mark.parametrize("outcome", ["confirmed", "closed", "deadline", "capacity", "group_exceeds"])
 @pytest.mark.parametrize("dm_fails", [False, True])
 async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm_fails):
@@ -74,7 +104,7 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
     token = build_checkin_token(source.user.id, custom_event.event_name, "synthetic-test-key")
     link = f"https://synthetic.invalid/?token={token}"
     with patch("offkai_bot.interactions.build_checkin_url", return_value=link):
-        await modal.on_submit(source)
+        await complete_signup(modal, source)
     entry = (
         responses.get_responses(custom_event.event_name)
         if outcome == "confirmed"
@@ -87,6 +117,10 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
     assert link in payload
     assert "Recorded Name" in payload and "Guest" in payload
     assert "no-refund" in payload
+    assert "Drinks:" not in payload and "飲み物:" not in payload
+    assert "Please provide proof of payment on the RSVP Page.\n📎 RSVPページで支払い証明" in payload
+    assert payload.count(link) == 1 and payload.count("Synthetic organizer instructions") == 1
+    assert ("✅ 参加確定" in payload) == (outcome == "confirmed")
     assert ("Attendance confirmed" in payload) == (outcome == "confirmed")
     # Persisted answers survive a real cache reload.
     responses.RESPONSE_DATA_CACHE = None
@@ -103,7 +137,7 @@ async def test_field_selection_payment_entry_and_yes_validation(custom_event):
     await start_signup(source, custom_event)
     modal = source.response.send_modal.call_args.args[0]
     source.response.send_message.assert_not_awaited()
-    assert [o.label for o in modal.payment_method_input.options] == ["PayNow"]
+    assert all(isinstance(child, discord.ui.TextInput) for child in modal.children)
     custom_event.signup_form["fields"] = ["no_show"]
     custom_event.signup_form["payment_methods"] = {}
     modal = GatheringModal(event=custom_event)
@@ -113,26 +147,21 @@ async def test_field_selection_payment_entry_and_yes_validation(custom_event):
     await modal.on_submit(source)
     assert responses.get_responses(custom_event.event_name) == []
     modal.confirmation_input._value = "Yes"
-    await modal.on_submit(source)
+    await complete_signup(modal, source)
     saved = responses.get_responses(custom_event.event_name)[0]
     assert saved.extra_people == 0 and saved.extras_names == [] and saved.no_show_agreed
 
 
 @pytest.mark.parametrize("open_event", [True, False])
-async def test_payment_in_modal_dispatch_persists_answers_and_instructions(custom_event, open_event):
+async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_event, open_event):
     custom_event.open = open_event
     responses.RESPONSE_DATA_CACHE = {}
     source = interaction()
     await start_signup(source, custom_event)
     modal = source.response.send_modal.call_args.args[0]
     payload = modal.to_dict()
-    assert len(payload["components"]) == 5
-    payment = payload["components"][-1]
-    assert payment["type"] == 18 and payment["label"] == "Payment method"
-    assert payment["component"]["type"] == 3
-    assert payment["component"]["required"] is True
-    assert payment["component"]["min_values"] == payment["component"]["max_values"] == 1
-    assert [option["value"] for option in payment["component"]["options"]] == ["PayNow"]
+    assert len(payload["components"]) == 4
+    assert all(component["type"] == 1 for component in payload["components"])
 
     # Use Discord's real modal dispatch/decoding for both old text rows and the new Label/Select.
     submitted = [
@@ -144,9 +173,23 @@ async def test_payment_in_modal_dispatch_persists_answers_and_instructions(custo
             ("extras_names", "Guest"),
         ]
     ]
-    submitted.append({"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": ["PayNow"]}})
-    with patch("offkai_bot.interactions.build_checkin_url", return_value="https://synthetic.invalid/pass"):
+    with (
+        patch("offkai_bot.interactions.build_checkin_url", return_value="https://synthetic.invalid/pass"),
+        patch("offkai_bot.interactions.update_rank") as update_rank,
+    ):
         await modal._scheduled_task(source, submitted, {})
+        assert responses.get_responses(custom_event.event_name) == []
+        assert responses.get_waitlist(custom_event.event_name) == []
+        update_rank.assert_not_called()
+        source.user.send.assert_not_awaited()
+        assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+        payment_modal = await submit_payment(source)
+    payment, policy = payment_modal.to_dict()["components"]
+    assert payment["type"] == 18 and payment["label"] == "Payment method"
+    assert payment["component"]["type"] == 3 and payment["component"]["required"] is True
+    assert [option["value"] for option in payment["component"]["options"]] == ["PayNow"]
+    assert policy["components"][0]["custom_id"] == "no_show_agreement"
+    assert policy["components"][0]["required"] is True
     saved = (responses.get_responses if open_event else responses.get_waitlist)(custom_event.event_name)[0]
     assert saved.payment_method == "PayNow"
     assert saved.display_name == "Recorded Name" and saved.extra_people == 1 and saved.extras_names == ["Guest"]
@@ -155,19 +198,13 @@ async def test_payment_in_modal_dispatch_persists_answers_and_instructions(custo
     assert "Synthetic organizer instructions" in reply and "https://synthetic.invalid/pass" in reply
 
 
-async def test_full_drinks_form_keeps_payment_step_and_every_existing_field(custom_event):
+async def test_full_drinks_form_keeps_every_existing_field_before_payment(custom_event):
     custom_event.drinks = ["Tea"]
     custom_event.signup_form["fields"].append("drinks")
     source = interaction()
     await start_signup(source, custom_event)
-    source.response.send_modal.assert_not_awaited()
-    assert source.response.send_message.call_args.kwargs["ephemeral"] is True
-    view = source.response.send_message.call_args.kwargs["view"]
-    select = view.children[0]
-    select._refresh_state(source, {"values": ["PayNow"]})
-    await select.callback(source)
     modal = source.response.send_modal.call_args.args[0]
-    assert modal.payment_method == "PayNow" and modal.payment_method_input is None
+    source.response.send_message.assert_not_awaited()
     assert {child.custom_id for child in modal.children} == {
         "preferred_name",
         "extra_people",
@@ -176,6 +213,12 @@ async def test_full_drinks_form_keeps_payment_step_and_every_existing_field(cust
         "extras_names",
     }
     assert len(modal.to_dict()["components"]) == 5
+    modal.extra_people_input._value = "0"
+    modal.drink_choice_input._value = "Tea"
+    modal.confirmation_input._value = "Yes"
+    await complete_signup(modal, source)
+    assert responses.get_responses(custom_event.event_name)[0].drinks == ["tea"]
+    assert "🍺 Drinks: tea" in source.user.send.call_args.args[0]
 
 
 @pytest.mark.parametrize("values", [[], ["Unconfigured"], ["PayNow", "Unconfigured"]])
@@ -185,14 +228,82 @@ async def test_modal_rejects_missing_or_unconfigured_payment(custom_event, value
     modal = GatheringModal(event=custom_event)
     modal.extra_people_input._value = "0"
     modal.confirmation_input._value = "Yes"
-    await modal._scheduled_task(
-        source,
-        [{"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": values}}],
-        {},
-    )
+    await modal.on_submit(source)
+    await submit_payment(source, values=values)
     assert responses.get_responses(custom_event.event_name) == []
     assert responses.get_waitlist(custom_event.event_name) == []
     assert "choose an enabled payment method" in source.user.send.call_args.args[0]
+
+
+async def test_separate_policy_rejects_no_without_recording_signup(custom_event):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    await submit_payment(source, agreement="No")
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+    assert not modal.no_show_agreed
+    assert "no-show / no-refund policy" in source.user.send.call_args.args[0]
+
+
+async def test_continuation_and_payment_are_bound_to_original_attendee(custom_event):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    view = source.response.send_message.call_args.kwargs["view"]
+    assert not await view.interaction_check(interaction(43))
+    await view.continue_signup.callback(source)
+    payment = source.response.send_modal.call_args.args[0]
+    await payment.on_submit(interaction(43))
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+    await submit_payment(source)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    await payment.on_submit(source)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+
+
+@pytest.mark.parametrize("change", ["capacity", "deadline", "closed"])
+async def test_final_step_uses_current_capacity_deadline_and_open_state(custom_event, change):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    assert responses.get_responses(custom_event.event_name) == []
+    if change == "capacity":
+        custom_event.max_capacity = 0
+    elif change == "deadline":
+        custom_event.event_deadline = datetime.now(UTC) - timedelta(seconds=1)
+    else:
+        custom_event.open = False
+    await submit_payment(source)
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name)[0].no_show_agreed
+
+
+@pytest.mark.parametrize("with_payment", [False, True])
+async def test_custom_without_policy_never_records_assumed_agreement(custom_event, with_payment):
+    custom_event.signup_form["fields"].remove("no_show")
+    if not with_payment:
+        custom_event.signup_form["payment_methods"] = {}
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    with patch("offkai_bot.interactions.build_checkin_url", return_value="https://synthetic.invalid/pass"):
+        await modal.on_submit(source)
+        if with_payment:
+            payment = await submit_payment(source)
+            assert payment.no_show_input is None
+    assert responses.get_responses(custom_event.event_name)[0].no_show_agreed is False
+    reply = source.user.send.call_args.args[0]
+    assert ("Please provide proof of payment" in reply) == with_payment
+    assert "no-refund policy agreed" not in reply
 
 
 @pytest.mark.parametrize("drinks", [[], ["Tea"]])
@@ -203,7 +314,6 @@ async def test_default_signup_still_opens_existing_text_form(custom_event, drink
     await start_signup(source, custom_event)
     modal = source.response.send_modal.call_args.args[0]
     source.response.send_message.assert_not_awaited()
-    assert modal.payment_method_input is None
     assert len(modal.children) == 4 + bool(drinks)
     assert all(isinstance(child, discord.ui.TextInput) for child in modal.children)
 
@@ -275,14 +385,11 @@ async def test_creator_named_payment_reaches_attendee_form_and_reply(custom_even
     events.EVENT_DATA_CACHE = None
     assert events.get_event(custom_event.event_name).signup_form == custom_event.signup_form
     attendee = GatheringModal(event=custom_event)
-    assert [option.value for option in attendee.payment_method_input.options] == [name]
     attendee.extra_people_input._value = "0"
     attendee.confirmation_input._value = "Yes"
-    await attendee._scheduled_task(
-        source,
-        [{"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": [name]}}],
-        {},
-    )
+    await attendee.on_submit(source)
+    payment = await submit_payment(source, values=[name])
+    assert [option.value for option in payment.payment_method_input.options] == [name]
     assert responses.get_responses(custom_event.event_name)[0].payment_method == name
     assert "Transfer using event reference" in source.user.send.call_args.args[0]
     await setup.publish.callback(source)
@@ -451,7 +558,7 @@ async def test_synthetic_cross_stack_fixture(custom_event, tmp_path):
         token = build_checkin_token(source.user.id, name, "synthetic-test-key")
         url = f"https://synthetic.invalid/?token={token}"
         with patch("offkai_bot.interactions.build_checkin_url", return_value=url):
-            await modal.on_submit(source)
+            await complete_signup(modal, source)
         reply = source.user.send.call_args.args[0]
         assert "Synthetic organizer instructions" in reply and token in reply
         replies[name] = {"token": token, "reply": reply}
@@ -485,7 +592,7 @@ async def test_long_custom_reply_is_one_embed_message(custom_event, outcome, dm_
     token = build_checkin_token(source.user.id, custom_event.event_name, "synthetic-test-key")
     link = "https://synthetic.invalid/" + "a" * 100 + "/?token=" + token
     with patch("offkai_bot.interactions.build_checkin_url", return_value=link):
-        await modal.on_submit(source)
+        await complete_signup(modal, source)
     source.user.send.assert_awaited_once()
     delivery = source.response.send_message if dm_fails else source.user.send
     description = delivery.call_args.kwargs["embed"].description
