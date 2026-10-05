@@ -42,13 +42,25 @@ class InstructionModal(ui.Modal):
             default=setup.instructions.get(method, "") if method is not None else "",
         )
         self.add_item(self.instructions)
+        self.jp_payment_info = ui.TextInput(
+            label="JP payment info",
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=False,
+            default=setup.jp_instructions.get(method, "") if method is not None else "",
+        )
+        self.add_item(self.jp_payment_info)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not await self.setup.interaction_check(interaction):
             return
         value = self.instructions.value.strip()
+        jp_value = self.jp_payment_info.value.strip()
         if not value or len(value) > 1000:
             await interaction.response.send_message("Payment instructions are required.", ephemeral=True)
+            return
+        if len(jp_value) > 1000:
+            await interaction.response.send_message("JP payment info must be at most 1000 characters.", ephemeral=True)
             return
         method = self.method
         if self.name_input is not None:
@@ -71,6 +83,10 @@ class InstructionModal(ui.Modal):
                 self.setup.fields.append("payment_method")
         assert method is not None
         self.setup.instructions[method] = value
+        if jp_value:
+            self.setup.jp_instructions[method] = jp_value
+        else:
+            self.setup.jp_instructions.pop(method, None)
         self.setup.refresh_selects()
         await interaction.response.edit_message(view=self.setup)
 
@@ -88,6 +104,7 @@ class SignupSetup(ui.View):
         self.fields = ["preferred_name", "guests", "no_show"] + (["drinks"] if drinks else [])
         self.methods: list[str] = []
         self.instructions: dict[str, str] = {}
+        self.jp_instructions: dict[str, str] = {}
         self.finished = False
         self.publishing = False
         self.publication = PublicationState()
@@ -174,7 +191,11 @@ class SignupSetup(ui.View):
             raise ValueError("Enable at least one payment method.")
         if any(not self.instructions.get(method) for method in enabled):
             raise ValueError("Enter instructions for every enabled payment method.")
-        return {"fields": self.fields.copy(), "payment_methods": {m: self.instructions[m] for m in enabled}}
+        config = {"fields": self.fields.copy(), "payment_methods": {m: self.instructions[m] for m in enabled}}
+        jp = {m: self.jp_instructions[m] for m in enabled if self.jp_instructions.get(m)}
+        if jp:
+            config["payment_instructions_jp"] = jp
+        return config
 
     @ui.button(label="Preview", row=3)
     async def preview(self, interaction: discord.Interaction, button: ui.Button):
@@ -195,7 +216,9 @@ class SignupSetup(ui.View):
         ]
         await interaction.response.send_message(embed=embeds[0], ephemeral=True)
         for method, instructions in config["payment_methods"].items():
-            await interaction.followup.send(embed=discord.Embed(title=method, description=instructions), ephemeral=True)
+            jp = config.get("payment_instructions_jp", {}).get(method, "")
+            description = instructions + (f"\n\nJP payment info:\n{jp}" if jp else "")
+            await interaction.followup.send(embed=discord.Embed(title=method, description=description), ephemeral=True)
 
     @ui.button(label="Create", style=discord.ButtonStyle.success, row=3)
     async def publish(self, interaction: discord.Interaction, button: ui.Button):

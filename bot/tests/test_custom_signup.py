@@ -10,7 +10,7 @@ from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data import event as events
 from offkai_bot.data import response as responses
 from offkai_bot.data.event import Event, create_event_message
-from offkai_bot.interactions import GatheringModal, promote_waitlist_batch, start_signup
+from offkai_bot.interactions import GatheringModal, promote_waitlist_batch, render_custom_reply_sections, start_signup
 from offkai_bot.signup_setup import InstructionModal, SignupSetup
 from offkai_bot.util import build_checkin_token
 
@@ -118,8 +118,9 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
     assert "Recorded Name" in payload and "Guest" in payload
     assert "no-refund" in payload
     assert "Drinks:" not in payload and "飲み物:" not in payload
-    assert "Please provide proof of payment on the RSVP Page.\n📎 RSVPページで支払い証明" in payload
-    assert payload.count(link) == 1 and payload.count("Synthetic organizer instructions") == 1
+    assert f"Please provide proof of payment on the RSVP Page.\n🔗 RSVP Page / QR Code: {link}" in payload
+    assert f"RSVPページで支払い証明をアップロードしてください。\n🔗 RSVPページ / QRコード: {link}" in payload
+    assert payload.count(link) == 2 and payload.count("Synthetic organizer instructions") == 1
     assert ("✅ 参加確定" in payload) == (outcome == "confirmed")
     assert ("Attendance confirmed" in payload) == (outcome == "confirmed")
     # Persisted answers survive a real cache reload.
@@ -183,6 +184,11 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
         update_rank.assert_not_called()
         source.user.send.assert_not_awaited()
         assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+        assert source.response.send_message.call_args.args[0] == (
+            "Please choose a payment method to complete your registration. "
+            "Offkai Bot will send you the instructions on completing payment"
+        )
+        assert source.response.send_message.call_args.kwargs["view"].children[0].label == "Choose Payment Method"
         payment_modal = await submit_payment(source)
     payment, policy = payment_modal.to_dict()["components"]
     assert payment["type"] == 18 and payment["label"] == "Payment method"
@@ -367,6 +373,7 @@ async def test_creator_named_payment_reaches_attendee_form_and_reply(custom_even
             for field, value in [
                 (modal.name_input, f" {name} "),
                 (modal.instructions, " Transfer using event reference "),
+                (modal.jp_payment_info, " 主催者が入力した支払い案内 "),
             ]
         ],
         {},
@@ -374,6 +381,7 @@ async def test_creator_named_payment_reaches_attendee_form_and_reply(custom_even
     source.response.edit_message.assert_awaited_once_with(view=setup)
     assert setup.fields == ["guests", "no_show", "payment_method"]
     assert setup.configuration()["payment_methods"] == {name: "Transfer using event reference"}
+    assert setup.configuration()["payment_instructions_jp"] == {name: "主催者が入力した支払い案内"}
     fields = next(child for child in setup.children if child.row == 0)
     methods = next(child for child in setup.children if child.row == 1)
     assert {option.value for option in fields.options if option.default} == set(setup.fields)
@@ -391,7 +399,9 @@ async def test_creator_named_payment_reaches_attendee_form_and_reply(custom_even
     payment = await submit_payment(source, values=[name])
     assert [option.value for option in payment.payment_method_input.options] == [name]
     assert responses.get_responses(custom_event.event_name)[0].payment_method == name
-    assert "Transfer using event reference" in source.user.send.call_args.args[0]
+    reply = source.user.send.call_args.args[0]
+    assert "Transfer using event reference" in reply
+    assert "支払い案内: 主催者が入力した支払い案内" in reply
     await setup.publish.callback(source)
     create.assert_awaited_once_with(setup.configuration(), source, setup.publication)
 
@@ -408,7 +418,7 @@ async def test_instruction_edit_and_select_refresh_preserve_current_choices():
     editor._refresh_state(source, {"values": [long_name]})
     await editor.callback(source)
     modal = source.response.send_modal.call_args.args[0]
-    assert modal.name_input is None and len(modal.children) == 1 and len(modal.title) <= 45
+    assert modal.name_input is None and len(modal.children) == 2 and len(modal.title) <= 45
     assert modal.instructions.default == "Original instructions"
     modal.instructions._value = " Updated instructions "
     await modal.on_submit(source)
@@ -426,6 +436,44 @@ async def test_instruction_edit_and_select_refresh_preserve_current_choices():
     assert setup.configuration()["payment_methods"] == {}
     assert setup.instructions[long_name] == "Updated instructions"
     assert source.response.edit_message.await_count == 3
+
+
+async def test_optional_jp_instructions_edit_clear_and_omit(custom_event):
+    source = interaction(42)
+    setup = SignupSetup(42, [], AsyncMock())
+    setup.instructions = {"PayNow": "Original language", "Disabled": "Unused"}
+    setup.methods = ["PayNow"]
+    setup.fields = ["payment_method"]
+    setup.jp_instructions = {"PayNow": "元の案内", "Disabled": "表示しない"}
+    modal = InstructionModal(setup, "PayNow")
+    assert not modal.jp_payment_info.required
+    assert modal.jp_payment_info.default == "元の案内"
+    modal.instructions._value = "Original language"
+    modal.jp_payment_info._value = " 新しい案内 "
+    await modal.on_submit(source)
+    assert setup.configuration()["payment_instructions_jp"] == {"PayNow": "新しい案内"}
+    await setup.preview.callback(source)
+    assert "新しい案内" in source.followup.send.call_args.kwargs["embed"].description
+    modal.jp_payment_info._value = " "
+    await modal.on_submit(source)
+    assert "payment_instructions_jp" not in setup.configuration()
+    custom_event.signup_form = setup.configuration()
+    entry = responses.Response(
+        user_id=42,
+        username="Name",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name=custom_event.event_name,
+        timestamp=datetime.now(UTC),
+        payment_method="PayNow",
+    )
+    with patch("offkai_bot.interactions.build_checkin_url", return_value="https://synthetic.invalid/pass"):
+        en, jp = render_custom_reply_sections(custom_event, entry, "Attendance confirmed")
+    assert "Original language" in en and "Original language" not in jp
+    assert "支払い案内:" not in jp
+    assert "💳 支払い方法: PayNow" in jp
+    assert "📎 Please provide proof" in en and "📎 Please provide proof" not in jp
 
 
 @pytest.mark.parametrize(
@@ -572,9 +620,10 @@ async def test_synthetic_cross_stack_fixture(custom_event, tmp_path):
 
 @pytest.mark.parametrize("outcome", ["confirmed", "waitlist", "capacity_exceeded"])
 @pytest.mark.parametrize("dm_fails", [False, True])
-async def test_long_custom_reply_is_one_embed_message(custom_event, outcome, dm_fails):
+async def test_long_custom_reply_has_complete_language_embeds(custom_event, outcome, dm_fails):
     custom_event.event_name = "🎉" * 90
     custom_event.signup_form["payment_methods"]["PayNow"] = "Instructions " + "x" * 987
+    custom_event.signup_form["payment_instructions_jp"] = {"PayNow": "案内" + "あ" * 998}
     events.EVENT_DATA_CACHE = [custom_event]
     responses.RESPONSE_DATA_CACHE = {}
     source = interaction()
@@ -595,10 +644,14 @@ async def test_long_custom_reply_is_one_embed_message(custom_event, outcome, dm_
         await complete_signup(modal, source)
     source.user.send.assert_awaited_once()
     delivery = source.response.send_message if dm_fails else source.user.send
-    description = delivery.call_args.kwargs["embed"].description
-    assert len(description) > 2000
-    assert len(description) <= 4096
-    assert link in description and "Instructions" in description
+    embeds = delivery.call_args.kwargs["embeds"]
+    assert len(embeds) == 2
+    descriptions = [embed.description for embed in embeds]
+    assert all(len(text.encode("utf-16-le")) // 2 <= 4096 for text in descriptions)
+    assert sum(len(text.encode("utf-16-le")) // 2 for text in descriptions) <= 6000
+    assert all(link in text for text in descriptions)
+    assert "Instructions" in descriptions[0] and "案内" not in descriptions[0]
+    assert "案内" in descriptions[1] and "Instructions" not in descriptions[1]
 
 
 async def test_custom_command_stays_draft_until_create(custom_event):

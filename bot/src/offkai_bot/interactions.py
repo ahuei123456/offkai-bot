@@ -462,7 +462,7 @@ class GatheringModal(ui.Modal):
         # 2. Attempt to DM the user first
         try:
             if self.event.signup_form and len(confirmation_message) > 2000:
-                await interaction.user.send(embed=discord.Embed(description=confirmation_message))
+                await interaction.user.send(embeds=custom_reply_embeds(self.event, response, "Attendance confirmed"))
             else:
                 await interaction.user.send(confirmation_message)
             # If DM succeeds, send a brief confirmation to the channel
@@ -474,7 +474,7 @@ class GatheringModal(ui.Modal):
             # If DM fails, fall back to sending an ephemeral message in the channel
             if self.event.signup_form and len(confirmation_message) > 2000:
                 await interaction.response.send_message(
-                    embed=discord.Embed(description=confirmation_message), ephemeral=True
+                    embeds=custom_reply_embeds(self.event, response, "Attendance confirmed"), ephemeral=True
                 )
             else:
                 await interaction.response.send_message(confirmation_message, ephemeral=True)
@@ -560,7 +560,9 @@ class GatheringModal(ui.Modal):
         # 2. Attempt to DM the user first
         try:
             if self.event.signup_form and len(waitlist_message) > 2000:
-                await interaction.user.send(embed=discord.Embed(description=waitlist_message))
+                await interaction.user.send(
+                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed")
+                )
             else:
                 await interaction.user.send(waitlist_message)
             # If DM succeeds, send a brief confirmation to the channel
@@ -572,7 +574,8 @@ class GatheringModal(ui.Modal):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
             if self.event.signup_form and len(waitlist_message) > 2000:
                 await interaction.response.send_message(
-                    embed=discord.Embed(description=waitlist_message), ephemeral=True
+                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed"),
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(waitlist_message, ephemeral=True)
@@ -633,7 +636,9 @@ class GatheringModal(ui.Modal):
         # 2. Attempt to DM the user first
         try:
             if self.event.signup_form and len(waitlist_message) > 2000:
-                await interaction.user.send(embed=discord.Embed(description=waitlist_message))
+                await interaction.user.send(
+                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed")
+                )
             else:
                 await interaction.user.send(waitlist_message)
             # If DM succeeds, send a brief confirmation to the channel
@@ -646,7 +651,8 @@ class GatheringModal(ui.Modal):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
             if self.event.signup_form and len(waitlist_message) > 2000:
                 await interaction.response.send_message(
-                    embed=discord.Embed(description=waitlist_message), ephemeral=True
+                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed"),
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(waitlist_message, ephemeral=True)
@@ -716,7 +722,8 @@ class GatheringModal(ui.Modal):
             if methods or (self.fields and "no_show" in self.fields):
                 if not final:
                     await interaction.response.send_message(
-                        "Your details are ready. Continue to finish signup; attendance is not recorded yet.",
+                        "Please choose a payment method to complete your registration. "
+                        "Offkai Bot will send you the instructions on completing payment",
                         view=SignupContinuation(self, interaction.user.id),
                         ephemeral=True,
                     )
@@ -1478,10 +1485,11 @@ class PostDeadlineEvent(EventView):
             )
 
 
-def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: str) -> str:
-    """One complete private payload, including instructions for waitlisted groups."""
+def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, status: str) -> list[str]:
+    """Complete language sections; organizer translations are optional and never inferred."""
     methods = (event.signup_form or {}).get("payment_methods", {})
     instruction = methods.get(entry.payment_method, "")
+    jp_instruction = (event.signup_form or {}).get("payment_instructions_jp", {}).get(entry.payment_method, "")
     confirmed = status == "Attendance confirmed"
     name = get_effective_display_name(entry)
     guests = ", ".join(entry.extras_names)
@@ -1500,44 +1508,56 @@ def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: s
         lines.extend([f"💳 Payment method: {entry.payment_method}", f"Payment instructions: {instruction}"])
     if entry.no_show_agreed:
         lines.append("✔ No-show / no-refund policy agreed: payments for no-shows are not refunded.")
-    lines.extend(
-        [
-            "",
-            f"✅ 参加確定: **{event.event_name}**"
-            if confirmed
-            else f"📋 ウェイトリスト（参加未確定）: **{event.event_name}**",
-            f"👤 登録名: {name}",
-            f"👥 同伴者: {entry.extra_people}名",
-            "✔ 行動確認済み\n✔ 到着確認済み",
-        ]
-    )
-    if drinks:
-        lines.append(f"🍺 飲み物: {', '.join(drinks)}")
-    if entry.no_show_agreed:
-        lines.append("✔ 不参加時の返金不可に同意済み")
     url = build_checkin_url(entry.user_id, event.event_name)
     if url:
         if methods:
-            lines.extend(
-                [
-                    "📎 Please provide proof of payment on the RSVP Page.",
-                    "📎 RSVPページで支払い証明をアップロードしてください。",
-                ]
-            )
-        lines.append(f"🔗 RSVP Page / QR Code / RSVPページ / QRコード: {url}")
+            lines.append("📎 Please provide proof of payment on the RSVP Page.")
+        lines.append(f"🔗 RSVP Page / QR Code: {url}")
     lines.extend(
         [
             "",
             "⚠️ Important: Withdrawing after the deadline is strongly discouraged. "
             "If you withdraw late, you are fully responsible for any consequences, including "
             "payment requests from the event organizer and potential server moderation action.",
+        ]
+    )
+    jp_lines = [
+        f"✅ 参加確定: **{event.event_name}**"
+        if confirmed
+        else f"📋 ウェイトリスト（参加未確定）: **{event.event_name}**",
+        f"👤 登録名: {name}",
+        f"👥 同伴者: {entry.extra_people}名" + (f" ({guests})" if guests else ""),
+        "✔ 行動確認済み\n✔ 到着確認済み",
+    ]
+    if drinks:
+        jp_lines.append(f"🍺 飲み物: {', '.join(drinks)}")
+    if entry.payment_method:
+        jp_lines.append(f"💳 支払い方法: {entry.payment_method}")
+    if jp_instruction:
+        jp_lines.append(f"支払い案内: {jp_instruction}")
+    if entry.no_show_agreed:
+        jp_lines.append("✔ 不参加時の返金不可に同意済み")
+    if url:
+        if methods:
+            jp_lines.append("📎 RSVPページで支払い証明をアップロードしてください。")
+        jp_lines.append(f"🔗 RSVPページ / QRコード: {url}")
+    jp_lines.extend(
+        [
             "",
             "⚠️ 重要: 締め切り後の辞退は強くお勧めしません。遅れて辞退した場合、"
             "主催者からの支払い請求やサーバーのモデレーション措置を含む"
             "すべての結果に対して、全責任を負います。",
         ]
     )
-    return "\n".join(lines)
+    return ["\n".join(lines), "\n".join(jp_lines)]
+
+
+def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: str) -> str:
+    return "\n\n".join(render_custom_reply_sections(event, entry, status))
+
+
+def custom_reply_embeds(event: Event, entry: Response | WaitlistEntry, status: str) -> list[discord.Embed]:
+    return [discord.Embed(description=section) for section in render_custom_reply_sections(event, entry, status)]
 
 
 async def start_signup(interaction: discord.Interaction, event: Event):
@@ -1559,7 +1579,7 @@ class SignupContinuation(ui.View):
         await error_message(interaction, "This signup is finished or belongs to another user.")
         return False
 
-    @ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    @ui.button(label="Choose Payment Method", style=discord.ButtonStyle.primary)
     async def continue_signup(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(PaymentModal(self))
 
