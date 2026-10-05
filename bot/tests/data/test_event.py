@@ -1402,8 +1402,7 @@ def test_event_format_details_no_datetime_no_drinks():
         "📍 **Address (住所)**: Min Addr\n"
         "🌎 **Google Maps Link (地図)**: min_gmap\n"
         "🕑 **Date and Time (日時)**: Not Set\n"
-        "📅 **Deadline (締切)**: Not Set\n"
-        "🍺 **Drinks (飲み物)**: No selection needed!"
+        "📅 **Deadline (締切)**: Not Set"
     )
     assert event.format_details() == expected
 

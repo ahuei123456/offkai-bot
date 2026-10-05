@@ -103,7 +103,7 @@ class Event:
         return now_utc > self.event_deadline
 
     def format_details(self):
-        drinks_str = ", ".join(self.drinks) if self.drinks else "No selection needed!"
+        drinks_line = f"\n🍺 **Drinks (飲み物)**: {', '.join(self.drinks)}" if self.has_drinks else ""
 
         if self.event_datetime:
             event_dt_jst = self.event_datetime.astimezone(JST)
@@ -134,8 +134,8 @@ class Event:
             f"📍 **Address (住所)**: {self.address}\n"
             f"🌎 **Google Maps Link (地図)**: {self.google_maps_link}\n"
             f"🕑 **Date and Time (日時)**: {dt_str}\n"
-            f"📅 **Deadline (締切)**: {deadline_str}\n"
-            f"🍺 **Drinks (飲み物)**: {drinks_str}"
+            f"📅 **Deadline (締切)**: {deadline_str}"
+            f"{drinks_line}"
             f"{role_line}"
         )
 
