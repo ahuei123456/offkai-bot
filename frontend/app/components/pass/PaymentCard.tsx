@@ -32,8 +32,14 @@ export function PaymentCard({ token, method, instructions, payment: initial, ava
       setFile(null)
     } catch { setError(t.paymentUploadError) } finally { setBusy(false) }
   }
-  return <section className="brand-card rounded-2xl p-5 space-y-3">
-    <h2 className="font-black">{t.payment}</h2>
+  return <section className="brand-card rounded-2xl overflow-hidden">
+    <div className="bg-[#17120F] p-3 flex justify-between items-center">
+      <h2 className="text-[10px] font-black text-white tracking-[0.22em] uppercase">{t.payment}</h2>
+      <span className={`text-[9px] font-black px-3 py-1 rounded border-2 uppercase tracking-widest border-white ${payment.paid ? 'bg-[#FFD51B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
+        {payment.paid ? t.paid : t.unpaid}
+      </span>
+    </div>
+    <div className="p-5 space-y-3">
     {method && <p className="font-bold">{method}</p>}
     {instructions && <p className="whitespace-pre-wrap break-words text-sm">
       {instructions.split(/(https?:\/\/[^\s<>()]+)/g).map((part, index) => {
@@ -43,7 +49,6 @@ export function PaymentCard({ token, method, instructions, payment: initial, ava
           className="font-bold underline underline-offset-2">{href}</a>{part.slice(href.length)}</span>
       })}
     </p>}
-    <p className="font-bold">{payment.paid ? t.paid : t.unpaid}</p>
     <p className="text-xs">{t.proofDoesNotMarkPaid}</p>
     {available ? <div className="space-y-2">
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={busy}
@@ -74,5 +79,6 @@ export function PaymentCard({ token, method, instructions, payment: initial, ava
       <img src={`/api/payment-proof?token=${encodeURIComponent(token)}&v=${version}`} alt={t.paymentProof}
         className="w-full rounded-xl" />}
     {error && <p role="alert" className="text-red-700">{error}</p>}
+    </div>
   </section>
 }
