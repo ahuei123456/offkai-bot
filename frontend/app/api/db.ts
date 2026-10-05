@@ -14,7 +14,7 @@ export interface Event {
   max_capacity: number | null
   // Non-binding interest gauges; excluded from the check-in admin UI.
   interest_check?: boolean
-  signup_form?: { fields: string[]; payment_methods: Record<string, string> } | null
+  signup_form?: { fields: string[]; payment_methods: Record<string, string>; payment_instructions_jp?: Record<string, string> } | null
 }
 
 export interface BotAttendee {

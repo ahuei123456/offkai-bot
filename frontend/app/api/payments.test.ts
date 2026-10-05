@@ -64,7 +64,8 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     const start = new Date(Date.now() + 24 * 3600 * 1000).toISOString()
     const events = eventNames.map(event_name => ({
       event_name, event_datetime: start, archived: false, open: true,
-      signup_form: { fields: ['payment_method', 'no_show'], payment_methods: { PayNow: 'Synthetic organizer instructions' } },
+      signup_form: { fields: ['payment_method', 'no_show'], payment_methods: { PayNow: 'Synthetic organizer instructions' },
+        ...(event_name === eventNames[0] ? { payment_instructions_jp: { PayNow: '主催者の支払い案内' } } : {}) },
     }))
     const attendee = { user_id: uid, username: 'Synthetic', display_name: 'Recorded name', extra_people: 1,
       extras_names: ['Guest'], drinks: [], payment_method: 'PayNow', no_show_agreed: true }
@@ -142,6 +143,7 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       const pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
       assert.equal(pass.attendee.status, i === 0 ? 'attending' : 'waitlist')
       assert.equal(pass.attendee.payment_instructions, 'Synthetic organizer instructions')
+      assert.equal(pass.attendee.payment_instructions_jp, i === 0 ? '主催者の支払い案内' : null)
       assert.equal(pass.attendee.payment_method, 'PayNow')
       assert.equal(pass.attendee.no_show_agreed, true)
       assert.equal(pass.attendee.payment.paid, true)

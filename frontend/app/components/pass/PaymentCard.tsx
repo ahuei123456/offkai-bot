@@ -3,10 +3,11 @@ import { useRef, useState } from 'react'
 import { useT } from '../../lib/i18n'
 import type { PaymentRecord } from '../../lib/types'
 
-export function PaymentCard({ token, method, instructions, payment: initial, available }: {
-  token: string; method: string | null; instructions: string | null; payment: PaymentRecord; available: boolean
+export function PaymentCard({ token, method, instructions, instructionsJp, payment: initial, available }: {
+  token: string; method: string | null; instructions: string | null; instructionsJp?: string | null; payment: PaymentRecord; available: boolean
 }) {
-  const { t } = useT()
+  const { t, lang } = useT()
+  const displayedInstructions = lang === 'ja' && instructionsJp?.trim() ? instructionsJp : instructions
   const [payment, setPayment] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -41,8 +42,8 @@ export function PaymentCard({ token, method, instructions, payment: initial, ava
     </div>
     <div className="p-5 space-y-3">
     {method && <p className="font-bold">{method}</p>}
-    {instructions && <p className="whitespace-pre-wrap break-words text-sm">
-      {instructions.split(/(https?:\/\/[^\s<>()]+)/g).map((part, index) => {
+    {displayedInstructions && <p className="whitespace-pre-wrap break-words text-sm">
+      {displayedInstructions.split(/(https?:\/\/[^\s<>()]+)/g).map((part, index) => {
         if (!/^https?:\/\//.test(part)) return part
         const href = part.replace(/[.,;!?]+$/, '')
         return <span key={index}><a href={href} target="_blank" rel="noopener noreferrer"

@@ -83,6 +83,8 @@ export async function GET(request: NextRequest) {
     attendee: {
       payment_method: attendee.payment_method ?? null,
       payment_instructions: activeInstructions(event, attendee.payment_method),
+      payment_instructions_jp: attendee.payment_method
+        ? event.signup_form?.payment_instructions_jp?.[attendee.payment_method] ?? null : null,
       payment: getPayment(event.event_name, uid),
       proof_upload_available: !!event.event_datetime && Date.parse(proofExpiry(event.event_datetime)) > Date.now(),
       no_show_agreed: attendee.no_show_agreed ?? false,
