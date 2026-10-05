@@ -36,8 +36,8 @@ export function PaymentCard({ token, method, instructions, instructionsJp, payme
   return <section className="brand-card rounded-2xl overflow-hidden">
     <div className="bg-[#17120F] p-3 flex justify-between items-center">
       <h2 className="text-[10px] font-black text-white tracking-[0.22em] uppercase">{t.payment}</h2>
-      <span className={`text-[9px] font-black px-3 py-1 rounded border-2 uppercase tracking-widest border-white ${payment.paid ? 'bg-[#FFD51B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
-        {payment.paid ? t.paid : t.unpaid}
+      <span className={`text-[9px] font-black px-3 py-1 rounded border-2 uppercase tracking-widest border-white ${payment.paid ? 'bg-[#FFD51B] text-[#17120F]' : payment.proof ? 'bg-[#F59E0B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
+        {payment.paid ? t.paid : payment.proof ? t.paymentPending : t.unpaid}
       </span>
     </div>
     <div className="p-5 space-y-3">
