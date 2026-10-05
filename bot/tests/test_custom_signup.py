@@ -101,9 +101,9 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
 async def test_field_selection_payment_entry_and_yes_validation(custom_event):
     source = interaction()
     await start_signup(source, custom_event)
-    view = source.response.send_message.call_args.kwargs["view"]
-    assert source.response.send_message.call_args.kwargs["ephemeral"]
-    assert [o.label for o in view.children[0].options] == ["PayNow"]
+    modal = source.response.send_modal.call_args.args[0]
+    source.response.send_message.assert_not_awaited()
+    assert [o.label for o in modal.payment_method_input.options] == ["PayNow"]
     custom_event.signup_form["fields"] = ["no_show"]
     custom_event.signup_form["payment_methods"] = {}
     modal = GatheringModal(event=custom_event)
@@ -116,6 +116,96 @@ async def test_field_selection_payment_entry_and_yes_validation(custom_event):
     await modal.on_submit(source)
     saved = responses.get_responses(custom_event.event_name)[0]
     assert saved.extra_people == 0 and saved.extras_names == [] and saved.no_show_agreed
+
+
+@pytest.mark.parametrize("open_event", [True, False])
+async def test_payment_in_modal_dispatch_persists_answers_and_instructions(custom_event, open_event):
+    custom_event.open = open_event
+    responses.RESPONSE_DATA_CACHE = {}
+    source = interaction()
+    await start_signup(source, custom_event)
+    modal = source.response.send_modal.call_args.args[0]
+    payload = modal.to_dict()
+    assert len(payload["components"]) == 5
+    payment = payload["components"][-1]
+    assert payment["type"] == 18 and payment["label"] == "Payment method"
+    assert payment["component"]["type"] == 3
+    assert payment["component"]["required"] is True
+    assert payment["component"]["min_values"] == payment["component"]["max_values"] == 1
+    assert [option["value"] for option in payment["component"]["options"]] == ["PayNow"]
+
+    # Use Discord's real modal dispatch/decoding for both old text rows and the new Label/Select.
+    submitted = [
+        {"type": 1, "components": [{"type": 4, "custom_id": custom_id, "value": value}]}
+        for custom_id, value in [
+            ("preferred_name", "Recorded Name"),
+            ("extra_people", "1"),
+            ("behavior_arrival_confirm", "Yes"),
+            ("extras_names", "Guest"),
+        ]
+    ]
+    submitted.append({"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": ["PayNow"]}})
+    with patch("offkai_bot.interactions.build_checkin_url", return_value="https://synthetic.invalid/pass"):
+        await modal._scheduled_task(source, submitted, {})
+    saved = (responses.get_responses if open_event else responses.get_waitlist)(custom_event.event_name)[0]
+    assert saved.payment_method == "PayNow"
+    assert saved.display_name == "Recorded Name" and saved.extra_people == 1 and saved.extras_names == ["Guest"]
+    assert saved.no_show_agreed
+    reply = source.user.send.call_args.args[0]
+    assert "Synthetic organizer instructions" in reply and "https://synthetic.invalid/pass" in reply
+
+
+async def test_full_drinks_form_keeps_payment_step_and_every_existing_field(custom_event):
+    custom_event.drinks = ["Tea"]
+    custom_event.signup_form["fields"].append("drinks")
+    source = interaction()
+    await start_signup(source, custom_event)
+    source.response.send_modal.assert_not_awaited()
+    assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+    view = source.response.send_message.call_args.kwargs["view"]
+    select = view.children[0]
+    select._refresh_state(source, {"values": ["PayNow"]})
+    await select.callback(source)
+    modal = source.response.send_modal.call_args.args[0]
+    assert modal.payment_method == "PayNow" and modal.payment_method_input is None
+    assert {child.custom_id for child in modal.children} == {
+        "preferred_name",
+        "extra_people",
+        "behavior_arrival_confirm",
+        "drink_choice",
+        "extras_names",
+    }
+    assert len(modal.to_dict()["components"]) == 5
+
+
+@pytest.mark.parametrize("values", [[], ["Unconfigured"], ["PayNow", "Unconfigured"]])
+async def test_modal_rejects_missing_or_unconfigured_payment(custom_event, values):
+    responses.RESPONSE_DATA_CACHE = {}
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal._scheduled_task(
+        source,
+        [{"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": values}}],
+        {},
+    )
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+    assert "choose an enabled payment method" in source.user.send.call_args.args[0]
+
+
+@pytest.mark.parametrize("drinks", [[], ["Tea"]])
+async def test_default_signup_still_opens_existing_text_form(custom_event, drinks):
+    custom_event.signup_form = None
+    custom_event.drinks = drinks
+    source = interaction()
+    await start_signup(source, custom_event)
+    modal = source.response.send_modal.call_args.args[0]
+    source.response.send_message.assert_not_awaited()
+    assert modal.payment_method_input is None
+    assert len(modal.children) == 4 + bool(drinks)
+    assert all(isinstance(child, discord.ui.TextInput) for child in modal.children)
 
 
 async def test_setup_private_draft_requires_instructions_and_cancel_creates_nothing():

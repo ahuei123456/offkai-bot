@@ -335,6 +335,17 @@ class GatheringModal(ui.Modal):
         if self.fields is None or "guests" in self.fields:
             self.add_item(self.extras_names_input)
 
+        self.payment_method_input: ui.Select | None = None
+        methods = (event.signup_form or {}).get("payment_methods", {})
+        if methods and payment_method is None and len(self.children) < 5:
+            self.payment_method_input = ui.Select(
+                placeholder="Choose your payment method",
+                custom_id="payment_method",
+                options=[discord.SelectOption(label=name) for name in methods],
+                required=True,
+            )
+            self.add_item(ui.Label(text="Payment method", component=self.payment_method_input))
+
     @property
     def event_name(self) -> str:
         return self.event.event_name
@@ -689,6 +700,9 @@ class GatheringModal(ui.Modal):
         confirmation_str = self.confirmation_input.value
         drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
         extra_names_str = self.extras_names_input.value if self.fields is None or "guests" in self.fields else ""
+        if self.payment_method_input is not None:
+            selected = self.payment_method_input.values
+            self.payment_method = selected[0] if len(selected) == 1 else None
 
         try:
             methods = (self.event.signup_form or {}).get("payment_methods", {})
@@ -1489,7 +1503,9 @@ def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: s
 
 async def start_signup(interaction: discord.Interaction, event: Event):
     methods = (event.signup_form or {}).get("payment_methods", {})
-    if methods:
+    modal = GatheringModal(event=event)
+    # Discord permits five modal fields. Preserve every enabled field when full.
+    if methods and modal.payment_method_input is None:
         policy = (
             "No-show payments are not refunded.\n" if "no_show" in (event.signup_form or {}).get("fields", []) else ""
         )
@@ -1499,7 +1515,7 @@ async def start_signup(interaction: discord.Interaction, event: Event):
             ephemeral=True,
         )
     else:
-        await interaction.response.send_modal(GatheringModal(event=event))
+        await interaction.response.send_modal(modal)
 
 
 class PaymentSelection(ui.View):
