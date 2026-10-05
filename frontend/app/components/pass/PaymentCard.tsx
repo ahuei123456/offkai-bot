@@ -34,12 +34,13 @@ export function PaymentCard({ token, method, instructions, instructionsJp, payme
     } catch { setError(t.paymentUploadError) } finally { setBusy(false) }
   }
   return <section className="brand-card rounded-2xl overflow-hidden">
-    <div className="bg-[#17120F] p-3 flex justify-between items-center">
+    <details open={!payment.paid}>
+    <summary className="bg-[#17120F] p-3 flex justify-between items-center cursor-pointer">
       <h2 className="text-[10px] font-black text-white tracking-[0.22em] uppercase">{t.payment}</h2>
       <span className={`text-[9px] font-black px-3 py-1 rounded border-2 uppercase tracking-widest border-white ${payment.paid ? 'bg-[#FFD51B] text-[#17120F]' : payment.proof ? 'bg-[#F59E0B] text-[#17120F]' : 'bg-[#E51F1F] text-white'}`}>
         {payment.paid ? t.paid : payment.proof ? t.paymentPending : t.unpaid}
       </span>
-    </div>
+    </summary>
     <div className="p-5 space-y-3">
     {method && <p className="font-bold">{method}</p>}
     {displayedInstructions && <p className="whitespace-pre-wrap break-words text-sm">
@@ -81,5 +82,6 @@ export function PaymentCard({ token, method, instructions, instructionsJp, payme
         className="w-full rounded-xl" />}
     {error && <p role="alert" className="text-red-700">{error}</p>}
     </div>
+    </details>
   </section>
 }
