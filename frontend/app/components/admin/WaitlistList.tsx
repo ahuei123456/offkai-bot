@@ -18,10 +18,10 @@ export function WaitlistList({ waitlist, adminKey, eventName, onPayment, onRemov
             <div className="w-8 h-8 rounded-full border-2 border-[#17120F] bg-white flex items-center justify-center font-black text-[#17120F] shrink-0">
               {(a.display_name || a.username)[0].toUpperCase()}
             </div>
-            <p className="font-bold text-[#17120F] text-sm">{a.display_name || a.username}</p>
+            <p className="flex-1 min-w-0 break-words font-bold text-[#17120F] text-sm">{a.display_name || a.username}</p>
+            <RemoveRegistration attendee={a} onRemove={onRemove} />
           </div>
             <PaymentControl attendee={a} adminKey={adminKey} eventName={eventName} onPayment={onPayment} />
-            <RemoveRegistration attendee={a} onRemove={onRemove} />
           </div>
         ))}
       </div>

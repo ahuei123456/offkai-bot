@@ -9,7 +9,7 @@ export const STRINGS = {
     paid: "Paid",
     unpaid: "Unpaid",
     paymentPending: "Pending",
-    waitingForProof: "Waiting for proof",
+    waitingForProof: "Pending payment proof",
     removeUser: "Remove user",
     confirmRemove: (name: string) => `Remove ${name} and their guests from this event and Discord thread? Freed places will be offered to the waitlist.`,
     removalError: "Could not confirm removal. Refresh the list before trying again.",

@@ -16,11 +16,13 @@ export function RemoveRegistration({ attendee, onRemove }: {
     try { setError(!await onRemove(attendee.user_id)) } catch { setError(true) }
     finally { setBusy(false) }
   }
-  return <div className="border-t-2 border-[#17120F] p-3 text-xs">
-    <div className="flex justify-end">
-      <button type="button" className="brand-action min-h-[44px] rounded-xl px-3 py-2 font-black"
-        disabled={busy} onClick={remove}>{busy ? t.loading : t.removeUser}</button>
-    </div>
+  return <div className="text-xs">
+    <button type="button" className="w-11 h-11 rounded-xl border-2 border-[#17120F] bg-red-50 text-red-700 flex items-center justify-center shrink-0 active:translate-x-[1px] active:translate-y-[1px] transition"
+      disabled={busy} onClick={remove} aria-label={t.removeUser} title={t.removeUser}>
+      {busy ? '…' : <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
+      </svg>}
+    </button>
     {error && <p role="alert" className="mt-2 text-red-700">{t.removalError}</p>}
   </div>
 }

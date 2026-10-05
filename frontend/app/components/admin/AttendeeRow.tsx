@@ -82,10 +82,10 @@ export function AttendeeRow({
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
+          <RemoveRegistration attendee={a} onRemove={onRemove} />
         </div>
       </div>
       <PaymentControl attendee={a} adminKey={adminKey} eventName={eventName} onPayment={onPayment} />
-      <RemoveRegistration attendee={a} onRemove={onRemove} />
     </div>
   )
 }
