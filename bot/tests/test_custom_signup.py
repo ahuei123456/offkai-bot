@@ -11,7 +11,7 @@ from offkai_bot.data import event as events
 from offkai_bot.data import response as responses
 from offkai_bot.data.event import Event, create_event_message
 from offkai_bot.interactions import GatheringModal, promote_waitlist_batch, start_signup
-from offkai_bot.signup_setup import SignupSetup
+from offkai_bot.signup_setup import InstructionModal, SignupSetup
 from offkai_bot.util import build_checkin_token
 
 
@@ -236,6 +236,141 @@ async def test_setup_publish_uses_selected_configuration():
     create.assert_awaited_once_with(
         {"fields": ["payment_method"], "payment_methods": {"PayPal": "Organizer text"}}, source, setup.publication
     )
+
+
+async def test_creator_named_payment_reaches_attendee_form_and_reply(custom_event):
+    source = interaction(42)
+    create = AsyncMock()
+    setup = SignupSetup(42, [], create)
+    # Initially there are no payment selects with empty/invalid option arrays.
+    assert [child.row for child in setup.children if isinstance(child, discord.ui.Select)] == [0]
+    assert len(setup.to_components()[-1]["components"]) == 4
+    setup.fields = ["guests", "no_show"]
+    await setup.add_payment_method.callback(source)
+    modal = source.response.send_modal.call_args.args[0]
+    name = "My local bank " + "x" * 86  # Valid maximum-length method; modal titles remain short.
+    assert len(name) == 100 and len(modal.title) <= 45
+    await modal._scheduled_task(
+        source,
+        [
+            {"type": 1, "components": [{"type": 4, "custom_id": field.custom_id, "value": value}]}
+            for field, value in [
+                (modal.name_input, f" {name} "),
+                (modal.instructions, " Transfer using event reference "),
+            ]
+        ],
+        {},
+    )
+    source.response.edit_message.assert_awaited_once_with(view=setup)
+    assert setup.fields == ["guests", "no_show", "payment_method"]
+    assert setup.configuration()["payment_methods"] == {name: "Transfer using event reference"}
+    fields = next(child for child in setup.children if child.row == 0)
+    methods = next(child for child in setup.children if child.row == 1)
+    assert {option.value for option in fields.options if option.default} == set(setup.fields)
+    assert [(option.value, option.default) for option in methods.options] == [(name, True)]
+
+    custom_event.signup_form = setup.configuration()
+    events.EVENT_DATA_CACHE = [custom_event]
+    events.save_event_data()
+    events.EVENT_DATA_CACHE = None
+    assert events.get_event(custom_event.event_name).signup_form == custom_event.signup_form
+    attendee = GatheringModal(event=custom_event)
+    assert [option.value for option in attendee.payment_method_input.options] == [name]
+    attendee.extra_people_input._value = "0"
+    attendee.confirmation_input._value = "Yes"
+    await attendee._scheduled_task(
+        source,
+        [{"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": [name]}}],
+        {},
+    )
+    assert responses.get_responses(custom_event.event_name)[0].payment_method == name
+    assert "Transfer using event reference" in source.user.send.call_args.args[0]
+    await setup.publish.callback(source)
+    create.assert_awaited_once_with(setup.configuration(), source, setup.publication)
+
+
+async def test_instruction_edit_and_select_refresh_preserve_current_choices():
+    source = interaction(42)
+    setup = SignupSetup(42, [], AsyncMock())
+    long_name = "Bank " + "x" * 95
+    setup.instructions = {"Cash": "Pay at venue", long_name: "Original instructions"}
+    setup.methods = ["Cash"]
+    setup.fields = ["preferred_name", "payment_method"]
+    setup.refresh_selects()
+    editor = next(child for child in setup.children if child.row == 2)
+    editor._refresh_state(source, {"values": [long_name]})
+    await editor.callback(source)
+    modal = source.response.send_modal.call_args.args[0]
+    assert modal.name_input is None and len(modal.children) == 1 and len(modal.title) <= 45
+    assert modal.instructions.default == "Original instructions"
+    modal.instructions._value = " Updated instructions "
+    await modal.on_submit(source)
+    assert setup.instructions == {"Cash": "Pay at venue", long_name: "Updated instructions"}
+    assert setup.methods == ["Cash"] and setup.fields == ["preferred_name", "payment_method"]
+    source.response.edit_message.assert_awaited_once_with(view=setup)
+    methods = next(child for child in setup.children if child.row == 1)
+    assert [option.value for option in methods.options if option.default] == ["Cash"]
+    methods._refresh_state(source, {"values": [long_name]})
+    await methods.callback(source)
+    assert setup.configuration()["payment_methods"] == {long_name: "Updated instructions"}
+    fields = next(child for child in setup.children if child.row == 0)
+    fields._refresh_state(source, {"values": ["preferred_name"]})
+    await fields.callback(source)
+    assert setup.configuration()["payment_methods"] == {}
+    assert setup.instructions[long_name] == "Updated instructions"
+    assert source.response.edit_message.await_count == 3
+
+
+@pytest.mark.parametrize(
+    ("name", "instructions"),
+    [(" ", "Text"), ("x" * 101, "Text"), (" cash ", "Text"), ("Bank", " "), ("Bank", "x" * 1001)],
+)
+async def test_invalid_new_method_does_not_change_draft(name, instructions):
+    setup = SignupSetup(42, [], AsyncMock())
+    setup.instructions = {"Cash": "Pay at venue"}
+    before = setup.configuration()
+    modal = InstructionModal(setup)
+    modal.name_input._value = name
+    modal.instructions._value = instructions
+    source = interaction(42)
+    await modal.on_submit(source)
+    assert setup.configuration() == before and setup.instructions == {"Cash": "Pay at venue"}
+    source.response.send_message.assert_awaited_once()
+    source.response.edit_message.assert_not_awaited()
+
+
+async def test_method_limit_matches_discord_select_limit():
+    setup = SignupSetup(42, [], AsyncMock())
+    setup.instructions = {f"Method {index}": "Instructions" for index in range(24)}
+    modal = InstructionModal(setup)
+    modal.name_input._value = "Last method"
+    modal.instructions._value = "Instructions"
+    await modal.on_submit(interaction(42))
+    assert len(setup.instructions) == 25 and setup.add_payment_method.disabled
+    for child in setup.children:
+        if isinstance(child, discord.ui.Select) and child.row in [1, 2]:
+            assert len(child.options) == 25 and child.max_values <= 25
+    modal = InstructionModal(setup)
+    modal.name_input._value = "One too many"
+    modal.instructions._value = "Instructions"
+    source = interaction(42)
+    await modal.on_submit(source)
+    assert len(setup.instructions) == 25 and "One too many" not in setup.instructions
+    assert "up to 25" in source.response.send_message.call_args.args[0]
+
+
+@pytest.mark.parametrize("blocked", ["another_owner", "finished", "publishing"])
+async def test_method_modal_keeps_existing_draft_access_checks(blocked):
+    setup = SignupSetup(42, [], AsyncMock())
+    setup.finished = blocked == "finished"
+    setup.publishing = blocked == "publishing"
+    modal = InstructionModal(setup)
+    modal.name_input._value = "My bank"
+    modal.instructions._value = "Instructions"
+    source = interaction(43 if blocked == "another_owner" else 42)
+    await modal.on_submit(source)
+    assert setup.instructions == {} and setup.methods == []
+    source.response.send_message.assert_awaited_once()
 
 
 async def test_automatic_and_manual_promotions_preserve_custom_answers(custom_event):

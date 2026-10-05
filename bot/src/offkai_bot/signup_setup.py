@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import discord
 from discord import ui
 
-PAYMENT_METHODS = ("PayPay", "Wise/Revolut", "PayID", "PayNow", "GCash", "PayPal", "Interac")
+MAX_PAYMENT_METHODS = 25
 NO_SHOW_POLICY = "No-show payments are not refunded."
 _log = logging.getLogger(__name__)
 
@@ -26,16 +26,20 @@ class ActionSelect(ui.Select):
 
 
 class InstructionModal(ui.Modal):
-    def __init__(self, setup: "SignupSetup", method: str):
-        super().__init__(title=f"Instructions: {method}")
+    def __init__(self, setup: "SignupSetup", method: str | None = None):
+        super().__init__(title="Add payment method" if method is None else "Edit payment instructions")
         self.setup = setup
         self.method = method
+        self.name_input: ui.TextInput | None = None
+        if method is None:
+            self.name_input = ui.TextInput(label="Payment method name", max_length=100, required=True)
+            self.add_item(self.name_input)
         self.instructions = ui.TextInput(
             label="Your payment instructions",
             style=discord.TextStyle.paragraph,
             max_length=1000,
             required=True,
-            default=setup.instructions.get(method, ""),
+            default=setup.instructions.get(method, "") if method is not None else "",
         )
         self.add_item(self.instructions)
 
@@ -46,8 +50,29 @@ class InstructionModal(ui.Modal):
         if not value or len(value) > 1000:
             await interaction.response.send_message("Payment instructions are required.", ephemeral=True)
             return
-        self.setup.instructions[self.method] = value
-        await interaction.response.send_message(f"Saved instructions for {self.method}.", ephemeral=True)
+        method = self.method
+        if self.name_input is not None:
+            method = self.name_input.value.strip()
+            if not method or len(method) > 100:
+                await interaction.response.send_message(
+                    "Enter a payment method name of 1–100 characters.", ephemeral=True
+                )
+                return
+            if any(name.casefold() == method.casefold() for name in self.setup.instructions):
+                await interaction.response.send_message(
+                    "That payment method already exists. Edit its instructions instead.", ephemeral=True
+                )
+                return
+            if len(self.setup.instructions) >= MAX_PAYMENT_METHODS:
+                await interaction.response.send_message("You can add up to 25 payment methods.", ephemeral=True)
+                return
+            self.setup.methods.append(method)
+            if "payment_method" not in self.setup.fields:
+                self.setup.fields.append("payment_method")
+        assert method is not None
+        self.setup.instructions[method] = value
+        self.setup.refresh_selects()
+        await interaction.response.edit_message(view=self.setup)
 
 
 class SignupSetup(ui.View):
@@ -66,48 +91,60 @@ class SignupSetup(ui.View):
         self.finished = False
         self.publishing = False
         self.publication = PublicationState()
-        presets = [
+        self.presets = [
             ("preferred_name", "Preferred name"),
             ("guests", "Guest count and names"),
             ("payment_method", "Payment method"),
             ("no_show", "No-show / no-refund agreement"),
         ]
         if drinks:
-            presets.append(("drinks", "Drinks"))
+            self.presets.append(("drinks", "Drinks"))
+        self.refresh_selects()
+
+    def refresh_selects(self):
+        for child in self.children:
+            if isinstance(child, ActionSelect):
+                self.remove_item(child)
+        self.add_payment_method.disabled = len(self.instructions) >= MAX_PAYMENT_METHODS
         fields = ActionSelect(
             placeholder="Enabled preset fields",
             min_values=0,
-            max_values=len(presets),
+            max_values=len(self.presets),
             options=[
-                discord.SelectOption(label=label, value=value, default=value in self.fields) for value, label in presets
+                discord.SelectOption(label=label, value=value, default=value in self.fields)
+                for value, label in self.presets
             ],
             row=0,
         )
 
         async def choose_fields(interaction: discord.Interaction):
             self.fields = fields.values.copy()
-            await interaction.response.defer()
+            self.refresh_selects()
+            await interaction.response.edit_message(view=self)
 
         fields.handler = choose_fields
         self.add_item(fields)
+        if not self.instructions:
+            return
         methods = ActionSelect(
             placeholder="Enabled payment methods",
             min_values=0,
-            max_values=len(PAYMENT_METHODS),
-            options=[discord.SelectOption(label=m) for m in PAYMENT_METHODS],
+            max_values=len(self.instructions),
+            options=[discord.SelectOption(label=m, default=m in self.methods) for m in self.instructions],
             row=1,
         )
 
         async def choose_methods(interaction: discord.Interaction):
             self.methods = methods.values.copy()
-            await interaction.response.defer()
+            self.refresh_selects()
+            await interaction.response.edit_message(view=self)
 
         methods.handler = choose_methods
         self.add_item(methods)
         editor = ActionSelect(
             placeholder="Edit instructions for a method",
             row=2,
-            options=[discord.SelectOption(label=m) for m in PAYMENT_METHODS],
+            options=[discord.SelectOption(label=m) for m in self.instructions],
         )
 
         async def edit(interaction: discord.Interaction):
@@ -115,6 +152,10 @@ class SignupSetup(ui.View):
 
         editor.handler = edit
         self.add_item(editor)
+
+    @ui.button(label="Add payment method", row=3)
+    async def add_payment_method(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(InstructionModal(self))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         organizer = isinstance(interaction.user, discord.Member) and any(
@@ -142,7 +183,7 @@ class SignupSetup(ui.View):
         except ValueError as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
-        # Each method stays within one Discord embed field; seven methods can exceed a text message.
+        # Send each method separately so the preview stays within Discord's message limits.
         embeds = [
             discord.Embed(
                 title="Signup preview",
