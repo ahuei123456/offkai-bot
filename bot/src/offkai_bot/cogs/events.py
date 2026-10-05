@@ -162,7 +162,9 @@ class EventsCog(commands.Cog):
         max_capacity="Optional: Maximum number of attendees (including +1s). Leave empty for unlimited.",
         ping_role="Optional: A role to ping in deadline reminders (filtered to roles containing 'meetups').",
         create_role="Optional: Create a mentionable role for event participants (default: False).",
+        form="Use default offkai form or customise one",
     )
+    @app_commands.rename(form="form_type")
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def create_offkai(
