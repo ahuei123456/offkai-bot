@@ -14,9 +14,11 @@ export type Attendee = {
   extras_names: string[]
   attendee_number: number | null
   extras_attendee_numbers: number[]
+  payment_enabled?: boolean
+  payment_unavailable?: boolean
   payment_method?: string | null
   payment_instructions?: string | null
-  payment?: PaymentRecord
+  payment?: PaymentRecord | null
   status: 'attending' | 'waitlist'
 }
 

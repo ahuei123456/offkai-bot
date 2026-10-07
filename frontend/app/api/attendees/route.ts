@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, getDefaultEvent, isSelectableForCheckin } from '../db'
-import { getPayment } from '../payments'
+import { paymentFromSnapshot, readPaymentSnapshot } from '../payments'
+import { paymentEnabled } from '../payment-access'
 import { parseEventParam } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES } from '../mock'
 
@@ -57,10 +58,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ event_name: activeEvent.event_name, attendees: [] })
   }
 
+  const enabled = paymentEnabled(activeEvent)
+  const snapshot = enabled ? readPaymentSnapshot() : {}
+  const paymentFields = (a: import('../db').BotAttendee) => {
+    let payment = null
+    let unavailable = snapshot === null
+    if (enabled && snapshot) {
+      try { payment = paymentFromSnapshot(snapshot, activeEvent.event_name, a.user_id, a.timestamp) }
+      catch { unavailable = true }
+    }
+    return { payment_enabled: enabled, payment_unavailable: unavailable, payment }
+  }
+
   const attendeesList = (eventResponses.attendees || []).map(a => ({
     payment_method: a.payment_method ?? null,
     payment_instructions: a.payment_method ? activeEvent.signup_form?.payment_methods[a.payment_method] ?? null : null,
-    payment: getPayment(activeEvent.event_name, a.user_id),
+    ...paymentFields(a),
     user_id: a.user_id,
     username: a.username,
     display_name: a.display_name,
@@ -75,7 +88,7 @@ export async function GET(request: NextRequest) {
   const waitlistList = (eventResponses.waitlist || []).map(a => ({
     payment_method: a.payment_method ?? null,
     payment_instructions: a.payment_method ? activeEvent.signup_form?.payment_methods[a.payment_method] ?? null : null,
-    payment: getPayment(activeEvent.event_name, a.user_id),
+    ...paymentFields(a),
     user_id: a.user_id,
     username: a.username,
     display_name: a.display_name,

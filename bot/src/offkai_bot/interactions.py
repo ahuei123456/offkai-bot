@@ -1,6 +1,8 @@
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 import discord
 from discord import ui
@@ -223,7 +225,11 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
             rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
 
             promoted_user = await client.fetch_user(promoted_entry.user_id)
-            await promoted_user.send(
+            await send_signup_reply(
+                promoted_user.send,
+                event,
+                promoted_response,
+                "Attendance confirmed",
                 f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
                 f"You've been automatically moved from the waitlist to confirmed attendees.\n"
                 f"{rsvp_link_msg}\n\n"
@@ -235,7 +241,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
                 f"payment requests from the event organizer and potential server moderation action.\n\n"
                 f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-                f"すべての結果に対して、全責任を負います。"
+                f"すべての結果に対して、全責任を負います。",
             )
             _log.info("Promoted user %s from waitlist for event '%s'.", promoted_entry.user_id, event.event_name)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
@@ -461,10 +467,9 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            if self.event.signup_form and len(confirmation_message) > 2000:
-                await interaction.user.send(embeds=custom_reply_embeds(self.event, response, "Attendance confirmed"))
-            else:
-                await interaction.user.send(confirmation_message)
+            await send_signup_reply(
+                interaction.user.send, self.event, response, "Attendance confirmed", confirmation_message
+            )
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
@@ -472,12 +477,14 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # If DM fails, fall back to sending an ephemeral message in the channel
-            if self.event.signup_form and len(confirmation_message) > 2000:
-                await interaction.response.send_message(
-                    embeds=custom_reply_embeds(self.event, response, "Attendance confirmed"), ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(confirmation_message, ephemeral=True)
+            await send_signup_reply(
+                interaction.response.send_message,
+                self.event,
+                response,
+                "Attendance confirmed",
+                confirmation_message,
+                ephemeral=True,
+            )
 
         # 3. Update rank and announce milestones regardless of whether the DM succeeded
         update_rank(interaction.user.id, interaction.user.name)
@@ -559,12 +566,9 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            if self.event.signup_form and len(waitlist_message) > 2000:
-                await interaction.user.send(
-                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed")
-                )
-            else:
-                await interaction.user.send(waitlist_message)
+            await send_signup_reply(
+                interaction.user.send, self.event, entry, "Waitlisted — attendance is not confirmed", waitlist_message
+            )
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
@@ -572,13 +576,14 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            if self.event.signup_form and len(waitlist_message) > 2000:
-                await interaction.response.send_message(
-                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed"),
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(waitlist_message, ephemeral=True)
+            await send_signup_reply(
+                interaction.response.send_message,
+                self.event,
+                entry,
+                "Waitlisted — attendance is not confirmed",
+                waitlist_message,
+                ephemeral=True,
+            )
 
         # 4. Add user to the thread
         try:
@@ -635,12 +640,9 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            if self.event.signup_form and len(waitlist_message) > 2000:
-                await interaction.user.send(
-                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed")
-                )
-            else:
-                await interaction.user.send(waitlist_message)
+            await send_signup_reply(
+                interaction.user.send, self.event, entry, "Waitlisted — attendance is not confirmed", waitlist_message
+            )
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 "📋 Your group exceeds capacity. You've been added to the waitlist! "
@@ -649,13 +651,14 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            if self.event.signup_form and len(waitlist_message) > 2000:
-                await interaction.response.send_message(
-                    embeds=custom_reply_embeds(self.event, entry, "Waitlisted — attendance is not confirmed"),
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(waitlist_message, ephemeral=True)
+            await send_signup_reply(
+                interaction.response.send_message,
+                self.event,
+                entry,
+                "Waitlisted — attendance is not confirmed",
+                waitlist_message,
+                ephemeral=True,
+            )
 
         # 4. Add user to the thread
         try:
@@ -1558,6 +1561,21 @@ def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: s
 
 def custom_reply_embeds(event: Event, entry: Response | WaitlistEntry, status: str) -> list[discord.Embed]:
     return [discord.Embed(description=section) for section in render_custom_reply_sections(event, entry, status)]
+
+
+async def send_signup_reply(
+    send: Callable[..., Awaitable[Any]],
+    event: Event,
+    entry: Response | WaitlistEntry,
+    status: str,
+    default_message: str,
+    **kwargs: Any,
+) -> None:
+    message = render_custom_reply(event, entry, status) if event.signup_form else default_message
+    if event.signup_form and len(message) > 2000:
+        await send(embeds=custom_reply_embeds(event, entry, status), **kwargs)
+    else:
+        await send(message, **kwargs)
 
 
 async def start_signup(interaction: discord.Interaction, event: Event):

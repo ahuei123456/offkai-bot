@@ -173,6 +173,7 @@ export function useAdminData() {
     if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
       setActionWarnings(response.ok ? result.warnings ?? [] : [])
     }
+    if (!response.ok && result.removed === false) throw new Error('not_removed')
     return response.ok && result.removed === true
   }, [key, selectedEvent, eventName, loadAttendees])
 

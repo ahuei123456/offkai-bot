@@ -60,7 +60,11 @@ async def remove_registration(
             warnings.append("Waitlist promotion failed; check the logs and promote manually if needed.")
 
     if event.interest_check:
-        await update_event_message(client, event)
+        try:
+            await update_event_message(client, event)
+        except Exception:
+            _log.exception("Announcement update failed after removing registration")
+            warnings.append("The registration was removed, but the announcement could not be updated.")
 
     if event.thread_id:
         channel = thread or client.get_channel(event.thread_id)

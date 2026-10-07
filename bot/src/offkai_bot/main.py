@@ -112,7 +112,11 @@ class OffkaiClient(commands.Bot):
 
         await load_and_update_events(self)
         start_alert_loop(self)
-        self.admin_api = await start_admin_api(self)
+        self.admin_api = None
+        try:
+            self.admin_api = await start_admin_api(self)
+        except (OSError, ValueError):
+            _log.exception("Private admin API unavailable; continuing Discord startup")
 
     async def close(self):
         runner = getattr(self, "admin_api", None)

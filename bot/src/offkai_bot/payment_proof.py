@@ -91,12 +91,22 @@ async def upload_attachment(attachment: discord.Attachment, event: Event, user_i
         form.add_field("token", build_checkin_token(user_id, event.event_name, key))
         form.add_field("image", bytes(image), filename="proof", content_type=mime)
         async with session.post(f"{url.rstrip('/')}/api/payment-proof", data=form) as response:
-            result = await response.json()
             if response.status == 410:
                 raise ValueError("Payment proof uploads for this event have expired.")
-            if response.status == 413 or result.get("error") == "invalid_image":
+            if response.status == 413:
                 raise ValueError("Please upload a JPEG, PNG, WebP or GIF up to 10 MiB.")
+            if response.status == 400:
+                error = await response.json()
+                if isinstance(error, dict) and error.get("error") == "invalid_image":
+                    raise ValueError("Please upload a JPEG, PNG, WebP or GIF up to 10 MiB.")
             response.raise_for_status()
+            result = await response.json()
+            if (
+                not isinstance(result, dict)
+                or not isinstance(result.get("payment"), dict)
+                or not isinstance(result["payment"].get("paid"), bool)
+            ):
+                raise RuntimeError("Unexpected proof response")
             return result
 
 
@@ -124,14 +134,17 @@ async def handle_payment_proof(message: discord.Message) -> bool:
         event = matches[0]
         try:
             result = await upload_attachment(message.attachments[0], event, message.author.id)
+            paid = result["payment"]["paid"]
+            if not isinstance(paid, bool):
+                raise RuntimeError("Unexpected proof response")
         except ValueError as error:
             await message.reply(str(error))
         except Exception:
             # Do not log CDN URLs, tokens or image contents.
             _log.warning("DM payment proof upload failed for event %r", event.event_name)
-            await message.reply("Couldn't save your payment proof. Please try again.")
+            await message.reply("Couldn't confirm your payment proof upload. Check your RSVP page or try again.")
         else:
             action = "updated" if result.get("replaced") else "received"
-            status = "Your payment remains confirmed." if result["payment"]["paid"] else "Awaiting confirmation."
+            status = "Your payment remains confirmed." if paid else "Awaiting confirmation."
             await message.reply(f"Payment proof {action} for {event.event_name}. {status}")
     return True

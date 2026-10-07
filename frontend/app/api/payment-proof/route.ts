@@ -44,9 +44,9 @@ export async function POST(request: NextRequest) {
     if (!(image instanceof File)) return error('missing_image', 400)
     if (image.size > MAX_IMAGE_BYTES) return error('image_too_large', 413)
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(image.type)) return error('invalid_image', 400)
-    const replaced = !!getPayment(registration.event.event_name, token.userId).proof
+    const replaced = !!getPayment(registration.event.event_name, token.userId, registration.attendee.timestamp).proof
     const payment = await saveProof(registration.event.event_name, token.userId, eventStart,
-      Buffer.from(await image.arrayBuffer()))
+      Buffer.from(await image.arrayBuffer()), registration.attendee.timestamp)
     return NextResponse.json({ payment, replaced }, { headers: PRIVATE_HEADERS })
   } catch {
     return error('invalid_image_or_storage_error', 400)
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
   try {
     const start = registration.event.event_datetime
     if (!start || Date.parse(proofExpiry(start)) <= Date.now()) return error('proof_expired', 410)
-    const proof = readProof(registration.event.event_name, userId, start)
+    const proof = readProof(registration.event.event_name, userId, start, registration.attendee.timestamp)
     if (!proof) return error('not_found', 404)
     return new NextResponse(new Uint8Array(proof), { headers: { ...PRIVATE_HEADERS, 'Content-Type': 'image/webp' } })
   } catch {

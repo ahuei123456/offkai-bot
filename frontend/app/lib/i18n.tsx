@@ -5,6 +5,7 @@ export type Lang = 'en' | 'ja'
 
 export const STRINGS = {
   en: {
+    paymentUnavailable: "Payment data unavailable. Please contact the organizer.",
     payment: "Payment",
     paid: "Paid",
     unpaid: "Unpaid",
@@ -13,6 +14,7 @@ export const STRINGS = {
     removeUser: "Remove user",
     confirmRemove: (name: string) => `Remove ${name} and their guests from this event and Discord thread? Freed places will be offered to the waitlist.`,
     removalError: "Could not confirm removal. Refresh the list before trying again.",
+    removalNotStarted: "Removal did not start. Check the bot's access to this user and event, then try again.",
     markPaid: "Mark paid",
     markUnpaid: "Mark unpaid",
     previewProof: "Preview proof",
@@ -81,6 +83,7 @@ export const STRINGS = {
     eventEnded: 'Event ended',
   },
   ja: {
+    paymentUnavailable: "支払い情報を取得できません。主催者にお問い合わせください。",
     payment: "お支払い",
     paid: "支払い済み",
     unpaid: "未払い",
@@ -89,6 +92,7 @@ export const STRINGS = {
     removeUser: "参加者を削除",
     confirmRemove: (name: string) => `${name}さんと同伴者をこのイベントとDiscordスレッドから削除しますか？空いた枠はウェイトリストに割り当てられます。`,
     removalError: "削除を確認できませんでした。再試行する前に一覧を更新してください。",
+    removalNotStarted: "削除は実行されていません。ボットがユーザーとイベントにアクセスできるか確認し、再試行してください。",
     markPaid: "支払い済みにする",
     markUnpaid: "未払いにする",
     previewProof: "証明画像を確認",

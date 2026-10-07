@@ -17,10 +17,11 @@ export async function POST(request: NextRequest) {
   if (!eventName || !userId || typeof body?.paid !== 'boolean') {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
-  if (!paymentRegistration(eventName, userId)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  const registration = paymentRegistration(eventName, userId)
+  if (!registration) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   try {
-    const wasPaid = getPayment(eventName, userId).paid
-    const payment = setPaid(eventName, userId, body.paid)
+    const wasPaid = getPayment(eventName, userId, registration.attendee.timestamp).paid
+    const payment = setPaid(eventName, userId, body.paid, registration.attendee.timestamp)
     let warning: string | undefined
     // Only notify on a real unpaid-to-paid transition, after persisting it.
     if (body.paid && !wasPaid) {

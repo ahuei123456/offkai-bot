@@ -61,7 +61,7 @@ from offkai_bot.event_actions import (
     send_event_message,
     update_event_message,
 )
-from offkai_bot.interactions import promote_waitlist_batch
+from offkai_bot.interactions import promote_waitlist_batch, send_signup_reply
 from offkai_bot.registration_removal import remove_registration
 from offkai_bot.role_management import assign_event_role, create_event_role
 from offkai_bot.signup_setup import PublicationState, SignupSetup
@@ -761,7 +761,11 @@ class EventsCog(commands.Cog):
 
         try:
             promoted_user = await self.bot.fetch_user(user_id)
-            await promoted_user.send(
+            await send_signup_reply(
+                promoted_user.send,
+                event,
+                promoted_response,
+                "Attendance confirmed",
                 f"Great news! You've been manually promoted from the waitlist "
                 f"for **{event_name}**!\n"
                 f"You are now a confirmed attendee.\n\n"
@@ -772,7 +776,7 @@ class EventsCog(commands.Cog):
                 f"payment requests from the event organizer and potential server moderation action.\n\n"
                 f"**重要:** 締め切り後の辞退は強くお勧めしません。"
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-                f"すべての結果に対して、全責任を負います。"
+                f"すべての結果に対して、全責任を負います。",
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
             _log.warning("Could not DM promoted user %s for event '%s': %s", user_id, event_name, e)

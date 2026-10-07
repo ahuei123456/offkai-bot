@@ -18,6 +18,8 @@ export function PaymentControl({ attendee, adminKey, eventName, onPayment }: {
     try { setError(!await onPayment(attendee.user_id, !paid)) } catch { setError(true) }
     finally { setBusy(false) }
   }
+  if (!attendee.payment_enabled) return null
+  if (attendee.payment_unavailable) return <p role="alert" className="border-t-2 border-[#17120F] bg-red-50 p-3 text-xs">{t.paymentUnavailable}</p>
   const url = `/api/payment-proof?key=${encodeURIComponent(adminKey)}&event=${encodeURIComponent(eventName)}&user_id=${encodeURIComponent(attendee.user_id)}&v=${encodeURIComponent(attendee.payment?.proof?.uploaded_at ?? '')}`
   if (!paid && !proof) return <div className="border-t-2 border-[#17120F] bg-red-50 px-3 py-2 text-xs font-black">
     {t.waitingForProof}

@@ -760,3 +760,85 @@ async def test_draft_blocks_concurrent_publication_without_finishing():
         finish.set()
         await task
     assert setup.finished and not setup.publishing
+
+
+@pytest.mark.parametrize("automatic", [True, False])
+@pytest.mark.parametrize("long_reply", [False, True])
+async def test_promotions_send_identical_confirmed_signup_instructions(
+    custom_event, automatic, long_reply, monkeypatch
+):
+    from offkai_bot.interactions import render_custom_reply
+
+    events.EVENT_DATA_CACHE = [custom_event]
+    monkeypatch.setattr(
+        "offkai_bot.interactions.build_checkin_url", lambda *args: "https://synthetic.invalid/?token=test"
+    )
+    if long_reply:
+        custom_event.signup_form["payment_methods"]["PayNow"] = "Instructions " * 100
+        custom_event.signup_form["payment_instructions_jp"] = {"PayNow": "支払い案内" * 250}
+    entry = responses.WaitlistEntry(
+        user_id=123,
+        username="Synthetic",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name=custom_event.event_name,
+        timestamp=datetime.now(UTC),
+        payment_method="PayNow",
+        no_show_agreed=True,
+    )
+    responses.RESPONSE_DATA_CACHE = {custom_event.event_name: {"attendees": [], "waitlist": [entry]}}
+    user = interaction().user
+    bot = MagicMock(fetch_user=AsyncMock(return_value=user))
+    if automatic:
+        await promote_waitlist_batch(custom_event, bot)
+    else:
+        with patch("offkai_bot.cogs.events.update_event_message", new=AsyncMock()):
+            await EventsCog.promote.callback(EventsCog(bot), interaction(), custom_event.event_name, "123")
+    saved = responses.get_responses(custom_event.event_name)[0]
+    assert saved.timestamp == entry.timestamp
+    expected = render_custom_reply(custom_event, saved, "Attendance confirmed")
+    if long_reply:
+        assert [embed.description for embed in user.send.call_args.kwargs["embeds"]] == render_custom_reply_sections(
+            custom_event, saved, "Attendance confirmed"
+        )
+    else:
+        user.send.assert_awaited_once_with(expected)
+    assert "Synthetic organizer instructions" in expected or "Instructions" in expected
+    assert "支払い証明" in expected
+
+
+async def test_interest_removal_keeps_success_when_announcement_fails(custom_event):
+    from offkai_bot.registration_removal import remove_registration
+
+    custom_event.interest_check = True
+    entry = responses.Response(
+        user_id=123,
+        username="Synthetic",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name=custom_event.event_name,
+        timestamp=datetime.now(UTC),
+    )
+    responses.RESPONSE_DATA_CACHE = {custom_event.event_name: {"attendees": [entry], "waitlist": []}}
+    with patch(
+        "offkai_bot.registration_removal.update_event_message", new=AsyncMock(side_effect=RuntimeError("Unavailable"))
+    ):
+        result = await remove_registration(MagicMock(), custom_event, interaction(123).user, None)
+    assert result["removed"] is True
+    assert responses.get_responses(custom_event.event_name) == []
+    assert any("announcement" in warning for warning in result["warnings"])
+
+
+@pytest.mark.parametrize("deadline_error", [False, True])
+async def test_custom_creation_preserves_actionable_domain_error(deadline_error):
+    from offkai_bot.errors import DuplicateEventError, EventDeadlineInPastError
+
+    source = interaction(42)
+    source.response.is_done.return_value = True
+    error = EventDeadlineInPastError() if deadline_error else DuplicateEventError("Already exists")
+    setup = SignupSetup(42, [], AsyncMock(side_effect=error))
+    await setup.publish.callback(source)
+    assert str(error) in source.followup.send.call_args.args[0]
+    assert not setup.finished and not setup.publishing

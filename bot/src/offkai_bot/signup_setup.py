@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import discord
 from discord import ui
 
+from offkai_bot.errors import BotCommandError
+
 MAX_PAYMENT_METHODS = 25
 NO_SHOW_POLICY = "No-show payments are not refunded."
 _log = logging.getLogger(__name__)
@@ -233,7 +235,7 @@ class SignupSetup(ui.View):
         self.publishing = True
         try:
             await self.create(config, interaction, self.publication)
-        except Exception:
+        except Exception as error:
             _log.exception("Custom event publication failed")
             if self.publication.resources_may_exist:
                 self.finished = True
@@ -243,6 +245,8 @@ class SignupSetup(ui.View):
                 message = (
                     "Creation failed before any resources were created. Your draft is saved; you can retry Create."
                 )
+            if isinstance(error, BotCommandError):
+                message = f"{error}\n{message}"
             if interaction.response.is_done():
                 await interaction.followup.send(message, ephemeral=True)
             else:

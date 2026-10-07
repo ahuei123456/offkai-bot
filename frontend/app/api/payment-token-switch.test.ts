@@ -46,7 +46,7 @@ test('same-event token change replaces the payment card rather than retaining an
     const paid = { paid: true, proof: { filename: 'synthetic.webp' } }
     const unpaid = { paid: false, proof: null }
     const render = (token: string, payment: typeof paid | typeof unpaid, eventName = 'Same event') => findPayment(RSVPCard({
-      token, data: { event: { event_name: eventName }, attendee: { status: 'attending', payment } },
+      token, data: { event: { event_name: eventName }, attendee: { status: 'attending', payment, payment_enabled: true } },
     }))!
     const first = render('signed-user-A', paid)
     const switched = render('signed-user-B', unpaid)
@@ -55,6 +55,9 @@ test('same-event token change replaces the payment card rather than retaining an
     assert.equal(switched.props.token, 'signed-user-B')
     assert.equal(render('signed-user-B', unpaid).key, switched.key)
     assert.notEqual(render('signed-user-B', unpaid, 'Another event').key, switched.key)
+    assert.equal(findPayment(RSVPCard({ token: 'no-payment', data: {
+      event: { event_name: 'No prepayment' }, attendee: { status: 'attending', payment_enabled: false },
+    } })), undefined)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

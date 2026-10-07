@@ -118,3 +118,62 @@ async def test_payment_confirmation_requires_auth_registration_and_reports_dm_fa
         user.send.assert_awaited_once_with("Payment confirmed for Payment test!")
         user.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "DM blocked")
         assert (await http.post("/payments/confirm", json=payload, headers=headers)).status == 502
+
+
+@pytest.mark.parametrize("failure,status", [(discord.NotFound, 404), (discord.Forbidden, 403), (RuntimeError, 503)])
+async def test_preflight_failure_explicitly_reports_no_removal(monkeypatch, failure, status):
+    event = Event("Preflight", "Venue", "Address", "", datetime.now(UTC), thread_id=999)
+    client = MagicMock(spec=discord.Client)
+    client.is_ready.return_value = True
+    client.get_user.return_value = None
+    error = RuntimeError("Unavailable") if failure is RuntimeError else failure(MagicMock(status=status), "Unavailable")
+    client.fetch_user = AsyncMock(side_effect=error)
+    thread = MagicMock(spec=discord.Thread)
+    thread.guild.id = 555
+    remove = AsyncMock()
+    monkeypatch.setattr(admin_api, "remove_registration", remove)
+    monkeypatch.setattr(admin_api, "get_config", lambda: {"ADMIN_KEY": "synthetic-admin", "GUILDS": [555]})
+    monkeypatch.setattr(admin_api, "get_event", lambda name: event)
+    monkeypatch.setattr(admin_api, "fetch_thread_for_event", AsyncMock(return_value=thread))
+    async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
+        reply = await http.post(
+            "/registrations/remove",
+            json={"event_name": event.event_name, "user_id": "101000000000000001"},
+            headers={"Authorization": "Bearer synthetic-admin"},
+        )
+        assert reply.status == status
+        assert (await reply.json())["removed"] is False
+        remove.assert_not_awaited()
+
+
+@pytest.mark.parametrize("port_mode", ["invalid", "occupied", "available"])
+async def test_optional_admin_api_real_startup_failures_do_not_block_bot(monkeypatch, port_mode):
+    import socket
+
+    from offkai_bot import main
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    if port_mode == "occupied":
+        listener.listen()
+    else:
+        listener.close()
+    monkeypatch.setenv("ADMIN_API_HOST", "127.0.0.1")
+    monkeypatch.setenv("ADMIN_API_PORT", "invalid" if port_mode == "invalid" else str(port))
+    monkeypatch.setattr(main, "settings", {"GUILDS": []})
+    monkeypatch.setattr(main, "get_config", lambda: {})
+    for name in ["load_event_data", "load_responses", "load_rankings", "start_alert_loop"]:
+        monkeypatch.setattr(main, name, MagicMock())
+    monkeypatch.setattr(main, "load_and_update_events", AsyncMock())
+    client = main.OffkaiClient(intents=discord.Intents.none())
+    client.load_extension = AsyncMock()
+    try:
+        await client.setup_hook()
+        assert client.load_extension.await_count == 2
+        main.load_and_update_events.assert_awaited_once_with(client)
+        main.start_alert_loop.assert_called_once_with(client)
+        assert (client.admin_api is not None) is (port_mode == "available")
+    finally:
+        await client.close()
+        listener.close()

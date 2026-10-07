@@ -83,7 +83,7 @@ async def test_private_handler_replacement_paid_and_failure_responses(monkeypatc
     upload.side_effect = RuntimeError("Synthetic storage failure")
     msg = message("proof payment proof post fest2")
     await payment_proof.handle_payment_proof(msg)
-    assert "Couldn't save" in msg.reply.call_args.args[0]
+    assert "Couldn't confirm" in msg.reply.call_args.args[0]
     assert "received" not in msg.reply.call_args.args[0]
 
 
@@ -145,3 +145,40 @@ async def test_actual_multipart_adapter_uses_signed_identity_and_bounds_download
         with pytest.raises(ValueError):
             await payment_proof.upload_attachment(attachment, target, uid)
         assert len(calls) == 1
+
+
+@pytest.mark.parametrize("result", [{}, {"payment": None}, {"payment": {}}, {"payment": {"paid": "false"}}])
+async def test_malformed_upload_acknowledges_uncertainty_without_claiming_success(monkeypatch, result):
+    monkeypatch.setattr(payment_proof, "registered_payment_events", lambda uid: [event()])
+    monkeypatch.setattr(payment_proof, "upload_attachment", AsyncMock(return_value=result))
+    msg = message()
+    assert await payment_proof.handle_payment_proof(msg)
+    assert "Couldn't confirm" in msg.reply.call_args.args[0]
+    assert "received" not in msg.reply.call_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "status,body", [(200, "{}"), (200, "bad JSON"), (410, "HTML error"), (413, "HTML error"), (503, "HTML error")]
+)
+async def test_actual_upload_adapter_handles_non_json_errors_and_missing_fields(monkeypatch, status, body):
+    async def image(request):
+        return web.Response(body=b"synthetic-image")
+
+    async def upload(request):
+        return web.Response(status=status, text=body, content_type="application/json")
+
+    app = web.Application()
+    app.router.add_get("/image", image)
+    app.router.add_post("/api/payment-proof", upload)
+    monkeypatch.setattr(payment_proof, "get_config", lambda: {"ADMIN_KEY": "synthetic-key"})
+    async with TestServer(app) as server:
+        monkeypatch.setenv("PROOF_UPLOAD_URL", str(server.make_url("/")))
+        attachment = MagicMock(
+            spec=discord.Attachment,
+            size=15,
+            content_type="image/png",
+            filename="proof.png",
+            url=str(server.make_url("/image")),
+        )
+        with pytest.raises(Exception):
+            await payment_proof.upload_attachment(attachment, event(), 101000000000000001)

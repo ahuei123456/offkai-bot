@@ -88,7 +88,8 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       signup_form: { fields: ['payment_method', 'no_show'], payment_methods: { PayNow: 'Synthetic organizer instructions' },
         ...(event_name === eventNames[0] ? { payment_instructions_jp: { PayNow: '主催者の支払い案内' } } : {}) },
     }))
-    const attendee = { user_id: uid, username: 'Synthetic', display_name: 'Recorded name', extra_people: 1,
+    const registrationTime = new Date(Date.now() - 3600 * 1000).toISOString()
+    const attendee = { timestamp: registrationTime, user_id: uid, username: 'Synthetic', display_name: 'Recorded name', extra_people: 1,
       extras_names: ['Guest'], drinks: [], payment_method: 'PayNow', no_show_agreed: true }
     fs.writeFileSync(path.join(dataDir, 'events.json'), JSON.stringify(events))
     fs.writeFileSync(path.join(dataDir, 'responses.json'), JSON.stringify({
@@ -193,7 +194,7 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     assert.equal(persisted.payment.paid, true)
     assert.match(persisted.warning, /confirmation DM/)
     assert.equal(fs.readdirSync(path.join(dataDir, 'payment-proofs')).length, 2)
-    assert.notEqual(payments.getPayment(eventNames[0], uid).proof.filename, payments.getPayment(eventNames[1], uid).proof.filename)
+    assert.notEqual(payments.getPayment(eventNames[0], uid, registrationTime).proof.filename, payments.getPayment(eventNames[1], uid, registrationTime).proof.filename)
     assert.equal((await proofRoute.GET(request('/api/payment-proof?token=' + signedToken(otherUid, eventNames[0])))).status, 404)
     assert.equal((await paidRoute.POST(request('/api/payment?key=wrong', { event_name: eventNames[0], user_id: uid, paid: true }))).status, 401)
     assert.equal(fs.readFileSync(path.join(dataDir, 'responses.json'), 'utf8'), originalResponses)
@@ -217,8 +218,8 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     delete cleanupState.paymentCleanup
     payments.cleanupProofs([])
     assert.equal(fs.readdirSync(path.join(dataDir, 'payment-proofs')).length, 0)
-    assert.equal(payments.getPayment(eventNames[0], uid).paid, true)
-    assert.equal(payments.getPayment(eventNames[0], uid).proof, null)
+    assert.equal(payments.getPayment(eventNames[0], uid, registrationTime).paid, true)
+    assert.equal(payments.getPayment(eventNames[0], uid, registrationTime).proof, null)
     events[0].event_datetime = '2000-01-01T00:00:00Z'
     fs.writeFileSync(path.join(dataDir, 'events.json'), JSON.stringify(events))
     assert.equal((await upload(signedToken(uid, eventNames[0]))).status, 410)
@@ -240,5 +241,112 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey
     fs.rmSync(modules, { recursive: true, force: true })
     fs.rmSync(dataDir, { recursive: true, force: true })
+  }
+})
+
+
+test('payment gating, registration lifetime, promotion, legacy migration and corrupt display storage', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offkai-review-payment-'))
+  const modules = compileRoutes()
+  const previousDir = process.env.BOT_DATA_DIR
+  const previousKey = process.env.ADMIN_KEY
+  process.env.BOT_DATA_DIR = dataDir
+  process.env.ADMIN_KEY = 'synthetic-test-key'
+  process.env.MOCK_MODE = 'false'
+  try {
+    const eventName = 'Registration lifetime'
+    const start = new Date(Date.now() + 86400000).toISOString()
+    const originalTime = new Date(Date.now() - 7200000).toISOString()
+    const replacementTime = new Date(Date.now() - 3600000).toISOString()
+    const events = [{ event_name: eventName, event_datetime: start, archived: false, open: true,
+      signup_form: { fields: ['payment_method'], payment_methods: { PayNow: 'Pay the organizer' } } },
+      { event_name: 'No prepayment', event_datetime: start, archived: false, open: true }]
+    const attendee = { timestamp: originalTime, user_id: uid, username: 'Synthetic', extra_people: 0,
+      payment_method: 'PayNow', behavior_confirmed: true, arrival_confirmed: true }
+    const responseFile = path.join(dataDir, 'responses.json')
+    const paymentFile = path.join(dataDir, 'payments.json')
+    const writeResponses = (timestamp: string, waitlisted = false) => fs.writeFileSync(responseFile, JSON.stringify({
+      [eventName]: { attendees: waitlisted ? [] : [{ ...attendee, timestamp }], waitlist: waitlisted ? [{ ...attendee, timestamp }] : [] },
+      'No prepayment': { attendees: [attendee], waitlist: [] },
+    }))
+    fs.writeFileSync(path.join(dataDir, 'events.json'), JSON.stringify(events))
+    writeResponses(originalTime, true)
+    const importModule = (file: string) => import(pathToFileURL(path.join(modules, 'api', file)).href)
+    const payments = await importModule('payments.js')
+    const proofRoute = await importModule('payment-proof/route.js')
+    const paidRoute = await importModule('payment/route.js')
+    const attendeeRoute = await importModule('attendee/route.js')
+    const attendeesRoute = await importModule('attendees/route.js')
+    const token = signedToken(uid, eventName)
+    const image = await sharp({ create: { width: 20, height: 20, channels: 3, background: 'blue' } }).png().toBuffer()
+    const proof = await payments.saveProof(eventName, uid, start, image, originalTime)
+    payments.setPaid(eventName, uid, true, originalTime)
+    const oldImage = path.join(dataDir, 'payment-proofs', proof.proof.filename)
+    // Promotion changes only status; the registration and its payment survive.
+    writeResponses(originalTime)
+    let pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
+    assert.equal(pass.attendee.status, 'attending')
+    assert.equal(pass.attendee.payment.paid, true)
+    assert.equal(pass.attendee.payment.proof.filename, proof.proof.filename)
+    assert.equal(payments.getPayment(eventName, uid, originalTime.replace('Z', '+00:00')).paid, true)
+    // Rejoining, even under a reused event name, must start unpaid without old proof.
+    writeResponses(replacementTime)
+    pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
+    assert.equal(pass.attendee.payment.paid, false)
+    assert.equal(pass.attendee.payment.proof, null)
+    assert.equal((await proofRoute.GET(request('/api/payment-proof?token=' + token))).status, 404)
+    const fresh = await payments.saveProof(eventName, uid, start, image, replacementTime)
+    assert.equal(fresh.paid, false)
+    assert.equal(fs.existsSync(oldImage), false)
+    // Actual asynchronous image work cannot attach an old upload to a new signup.
+    const pending = payments.saveProof(eventName, uid, start, image, replacementTime)
+    writeResponses(new Date().toISOString())
+    await assert.rejects(pending, /Registration changed/)
+    // Existing unbound records migrate only when their evidence belongs to this signup.
+    const legacy = { paid: true, paid_at: replacementTime, proof: { ...proof.proof, uploaded_at: replacementTime } }
+    fs.writeFileSync(paymentFile, JSON.stringify({ [eventName]: { [uid]: legacy } }))
+    assert.equal(payments.getPayment(eventName, uid, originalTime).paid, true)
+    assert.equal(payments.getPayment(eventName, uid, new Date().toISOString()).paid, false)
+    assert.equal(payments.getPayment(eventName, uid, new Date().toISOString()).proof, null)
+    // One ledger read serves multiple attendees and waitlist entries in a poll.
+    fs.writeFileSync(responseFile, JSON.stringify({ [eventName]: {
+      attendees: [attendee, { ...attendee, user_id: otherUid }], waitlist: [{ ...attendee, user_id: '191524132624531460' }],
+    }, 'No prepayment': { attendees: [attendee], waitlist: [] } }))
+    let reads = 0
+    const originalRead = fs.readFileSync
+    fs.readFileSync = function (...args: Parameters<typeof fs.readFileSync>) {
+      if (String(args[0]) === paymentFile) reads++
+      return originalRead.apply(fs, args)
+    } as typeof fs.readFileSync
+    try {
+      const listed = await (await attendeesRoute.GET(request('/api/attendees?key=synthetic-test-key&event=' + encodeURIComponent(eventName)))).json()
+      assert.equal(listed.attendees.length, 3)
+      assert.equal(reads, 1)
+    } finally { fs.readFileSync = originalRead }
+    // Broken payment storage leaves attendance usable and forbids ledger writes.
+    fs.writeFileSync(paymentFile, '{broken')
+    pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
+    assert.equal(pass.attendee.payment_unavailable, true)
+    assert.equal(pass.attendee.payment, null)
+    const listed = await (await attendeesRoute.GET(request('/api/attendees?key=synthetic-test-key&event=' + encodeURIComponent(eventName)))).json()
+    assert.ok(listed.attendees.every((a: { payment_unavailable: boolean }) => a.payment_unavailable))
+    assert.throws(() => payments.setPaid(eventName, uid, true, originalTime))
+    assert.equal(fs.readFileSync(paymentFile, 'utf8'), '{broken')
+    const freeToken = signedToken(uid, 'No prepayment')
+    const free = await (await attendeeRoute.GET(request('/api/attendee?token=' + freeToken))).json()
+    assert.equal(free.attendee.payment_enabled, false)
+    assert.equal(free.attendee.payment_unavailable, false)
+    assert.equal(free.attendee.payment, null)
+    const form = new FormData()
+    form.set('token', freeToken)
+    form.set('image', new Blob([new Uint8Array(image)], { type: 'image/png' }), 'proof.png')
+    assert.equal((await proofRoute.POST(new NextRequest('http://localhost/api/payment-proof', { method: 'POST', body: form }))).status, 404)
+    assert.equal((await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: 'No prepayment', user_id: uid, paid: true }))).status, 404)
+    assert.equal(fs.readFileSync(paymentFile, 'utf8'), '{broken')
+  } finally {
+    if (previousDir === undefined) delete process.env.BOT_DATA_DIR; else process.env.BOT_DATA_DIR = previousDir
+    if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey
+    fs.rmSync(dataDir, { recursive: true, force: true })
+    fs.rmSync(modules, { recursive: true, force: true })
   }
 })

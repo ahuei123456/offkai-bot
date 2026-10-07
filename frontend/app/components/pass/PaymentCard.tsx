@@ -3,8 +3,8 @@ import { useRef, useState } from 'react'
 import { useT } from '../../lib/i18n'
 import type { PaymentRecord } from '../../lib/types'
 
-export function PaymentCard({ token, method, instructions, instructionsJp, payment: initial, available }: {
-  token: string; method: string | null; instructions: string | null; instructionsJp?: string | null; payment: PaymentRecord; available: boolean
+export function PaymentCard({ token, method, instructions, instructionsJp, payment: initial, available, unavailable }: {
+  token: string; method: string | null; instructions: string | null; instructionsJp?: string | null; payment: PaymentRecord; available: boolean; unavailable?: boolean
 }) {
   const { t, lang } = useT()
   const displayedInstructions = lang === 'ja' && instructionsJp?.trim() ? instructionsJp : instructions
@@ -15,6 +15,10 @@ export function PaymentCard({ token, method, instructions, instructionsJp, payme
   const [version, setVersion] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
+  if (unavailable) return <section className="brand-card rounded-2xl overflow-hidden p-3">
+    <h2 className="font-black">{t.payment}</h2>
+    <p role="alert" className="text-sm">{t.paymentUnavailable}</p>
+  </section>
   async function upload(file?: File) {
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { setError(t.paymentImageLimit); return }
