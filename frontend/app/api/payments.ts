@@ -3,6 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import sharp from 'sharp'
 import type { Event } from './db'
+import { readResponses } from './db'
 import { paymentRegistration } from './payment-access'
 
 export interface ProofMetadata {
@@ -17,6 +18,9 @@ export interface PaymentRecord {
   proof: ProofMetadata | null
 }
 type Payments = Record<string, Record<string, PaymentRecord>>
+export class InvalidImageError extends Error {}
+export class RegistrationChangedError extends Error {}
+export class ProofExpiredError extends Error {}
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MAX_PIXELS = 40_000_000
 
@@ -34,6 +38,7 @@ function readPayments(): Payments {
   for (const users of Object.values(payments)) {
     if (!users || typeof users !== 'object' || Array.isArray(users)) throw new Error('Invalid payment storage')
     for (const record of Object.values(users)) {
+      if (record && typeof record === 'object' && record.proof === undefined) record.proof = null
       if (!record || typeof record !== 'object' || typeof record.paid !== 'boolean' ||
           (record.proof !== null && (!record.proof || typeof record.proof.filename !== 'string' ||
             typeof record.proof.uploaded_at !== 'string' || typeof record.proof.expires_at !== 'string'))) {
@@ -44,7 +49,7 @@ function readPayments(): Payments {
   return payments
 }
 export function readPaymentSnapshot(): Payments | null {
-  try { return readPayments() } catch {
+  try { return readBoundPayments() } catch {
     console.error('Payment storage unavailable; writes remain disabled until repaired')
     return null
   }
@@ -66,6 +71,27 @@ function atomicWrite(filename: string, contents: string | Buffer) {
 }
 function writePayments(payments: Payments) {
   atomicWrite(paymentsPath(), JSON.stringify(payments, null, 2))
+}
+function bindLegacyPayments(payments: Payments, responses: ReturnType<typeof readResponses>) {
+  let changed = false
+  for (const [eventName, users] of Object.entries(payments)) {
+    for (const [userId, record] of Object.entries(users)) {
+      if (!record.paid || record.paid_at || record.registration_timestamp) continue
+      const entries = responses[eventName]
+      const attendee = [...(entries?.attendees || []), ...(entries?.waitlist || [])].find(a => a.user_id === userId)
+      if (!attendee) continue
+      record.registration_timestamp = registrationTimestamp(attendee.timestamp)
+      if (record.proof && Date.parse(record.proof.uploaded_at) < Date.parse(attendee.timestamp)) record.proof = null
+      changed = true
+    }
+  }
+  return changed
+}
+function readBoundPayments(): Payments {
+  const payments = readPayments()
+  if (Object.values(payments).some(users => Object.values(users).some(r => r.paid && !r.paid_at && !r.registration_timestamp)) &&
+      bindLegacyPayments(payments, readResponses(true))) writePayments(payments)
+  return payments
 }
 function storedPayment(payments: Payments, eventName: string, userId: string): PaymentRecord {
   return Object.hasOwn(payments, eventName) && Object.hasOwn(payments[eventName], userId)
@@ -115,11 +141,11 @@ export function paymentFromSnapshot(payments: Payments, eventName: string, userI
   return { ...record, paid, proof, registration_timestamp: identity }
 }
 export function getPayment(eventName: string, userId: string, timestamp: string): PaymentRecord {
-  return paymentFromSnapshot(readPayments(), eventName, userId, timestamp)
+  return paymentFromSnapshot(readBoundPayments(), eventName, userId, timestamp)
 }
 export function setPaid(eventName: string, userId: string, paid: boolean, timestamp: string): PaymentRecord {
   // No awaits between read/update/atomic write in this single Node process.
-  const payments = readPayments()
+  const payments = readBoundPayments()
   const previous = storedPayment(payments, eventName, userId)
   const record = { ...paymentFromSnapshot(payments, eventName, userId, timestamp), paid }
   if (paid) record.paid_at = new Date().toISOString()
@@ -130,23 +156,25 @@ export function setPaid(eventName: string, userId: string, paid: boolean, timest
   return record
 }
 export async function normalizeProof(input: Buffer): Promise<Buffer> {
-  if (!input.length || input.length > MAX_IMAGE_BYTES) throw new Error('Image must be at most 10 MiB')
-  const image = sharp(input, { limitInputPixels: MAX_PIXELS, animated: false, failOn: 'error' })
-  const metadata = await image.metadata()
-  if (!['jpeg', 'png', 'webp', 'gif'].includes(metadata.format || '')) throw new Error('Unsupported image')
-  return image.rotate().resize({ width: 1080, withoutEnlargement: true }).webp({ quality: 85 }).toBuffer()
+  try {
+    if (!input.length || input.length > MAX_IMAGE_BYTES) throw new Error('Image must be at most 10 MiB')
+    const image = sharp(input, { limitInputPixels: MAX_PIXELS, animated: false, failOn: 'error' })
+    const metadata = await image.metadata()
+    if (!['jpeg', 'png', 'webp', 'gif'].includes(metadata.format || '')) throw new Error('Unsupported image')
+    return await image.rotate().resize({ width: 1080, withoutEnlargement: true }).webp({ quality: 85 }).toBuffer()
+  } catch { throw new InvalidImageError('Invalid image') }
 }
 export async function saveProof(eventName: string, userId: string, eventStart: string, input: Buffer, timestamp: string) {
   const expiresAt = proofExpiry(eventStart)
-  if (Date.parse(expiresAt) <= Date.now()) throw new Error('Payment proof retention has expired')
+  if (Date.parse(expiresAt) <= Date.now()) throw new ProofExpiredError('Payment proof retention has expired')
   const output = await normalizeProof(input)
-  if (Date.parse(expiresAt) <= Date.now()) throw new Error('Payment proof retention has expired')
+  if (Date.parse(expiresAt) <= Date.now()) throw new ProofExpiredError('Payment proof retention has expired')
   const current = paymentRegistration(eventName, userId)
   if (!current || registrationTimestamp(current.attendee.timestamp) !== registrationTimestamp(timestamp)) {
-    throw new Error('Registration changed during upload')
+    throw new RegistrationChangedError('Registration changed during upload')
   }
   // Image processing finishes before this short synchronous transaction.
-  const payments = readPayments()
+  const payments = readBoundPayments()
   const previous = storedPayment(payments, eventName, userId)
   const proof: ProofMetadata = {
     filename: `${crypto.randomUUID()}.webp`, uploaded_at: new Date().toISOString(), expires_at: expiresAt,
@@ -172,10 +200,23 @@ export function readProof(eventName: string, userId: string, eventStart: string,
 }
 export function cleanupProofs(events: Event[], now = Date.now()) {
   const payments = readPayments()
-  let changed = false
+  // Missing/corrupt registrations must never be mistaken for an empty attendance list.
+  const responses = readResponses(true)
+  let changed = bindLegacyPayments(payments, responses)
   for (const [eventName, users] of Object.entries(payments)) {
     const event = events.find(e => e.event_name === eventName)
-    for (const record of Object.values(users)) {
+    for (const [userId, record] of Object.entries(users)) {
+      const entries = responses[eventName]
+      const live = [...(entries?.attendees || []), ...(entries?.waitlist || [])].find(a => a.user_id === userId)
+      if (!live || (record.registration_timestamp && record.registration_timestamp !== registrationTimestamp(live.timestamp))) {
+        delete users[userId]
+        changed = true
+        continue
+      }
+      if (record.proof && Date.parse(record.proof.uploaded_at) < Date.parse(live.timestamp)) {
+        record.proof = null
+        changed = true
+      }
       if (!record.proof) continue
       // A changed event date cannot extend the expiry captured on upload.
       if (proofExpired(record.proof, now) || (event?.event_datetime &&

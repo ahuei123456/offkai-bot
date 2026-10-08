@@ -15,6 +15,7 @@ export type Attendee = {
   attendee_number: number | null
   extras_attendee_numbers: number[]
   payment_enabled?: boolean
+  registration_timestamp?: string | null
   payment_unavailable?: boolean
   payment_method?: string | null
   payment_instructions?: string | null

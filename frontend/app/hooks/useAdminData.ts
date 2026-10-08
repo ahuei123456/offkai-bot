@@ -143,16 +143,19 @@ export function useAdminData() {
     }
   }, [key, selectedEvent])
 
-  const updatePayment = useCallback(async (userId: string, paid: boolean) => {
+  const updatePayment = useCallback(async (userId: string, paid: boolean, timestamp: string) => {
     // An event switch can leave the previous rows visible while the new list loads.
     if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
     const generation = eventGeneration.current
     const res = await fetch('/api/payment?key=' + encodeURIComponent(key), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, event_name: eventName, paid }),
+      body: JSON.stringify({ user_id: userId, event_name: eventName, paid, registration_timestamp: timestamp }),
     })
     const result = await res.json().catch(() => ({}))
-    if (!res.ok) return false
+    if (!res.ok) {
+      if (res.status === 409) await loadAttendees(key, eventName)
+      return false
+    }
     await loadAttendees(key, selectedEvent)
     if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
       setActionWarnings(result.warning ? [result.warning] : [])

@@ -259,9 +259,9 @@ class EventsCog(commands.Cog):
         validate_event_deadline(event_datetime, event_deadline)
         # 4. Acknowledge the interaction before the slow Discord API calls below
         # (thread/role creation, event message send) exceed the 3-second window.
-        # The confirmation is a public announcement, so defer non-ephemerally.
+        # Custom setup stays private; its successful announcement is sent separately.
         if signup_form is not None:
-            await interaction.response.defer(thinking=True)
+            await interaction.response.defer(thinking=True, ephemeral=True)
         else:
             await interaction.response.defer()
 
@@ -328,7 +328,11 @@ class EventsCog(commands.Cog):
         if announce_msg:
             announce_text += f"{announce_msg}\n\n"
         announce_text += f"Join the discussion and RSVP here: {thread.mention}"
-        message = await interaction.followup.send(announce_text, wait=True)
+        message = (
+            await interaction.channel.send(announce_text)
+            if signup_form is not None
+            else await interaction.followup.send(announce_text, wait=True)
+        )
 
         try:
             await message.pin()
@@ -338,6 +342,9 @@ class EventsCog(commands.Cog):
                 raise PinPermissionError(message.channel, e) from e
         except discord.HTTPException as e:
             _log.error("Failed to pin message due to HTTP error: %s", e)
+
+        if signup_form is not None:
+            await interaction.edit_original_response(content=f"Offkai created: {event_name}. {thread.mention}")
 
     @app_commands.command(
         name="create_interest_check",
@@ -777,6 +784,7 @@ class EventsCog(commands.Cog):
                 f"**重要:** 締め切り後の辞退は強くお勧めしません。"
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
                 f"すべての結果に対して、全責任を負います。",
+                promotion=True,
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
             _log.warning("Could not DM promoted user %s for event '%s': %s", user_id, event_name, e)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '../token'
 import { parseEventParam, parseUserId } from '../validation'
 import { paymentRegistration, tokenPaymentRegistration } from '../payment-access'
-import { getPayment, MAX_IMAGE_BYTES, proofExpiry, readProof, saveProof } from '../payments'
+import { getPayment, registrationTimestamp, InvalidImageError, RegistrationChangedError, ProofExpiredError, MAX_IMAGE_BYTES, proofExpiry, readProof, saveProof } from '../payments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,9 +30,12 @@ export async function POST(request: NextRequest) {
       chunks.push(value)
     }
     const multipart = Buffer.concat(chunks)
-    const form = await new Response(new Uint8Array(multipart), {
-      headers: { 'Content-Type': request.headers.get('content-type') || '' },
-    }).formData()
+    let form: FormData
+    try {
+      form = await new Response(new Uint8Array(multipart), {
+        headers: { 'Content-Type': request.headers.get('content-type') || '' },
+      }).formData()
+    } catch { throw new InvalidImageError('Invalid multipart upload') }
     const raw = form.get('token')
     const token = verifyToken(typeof raw === 'string' ? raw : '')
     if (!token) return error('unauthorized', 401)
@@ -48,8 +51,11 @@ export async function POST(request: NextRequest) {
     const payment = await saveProof(registration.event.event_name, token.userId, eventStart,
       Buffer.from(await image.arrayBuffer()), registration.attendee.timestamp)
     return NextResponse.json({ payment, replaced }, { headers: PRIVATE_HEADERS })
-  } catch {
-    return error('invalid_image_or_storage_error', 400)
+  } catch (failure) {
+    if (failure instanceof InvalidImageError) return error('invalid_image', 400)
+    if (failure instanceof RegistrationChangedError) return error('registration_changed', 409)
+    if (failure instanceof ProofExpiredError) return error('proof_expired', 410)
+    return error('storage_error', 500)
   }
 }
 export async function GET(request: NextRequest) {
@@ -57,16 +63,21 @@ export async function GET(request: NextRequest) {
   const key = process.env.ADMIN_KEY
   let registration
   let userId: string
+  let expectedTimestamp: string | null = null
+  let expectedFilename: string | null = null
   if (params.has('token')) {
     const token = verifyToken(params.get('token') || '')
     if (!token) return error('unauthorized', 401)
     registration = tokenPaymentRegistration(token)
     userId = token.userId
   } else {
-    if (!key || params.get('key') !== key) return error('unauthorized', 401)
+    if (!key || request.headers.get('authorization') !== `Bearer ${key}`) return error('unauthorized', 401)
     const eventName = parseEventParam(params.get('event'))
     const parsedId = parseUserId(params.get('user_id'))
-    if (!eventName || !parsedId) return error('invalid_request', 400)
+    expectedTimestamp = params.get('registration_timestamp')
+    expectedFilename = params.get('proof_filename')
+    if (!eventName || !parsedId || !expectedTimestamp || !Number.isFinite(Date.parse(expectedTimestamp)) ||
+        !expectedFilename || !/^[a-f0-9-]+\.webp$/.test(expectedFilename)) return error('invalid_request', 400)
     registration = paymentRegistration(eventName, parsedId)
     userId = parsedId
   }
@@ -74,6 +85,14 @@ export async function GET(request: NextRequest) {
   try {
     const start = registration.event.event_datetime
     if (!start || Date.parse(proofExpiry(start)) <= Date.now()) return error('proof_expired', 410)
+    if (expectedTimestamp) {
+      if (registrationTimestamp(expectedTimestamp) !== registrationTimestamp(registration.attendee.timestamp)) {
+        return error('registration_changed', 409)
+      }
+      if (getPayment(registration.event.event_name, userId, registration.attendee.timestamp).proof?.filename !== expectedFilename) {
+        return error('proof_changed', 409)
+      }
+    }
     const proof = readProof(registration.event.event_name, userId, start, registration.attendee.timestamp)
     if (!proof) return error('not_found', 404)
     return new NextResponse(new Uint8Array(proof), { headers: { ...PRIVATE_HEADERS, 'Content-Type': 'image/webp' } })

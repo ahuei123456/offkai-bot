@@ -47,9 +47,16 @@ function signedToken(userId: string, eventName: string) {
   const sig = crypto.createHmac('sha256', 'synthetic-test-key').update(payload).digest('hex').slice(0, 16)
   return `v2.${payload}.${sig}`
 }
-function request(url: string, body?: unknown) {
-  return new NextRequest(`http://localhost${url}`, body === undefined ? undefined : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+function request(url: string, body?: unknown, headers: Record<string, string> = {}) {
+  if (url.startsWith('/api/payment?') && body && typeof body === 'object' && !Object.hasOwn(body, 'registration_timestamp')) {
+    const input = body as { event_name: string; user_id: string }
+    const data = JSON.parse(fs.readFileSync(path.join(process.env.BOT_DATA_DIR!, 'responses.json'), 'utf8').replace(/(\"user_id\"\s*:\s*)(\d+)/g, '$1\"$2\"'))
+    const rows = data[input.event_name]
+    const attendee = [...(rows?.attendees || []), ...(rows?.waitlist || [])].find(a => a.user_id === input.user_id)
+    body = { ...input, registration_timestamp: attendee?.timestamp }
+  }
+  return new NextRequest(`http://localhost${url}`, body === undefined ? { headers } : {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
   })
 }
 
@@ -165,7 +172,7 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       assert.ok(metadata.width! <= 1080)
       assert.equal(metadata.orientation, undefined)
       assert.equal(metadata.exif, undefined)
-      const adminRead = await proofRoute.GET(request(`/api/payment-proof?key=synthetic-test-key&event=${encodeURIComponent(name)}&user_id=${uid}`))
+      const adminRead = await proofRoute.GET(request(`/api/payment-proof?event=${encodeURIComponent(name)}&user_id=${uid}&registration_timestamp=${encodeURIComponent(registrationTime)}&proof_filename=${uploadedData.payment.proof.filename}`, undefined, { Authorization: 'Bearer synthetic-test-key' }))
       assert.equal(adminRead.status, 200)
       const pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
       assert.equal(pass.attendee.status, i === 0 ? 'attending' : 'waitlist')
@@ -346,6 +353,158 @@ test('payment gating, registration lifetime, promotion, legacy migration and cor
   } finally {
     if (previousDir === undefined) delete process.env.BOT_DATA_DIR; else process.env.BOT_DATA_DIR = previousDir
     if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey
+    fs.rmSync(dataDir, { recursive: true, force: true })
+    fs.rmSync(modules, { recursive: true, force: true })
+  }
+})
+
+
+test('round-two stale paid actions, undated legacy binding, proof removal and upload error statuses', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offkai-round-two-'))
+  const modules = compileRoutes()
+  const previousDir = process.env.BOT_DATA_DIR
+  const previousKey = process.env.ADMIN_KEY
+  const previousBotUrl = process.env.BOT_ADMIN_URL
+  let notifications = 0
+  const bot = createServer((_req, res) => { notifications++; res.end('{}') })
+  await new Promise<void>(resolve => bot.listen(0, '127.0.0.1', resolve))
+  const address = bot.address()
+  assert.ok(address && typeof address !== 'string')
+  process.env.BOT_DATA_DIR = dataDir
+  process.env.ADMIN_KEY = 'synthetic-test-key'
+  process.env.BOT_ADMIN_URL = `http://127.0.0.1:${address.port}`
+  process.env.MOCK_MODE = 'false'
+  try {
+    const eventName = 'Round two'
+    const start = new Date(Date.now() + 86400000).toISOString()
+    const stampA = new Date(Date.now() - 7200000).toISOString()
+    const stampB = new Date(Date.now() - 3600000).toISOString()
+    const attendee = (user_id: string, timestamp = stampA) => ({ user_id, timestamp, username: 'Synthetic', extra_people: 0 })
+    const responseFile = path.join(dataDir, 'responses.json')
+    const paymentFile = path.join(dataDir, 'payments.json')
+    const responses = (rows: unknown[], waitlist: unknown[] = []) => fs.writeFileSync(responseFile, JSON.stringify({
+      [eventName]: { attendees: rows, waitlist },
+    }))
+    fs.writeFileSync(path.join(dataDir, 'events.json'), JSON.stringify([{ event_name: eventName, event_datetime: start,
+      archived: false, open: true, signup_form: { fields: ['payment_method'], payment_methods: { Cash: 'Pay organizer' } } }]))
+    responses([attendee(uid)])
+    const load = (name: string) => import(pathToFileURL(path.join(modules, 'api', name)).href)
+    const payments = await load('payments.js')
+    const paidRoute = await load('payment/route.js')
+    const proofRoute = await load('payment-proof/route.js')
+    const listRoute = await load('attendees/route.js')
+    // Grandfather undated legacy paid state once, without another notification.
+    fs.writeFileSync(paymentFile, JSON.stringify({ [eventName]: { [uid]: { paid: true } } }))
+    const listed = await (await listRoute.GET(request('/api/attendees?key=synthetic-test-key&event=' + encodeURIComponent(eventName)))).json()
+    assert.equal(listed.attendees[0].payment.paid, true)
+    assert.equal(listed.attendees[0].registration_timestamp, stampA)
+    assert.equal(JSON.parse(fs.readFileSync(paymentFile, 'utf8'))[eventName][uid].registration_timestamp, stampA)
+    assert.equal(notifications, 0)
+    responses([attendee(uid, stampB)])
+    assert.equal(payments.getPayment(eventName, uid, stampB).paid, false)
+    const before = fs.readFileSync(paymentFile, 'utf8')
+    const stale = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', {
+      event_name: eventName, user_id: uid, paid: true, registration_timestamp: stampA,
+    }))
+    assert.equal(stale.status, 409)
+    assert.equal(fs.readFileSync(paymentFile, 'utf8'), before)
+    assert.equal(notifications, 0)
+    assert.equal((await paidRoute.POST(request('/api/payment?key=synthetic-test-key', {
+      event_name: eventName, user_id: uid, paid: true, registration_timestamp: null,
+    }))).status, 400)
+    const cash = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', {
+      event_name: eventName, user_id: uid, paid: true, registration_timestamp: stampB.replace('Z', '+00:00'),
+    }))
+    assert.equal(cash.status, 200)
+    assert.equal((await cash.json()).payment.proof, null)
+    assert.equal(notifications, 1)
+    const image = await sharp({ create: { width: 20, height: 20, channels: 3, background: 'blue' } }).png().toBuffer()
+    const upload = (bytes = image) => {
+      const form = new FormData()
+      form.set('token', signedToken(uid, eventName))
+      form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/png' }), 'proof.png')
+      return proofRoute.POST(new NextRequest('http://localhost/api/payment-proof', { method: 'POST', body: form }))
+    }
+    assert.equal((await upload(Buffer.from('invalid'))).status, 400)
+    assert.equal((await proofRoute.POST(new NextRequest('http://localhost/api/payment-proof', {
+      method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=missing' }, body: 'malformed',
+    }))).status, 400)
+    // A real write failure is a server error, and the new image is rolled back.
+    const originalRename = fs.renameSync
+    fs.renameSync = ((from, to) => {
+      if (String(to) === paymentFile) throw Object.assign(new Error('Denied'), { code: 'EACCES' })
+      originalRename(from, to)
+    }) as typeof fs.renameSync
+    try { assert.equal((await upload()).status, 500) } finally { fs.renameSync = originalRename }
+    assert.equal(fs.readdirSync(path.join(dataDir, 'payment-proofs')).length, 0)
+    // Replace the canonical registration between initial resolve and post-image resolve.
+    const originalRead = fs.readFileSync
+    let registrationReads = 0
+    fs.readFileSync = function (...args: Parameters<typeof fs.readFileSync>) {
+      if (String(args[0]) === responseFile && ++registrationReads === 2) responses([attendee(uid)])
+      return originalRead.apply(fs, args)
+    } as typeof fs.readFileSync
+    try { assert.equal((await upload()).status, 409) } finally { fs.readFileSync = originalRead }
+    assert.equal(fs.readdirSync(path.join(dataDir, 'payment-proofs')).length, 0)
+    responses([attendee(uid)], [attendee(otherUid)])
+    const confirmed = await payments.saveProof(eventName, uid, start, image, stampA)
+    const waiting = await payments.saveProof(eventName, otherUid, start, image, stampA)
+    const imagePath = (record: { proof: { filename: string } }) => path.join(dataDir, 'payment-proofs', record.proof.filename)
+    const adminUrl = `/api/payment-proof?event=${encodeURIComponent(eventName)}&user_id=${uid}&registration_timestamp=${encodeURIComponent(stampA)}&proof_filename=${confirmed.proof.filename}`
+    assert.equal((await proofRoute.GET(request(adminUrl + '&key=synthetic-test-key'))).status, 401)
+    assert.equal((await proofRoute.GET(request(adminUrl, undefined, { Authorization: 'Bearer synthetic-test-key' }))).status, 200)
+    const replacedPreview = await payments.saveProof(eventName, uid, start, image, stampA)
+    assert.equal((await proofRoute.GET(request(adminUrl, undefined, { Authorization: 'Bearer synthetic-test-key' }))).status, 409)
+    const newPreview = adminUrl.replace(confirmed.proof.filename, replacedPreview.proof.filename)
+    responses([attendee(uid, stampB)], [attendee(otherUid)])
+    assert.equal((await proofRoute.GET(request(newPreview, undefined, { Authorization: 'Bearer synthetic-test-key' }))).status, 409)
+    responses([attendee(uid)], [attendee(otherUid)])
+    confirmed.proof = replacedPreview.proof
+    // Promotion retains both images; either confirmed or waitlist withdrawal purges.
+    responses([attendee(uid), attendee(otherUid)])
+    payments.cleanupProofs([])
+    assert.ok(fs.existsSync(imagePath(confirmed)) && fs.existsSync(imagePath(waiting)))
+    responses([], [attendee(otherUid)])
+    payments.cleanupProofs([])
+    assert.equal(fs.existsSync(imagePath(confirmed)), false)
+    assert.equal(fs.existsSync(imagePath(waiting)), true)
+    const ledger = fs.readFileSync(paymentFile, 'utf8')
+    fs.writeFileSync(responseFile, '{broken')
+    assert.throws(() => payments.cleanupProofs([]))
+    assert.equal(fs.readFileSync(paymentFile, 'utf8'), ledger)
+    assert.equal(fs.existsSync(imagePath(waiting)), true)
+    fs.writeFileSync(responseFile, JSON.stringify({ [eventName]: { attendees: [{ user_id: otherUid, timestamp: 42 }], waitlist: [] } }))
+    assert.throws(() => payments.cleanupProofs([]))
+    assert.equal(fs.existsSync(imagePath(waiting)), true)
+    fs.unlinkSync(responseFile)
+    assert.throws(() => payments.cleanupProofs([]))
+    assert.equal(fs.existsSync(imagePath(waiting)), true)
+    responses([])
+    fs.renameSync = ((from, to) => {
+      if (String(to) === paymentFile) throw new Error('Denied ledger update')
+      originalRename(from, to)
+    }) as typeof fs.renameSync
+    try {
+      assert.throws(() => payments.cleanupProofs([]))
+      assert.equal(fs.existsSync(imagePath(waiting)), true)
+      assert.equal(fs.readFileSync(paymentFile, 'utf8'), ledger)
+    } finally { fs.renameSync = originalRename }
+    const originalUnlink = fs.unlinkSync
+    fs.unlinkSync = ((file) => {
+      if (String(file) === imagePath(waiting)) throw new Error('Denied image delete')
+      originalUnlink(file)
+    }) as typeof fs.unlinkSync
+    try { assert.throws(() => payments.cleanupProofs([])) } finally { fs.unlinkSync = originalUnlink }
+    assert.equal(fs.existsSync(imagePath(waiting)), true)
+    payments.cleanupProofs([])
+    payments.cleanupProofs([])
+    assert.equal(fs.existsSync(imagePath(waiting)), false)
+    assert.deepEqual(JSON.parse(fs.readFileSync(paymentFile, 'utf8'))[eventName], {})
+  } finally {
+    await new Promise<void>(resolve => bot.close(() => resolve()))
+    if (previousDir === undefined) delete process.env.BOT_DATA_DIR; else process.env.BOT_DATA_DIR = previousDir
+    if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey
+    if (previousBotUrl === undefined) delete process.env.BOT_ADMIN_URL; else process.env.BOT_ADMIN_URL = previousBotUrl
     fs.rmSync(dataDir, { recursive: true, force: true })
     fs.rmSync(modules, { recursive: true, force: true })
   }

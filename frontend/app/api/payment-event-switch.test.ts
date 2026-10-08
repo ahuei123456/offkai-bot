@@ -51,14 +51,22 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     initial.changeEvent('Event B')
     begin()
     const loading = useAdminData()
-    assert.equal(await loading.updatePayment(uid, true), false)
+    assert.equal(await loading.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(await loading.removeRegistration(uid), false)
     assert.deepEqual(posts, [])
     loading.changeEvent('Event A')
     begin()
     const loaded = useAdminData()
-    assert.equal(await loaded.updatePayment(uid, true), true)
-    assert.deepEqual(posts, [{ event_name: 'Event A', user_id: uid, paid: true }])
+    assert.equal(await loaded.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), true)
+    assert.deepEqual(posts, [{ event_name: 'Event A', user_id: uid, paid: true, registration_timestamp: '2026-10-01T00:00:00.000Z' }])
+    let refreshes = 0
+    globalThis.fetch = async (_url, options) => {
+      if (options?.method === 'POST') return Response.json({ error: 'registration_changed' }, { status: 409 })
+      refreshes++
+      return Response.json({ event_name: 'Event A', attendees: [attendee] })
+    }
+    assert.equal(await loaded.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
+    assert.equal(refreshes, 1)
     // A's initial load and 10-second poll both remain pending during A → B.
     const pending: { event: string; resolve: (value: Response) => void }[] = []
     globalThis.fetch = async (url, options) => {
@@ -82,7 +90,7 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     begin()
     const duringSwitch = useAdminData()
     runEffects()
-    assert.equal(await duringSwitch.updatePayment(uid, true), false)
+    assert.equal(await duringSwitch.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
     const next = pending.find(p => p.event === 'Event B')!
     next.resolve(Response.json({ event_name: 'Event B', attendees: [{ ...attendee, payment: { paid: true, proof: null } }] }))
     await tick()
@@ -96,7 +104,7 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     assert.equal(settled.attendees[0].payment.paid, true)
     const previousPostCount = posts.length
     // Even a callback retained from the old render cannot mutate the new event.
-    assert.equal(await beforeSwitch.updatePayment(uid, true), false)
+    assert.equal(await beforeSwitch.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(posts.length, previousPostCount)
   } finally {
     globalThis.fetch = previousFetch

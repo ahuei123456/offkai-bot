@@ -242,6 +242,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
                 f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
                 f"すべての結果に対して、全責任を負います。",
+                promotion=True,
             )
             _log.info("Promoted user %s from waitlist for event '%s'.", promoted_entry.user_id, event.event_name)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
@@ -462,9 +463,6 @@ class GatheringModal(ui.Modal):
             f"すべての結果に対して、全責任を負います。"
         )
 
-        if self.event.signup_form:
-            confirmation_message = render_custom_reply(self.event, response, "Attendance confirmed")
-
         # 2. Attempt to DM the user first
         try:
             await send_signup_reply(
@@ -561,9 +559,6 @@ class GatheringModal(ui.Modal):
             f"主催者から追加料金が請求される場合があります。"
         )
 
-        if self.event.signup_form:
-            waitlist_message = render_custom_reply(self.event, entry, "Waitlisted — attendance is not confirmed")
-
         # 2. Attempt to DM the user first
         try:
             await send_signup_reply(
@@ -634,9 +629,6 @@ class GatheringModal(ui.Modal):
             f"💰 **注意:** 誰もキャンセルせず、それでもオフ会への参加が認められた場合、"
             f"主催者から追加料金が請求される場合があります。"
         )
-
-        if self.event.signup_form:
-            waitlist_message = render_custom_reply(self.event, entry, "Waitlisted — attendance is not confirmed")
 
         # 2. Attempt to DM the user first
         try:
@@ -721,6 +713,12 @@ class GatheringModal(ui.Modal):
                 self._validate_confirmations(confirmation_str)
             selected_drinks = self._validate_drinks(drink_choice_str, num_extra_people + 1)
             extra_people_names = self._validate_extra_people_names(extra_names_str, num_extra_people)
+
+            if any(
+                entry.user_id == interaction.user.id
+                for entry in [*get_responses(self.event.event_name), *get_waitlist(self.event.event_name)]
+            ):
+                raise DuplicateResponseError(self.event.event_name, interaction.user.id)
 
             if methods or (self.fields and "no_show" in self.fields):
                 if not final:
@@ -1569,11 +1567,18 @@ async def send_signup_reply(
     entry: Response | WaitlistEntry,
     status: str,
     default_message: str,
+    promotion: bool = False,
     **kwargs: Any,
 ) -> None:
-    message = render_custom_reply(event, entry, status) if event.signup_form else default_message
-    if event.signup_form and len(message) > 2000:
-        await send(embeds=custom_reply_embeds(event, entry, status), **kwargs)
+    sections = render_custom_reply_sections(event, entry, status) if event.signup_form else []
+    if sections and promotion:
+        sections[0] = (
+            "🎉 A spot has opened up! You have moved from the waitlist to confirmed attendance.\n\n" + sections[0]
+        )
+        sections[1] = "🎉 空きが出たため、ウェイトリストから参加確定に移動しました。\n\n" + sections[1]
+    message = "\n\n".join(sections) if sections else default_message
+    if sections and len(message) > 2000:
+        await send(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
     else:
         await send(message, **kwargs)
 

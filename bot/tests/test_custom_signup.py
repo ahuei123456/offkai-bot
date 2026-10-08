@@ -721,6 +721,7 @@ async def test_draft_retry_only_before_resources_exist(custom_event, failure):
         if failure == "after_thread":
             send.side_effect = RuntimeError("Announcement failed")
         await setup.publish.callback(source)
+        source.response.defer.assert_awaited_with(thinking=True, ephemeral=True)
         assert not setup.publishing
         assert setup.configuration() == expected
         if failure == "rejected_thread":
@@ -799,11 +800,20 @@ async def test_promotions_send_identical_confirmed_signup_instructions(
     assert saved.timestamp == entry.timestamp
     expected = render_custom_reply(custom_event, saved, "Attendance confirmed")
     if long_reply:
-        assert [embed.description for embed in user.send.call_args.kwargs["embeds"]] == render_custom_reply_sections(
-            custom_event, saved, "Attendance confirmed"
+        sections = [embed.description for embed in user.send.call_args.kwargs["embeds"]]
+        assert all(
+            actual.endswith(original)
+            for actual, original in zip(
+                sections, render_custom_reply_sections(custom_event, saved, "Attendance confirmed"), strict=True
+            )
         )
+        assert "A spot has opened up" in sections[0] and "空きが出た" in sections[1]
     else:
-        user.send.assert_awaited_once_with(expected)
+        actual = user.send.call_args.args[0]
+        assert "A spot has opened up" in actual and "空きが出た" in actual
+        assert all(
+            section in actual for section in render_custom_reply_sections(custom_event, saved, "Attendance confirmed")
+        )
     assert "Synthetic organizer instructions" in expected or "Instructions" in expected
     assert "支払い証明" in expected
 
@@ -842,3 +852,67 @@ async def test_custom_creation_preserves_actionable_domain_error(deadline_error)
     await setup.publish.callback(source)
     assert str(error) in source.followup.send.call_args.args[0]
     assert not setup.finished and not setup.publishing
+
+
+@pytest.mark.parametrize("waitlisted", [False, True])
+async def test_duplicate_custom_signup_never_shows_payment_continuation(custom_event, waitlisted):
+    source = interaction()
+    entry_type = responses.WaitlistEntry if waitlisted else responses.Response
+    entry = entry_type(
+        user_id=source.user.id,
+        username="Synthetic",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name=custom_event.event_name,
+        timestamp=datetime.now(UTC),
+    )
+    responses.RESPONSE_DATA_CACHE = {
+        custom_event.event_name: {
+            "attendees": [] if waitlisted else [entry],
+            "waitlist": [entry] if waitlisted else [],
+        }
+    }
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    assert "view" not in source.response.send_message.call_args.kwargs
+    assert "already" in source.user.send.call_args.args[0].lower()
+
+
+async def test_custom_create_keeps_private_ack_and_public_pinned_announcement(custom_event):
+    source = interaction(42)
+    source.channel.id = 456
+    thread = MagicMock(spec=discord.Thread, id=789, mention="<#789>")
+    source.channel.create_thread = AsyncMock(return_value=thread)
+    announcement = MagicMock(spec=discord.Message, pin=AsyncMock())
+    source.channel.send = AsyncMock(return_value=announcement)
+    source.edit_original_response = AsyncMock()
+    cog = EventsCog(MagicMock())
+    with (
+        patch("offkai_bot.cogs.events.register_deadline_reminders"),
+        patch("offkai_bot.cogs.events.register_checkin_reminder"),
+        patch("offkai_bot.cogs.events.send_event_message", new=AsyncMock()),
+    ):
+        await cog._create_event(
+            source,
+            "Private setup",
+            "Venue",
+            "Address",
+            "",
+            custom_event.event_datetime,
+            None,
+            [],
+            None,
+            None,
+            None,
+            False,
+            custom_event.signup_form,
+        )
+    source.response.defer.assert_awaited_once_with(thinking=True, ephemeral=True)
+    source.channel.send.assert_awaited_once()
+    assert "# Offkai Created: Private setup" in source.channel.send.call_args.args[0]
+    announcement.pin.assert_awaited_once()
+    source.edit_original_response.assert_awaited_once()
+    source.followup.send.assert_not_awaited()

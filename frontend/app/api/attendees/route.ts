@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, getDefaultEvent, isSelectableForCheckin } from '../db'
-import { paymentFromSnapshot, readPaymentSnapshot } from '../payments'
+import { paymentFromSnapshot, readPaymentSnapshot, registrationTimestamp } from '../payments'
 import { paymentEnabled } from '../payment-access'
 import { parseEventParam } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES } from '../mock'
@@ -67,7 +67,8 @@ export async function GET(request: NextRequest) {
       try { payment = paymentFromSnapshot(snapshot, activeEvent.event_name, a.user_id, a.timestamp) }
       catch { unavailable = true }
     }
-    return { payment_enabled: enabled, payment_unavailable: unavailable, payment }
+    return { registration_timestamp: a.timestamp && Number.isFinite(Date.parse(a.timestamp)) ? registrationTimestamp(a.timestamp) : null,
+      payment_enabled: enabled, payment_unavailable: unavailable, payment }
   }
 
   const attendeesList = (eventResponses.attendees || []).map(a => ({

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseEventParam, parseUserId } from '../validation'
 import { paymentRegistration } from '../payment-access'
-import { getPayment, setPaid } from '../payments'
+import { getPayment, setPaid, registrationTimestamp } from '../payments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,11 +14,15 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   const eventName = parseEventParam(body?.event_name)
   const userId = parseUserId(body?.user_id)
-  if (!eventName || !userId || typeof body?.paid !== 'boolean') {
+  if (!eventName || !userId || typeof body?.paid !== 'boolean' || typeof body?.registration_timestamp !== 'string' ||
+      !Number.isFinite(Date.parse(body.registration_timestamp))) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
   const registration = paymentRegistration(eventName, userId)
   if (!registration) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  if (registrationTimestamp(registration.attendee.timestamp) !== registrationTimestamp(body.registration_timestamp)) {
+    return NextResponse.json({ error: 'registration_changed' }, { status: 409 })
+  }
   try {
     const wasPaid = getPayment(eventName, userId, registration.attendee.timestamp).paid
     const payment = setPaid(eventName, userId, body.paid, registration.attendee.timestamp)

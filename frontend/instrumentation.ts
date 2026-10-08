@@ -8,6 +8,6 @@ export async function register() {
     try { cleanupProofs(readEvents()) } catch (error) { console.error('Payment proof cleanup failed:', error) }
   }
   sweep()
-  state.paymentCleanup = setInterval(sweep, 24 * 60 * 60 * 1000)
+  state.paymentCleanup = setInterval(sweep, 5 * 60 * 1000)
   state.paymentCleanup.unref()
 }
