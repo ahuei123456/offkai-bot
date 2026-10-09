@@ -82,6 +82,7 @@ def mock_interaction():
     interaction.channel.remove_user = AsyncMock()
     interaction.channel_id = 789
     interaction.response = MagicMock()
+    interaction.response.is_done.return_value = False
     interaction.response.send_message = AsyncMock()
     interaction.client = MagicMock(spec=discord.Client)
     return interaction

@@ -64,6 +64,7 @@ def mock_interaction():
     interaction.channel.send = AsyncMock()
     interaction.channel.add_user = AsyncMock()
     interaction.response = MagicMock()
+    interaction.response.is_done.return_value = False
     interaction.response.send_message = AsyncMock()
     interaction.client = MagicMock()
     interaction.client.fetch_user = AsyncMock()
