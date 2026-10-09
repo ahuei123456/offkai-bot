@@ -3,9 +3,9 @@ import json
 import logging
 import os
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
@@ -17,6 +17,9 @@ from offkai_bot.errors import (
     NoWaitlistEntriesFoundError,
     ResponseNotFoundError,
 )
+
+if TYPE_CHECKING:
+    from offkai_bot.data.event import Event
 
 _log = logging.getLogger(__name__)
 
@@ -706,6 +709,59 @@ def remove_from_waitlist(event_name: str, user_id: int) -> None:
         all_data[event_name] = event_data
         save_responses()
         _log.info("Removed user %s from waitlist for event %s.", user_id, event_name)
+
+
+def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Response | None:
+    """Persist a FIFO or selected promotion without an unregistered snapshot.
+
+    Stage the move so failed response writes leave the cache and queue unchanged.
+    Save event numbering after the response commit, as for add_response_for_event.
+    """
+    from offkai_bot.data.event import save_event_data
+
+    all_data = load_responses()
+    event_data = all_data.get(event.event_name, EventData(attendees=[], waitlist=[]))
+    if user_id is None:
+        if not event_data["waitlist"]:
+            return None
+        index = 0
+    else:
+        index = next((i for i, entry in enumerate(event_data["waitlist"]) if entry.user_id == user_id), None)
+        if index is None:
+            raise ResponseNotFoundError(event.event_name, user_id)
+    entry = event_data["waitlist"][index]
+    if any(response.user_id == entry.user_id for response in event_data["attendees"]):
+        raise DuplicateResponseError(event.event_name, entry.user_id)
+    response = Response(**asdict(entry))
+    assigned_max_number = None
+    if not event.open or _event_has_attendee_numbers(event_data):
+        start_number = _next_attendee_number(event_data)
+        if not event.open:
+            start_number = (
+                max(
+                    event.max_attendee_number or 0,
+                    event.closed_attendance_count or 0,
+                    _max_attendee_number(event_data),
+                )
+                + 1
+            )
+        assigned_max_number = _assign_group_numbers(response, start_number) - 1
+    staged = EventData(
+        attendees=[*event_data["attendees"], response],
+        waitlist=[*event_data["waitlist"][:index], *event_data["waitlist"][index + 1 :]],
+    )
+    atomic_write_json(
+        get_config()["RESPONSES_FILE"],
+        {**all_data, event.event_name: staged},
+        indent=4,
+        cls=DataclassJSONEncoder,
+        ensure_ascii=False,
+    )
+    all_data[event.event_name] = staged
+    if assigned_max_number is not None:
+        event.max_attendee_number = assigned_max_number
+        save_event_data()
+    return response
 
 
 def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:

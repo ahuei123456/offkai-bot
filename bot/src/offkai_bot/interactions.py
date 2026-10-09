@@ -7,7 +7,7 @@ from typing import Any
 import discord
 from discord import ui
 
-from offkai_bot.data.event import Event, add_response_for_event
+from offkai_bot.data.event import Event
 from offkai_bot.data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from offkai_bot.data.response import (
     Response,
@@ -17,10 +17,9 @@ from offkai_bot.data.response import (
     get_effective_display_name,
     get_responses,
     get_waitlist,
-    promote_from_waitlist,
+    promote_waitlist_response,
     remove_from_waitlist,
     remove_response,
-    restore_waitlist_entry,
 )
 from offkai_bot.errors import (
     DuplicateResponseError,
@@ -186,32 +185,10 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
                 break
 
         # Promote the next person
-        promoted_entry = promote_from_waitlist(event.event_name)
-        if not promoted_entry:
-            # Waitlist is empty
+        promoted_response = promote_waitlist_response(event)
+        if promoted_response is None:
             break
-
-        # Convert waitlist entry to regular response
-        promoted_response = Response(
-            user_id=promoted_entry.user_id,
-            username=promoted_entry.username,
-            extra_people=promoted_entry.extra_people,
-            behavior_confirmed=promoted_entry.behavior_confirmed,
-            arrival_confirmed=promoted_entry.arrival_confirmed,
-            event_name=promoted_entry.event_name,
-            timestamp=promoted_entry.timestamp,
-            drinks=promoted_entry.drinks,
-            extras_names=promoted_entry.extras_names,
-            display_name=promoted_entry.display_name,
-            payment_method=promoted_entry.payment_method,
-            no_show_agreed=promoted_entry.no_show_agreed,
-        )
-        try:
-            add_response_for_event(event, promoted_response)
-        except Exception:
-            # Roll back the waitlist pop so the user isn't dropped from both lists.
-            restore_waitlist_entry(event.event_name, promoted_entry)
-            raise
+        promoted_entry = promoted_response
         promoted_user_ids.append(promoted_entry.user_id)
 
         # Assign event participant role

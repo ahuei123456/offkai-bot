@@ -163,12 +163,12 @@ export function useAdminData() {
     return true
   }, [key, selectedEvent, eventName, loadAttendees])
 
-  const removeRegistration = useCallback(async (userId: string) => {
+  const removeRegistration = useCallback(async (userId: string, timestamp: string) => {
     if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
     const generation = eventGeneration.current
     const response = await fetch('/api/registration/remove?key=' + encodeURIComponent(key), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, event_name: eventName }),
+      body: JSON.stringify({ user_id: userId, event_name: eventName, registration_timestamp: timestamp }),
     })
     const result = await response.json().catch(() => ({}))
     // Refresh even after an ambiguous failure; a persisted removal cannot be retried blindly.
@@ -176,6 +176,7 @@ export function useAdminData() {
     if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
       setActionWarnings(response.ok ? result.warnings ?? [] : [])
     }
+    if (response.status === 409) throw new Error('registration_changed')
     if (!response.ok && result.removed === false) throw new Error('not_removed')
     return response.ok && result.removed === true
   }, [key, selectedEvent, eventName, loadAttendees])

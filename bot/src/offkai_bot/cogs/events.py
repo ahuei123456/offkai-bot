@@ -18,7 +18,6 @@ from offkai_bot.alerts.reminders import (
 )
 from offkai_bot.data.event import (
     add_event,
-    add_response_for_event,
     archive_event,
     get_event,
     load_event_data,
@@ -29,7 +28,6 @@ from offkai_bot.data.event import (
 from offkai_bot.data.ranking import migrate_legacy_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
-    Response,
     build_attendee_report_rows,
     calculate_attendance,
     calculate_drinks,
@@ -38,8 +36,7 @@ from offkai_bot.data.response import (
     format_organizer_name,
     get_waitlist,
     has_complete_attendee_numbers,
-    promote_specific_from_waitlist,
-    restore_waitlist_entry,
+    promote_waitlist_response,
     save_responses,
 )
 from offkai_bot.errors import (
@@ -734,29 +731,8 @@ class EventsCog(commands.Cog):
             )
             return
 
-        promoted_entry, original_index = promote_specific_from_waitlist(event_name, user_id)
-
-        promoted_response = Response(
-            user_id=promoted_entry.user_id,
-            username=promoted_entry.username,
-            extra_people=promoted_entry.extra_people,
-            behavior_confirmed=promoted_entry.behavior_confirmed,
-            arrival_confirmed=promoted_entry.arrival_confirmed,
-            event_name=promoted_entry.event_name,
-            timestamp=promoted_entry.timestamp,
-            drinks=promoted_entry.drinks,
-            extras_names=promoted_entry.extras_names,
-            display_name=promoted_entry.display_name,
-            payment_method=promoted_entry.payment_method,
-            no_show_agreed=promoted_entry.no_show_agreed,
-        )
-        try:
-            add_response_for_event(event, promoted_response)
-        except Exception:
-            # Roll back the waitlist pop so the user isn't dropped from both lists,
-            # restoring them at their original position so they don't jump the queue.
-            restore_waitlist_entry(event_name, promoted_entry, position=original_index)
-            raise
+        promoted_response = promote_waitlist_response(event, user_id)
+        assert promoted_response is not None
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseEventParam, parseUserId } from '../../validation'
+import { registrationTimestamp } from '../../payments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   const eventName = parseEventParam(body?.event_name)
   const userId = typeof body?.user_id === 'string' ? parseUserId(body.user_id) : null
-  if (!eventName || !userId || !/^[0-9]{16,22}$/.test(userId)) {
+  if (!eventName || !userId || !/^[0-9]{16,22}$/.test(userId) ||
+      typeof body?.registration_timestamp !== 'string' || !Number.isFinite(Date.parse(body.registration_timestamp))) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
   const botUrl = process.env.BOT_ADMIN_URL
@@ -20,7 +22,8 @@ export async function POST(request: NextRequest) {
   try {
     const response = await fetch(`${botUrl}/registrations/remove`, {
       method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_name: eventName, user_id: userId }),
+      body: JSON.stringify({ event_name: eventName, user_id: userId,
+        registration_timestamp: registrationTimestamp(body.registration_timestamp) }),
       signal: AbortSignal.timeout(30_000),
     })
     return NextResponse.json(await response.json(), { status: response.status })

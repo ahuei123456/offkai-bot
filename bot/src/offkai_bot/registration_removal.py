@@ -1,13 +1,14 @@
 """Organizer removal shared by the Discord command and private admin interface."""
 
 import logging
+from datetime import UTC, datetime
 
 import discord
 
 from offkai_bot.data.event import Event
 from offkai_bot.data.ranking import decrease_rank
-from offkai_bot.data.response import remove_from_waitlist, remove_response
-from offkai_bot.errors import ResponseNotFoundError
+from offkai_bot.data.response import get_responses, get_waitlist, remove_from_waitlist, remove_response
+from offkai_bot.errors import RegistrationChangedError, ResponseNotFoundError
 from offkai_bot.event_actions import update_event_message
 from offkai_bot.interactions import promote_waitlist_batch
 from offkai_bot.role_management import remove_event_role
@@ -23,8 +24,21 @@ async def remove_registration(
     *,
     allow_waitlist: bool = False,
     thread: discord.Thread | None = None,
+    expected_timestamp: datetime | None = None,
 ) -> dict:
     """Persist removal first; report failed Discord cleanup without undoing it."""
+    if expected_timestamp is not None:
+        entries = get_responses(event.event_name) + get_waitlist(event.event_name)
+        entry = next((entry for entry in entries if entry.user_id == member.id), None)
+        if entry is None:
+            raise ResponseNotFoundError(event.event_name, member.id)
+        # The frontend displays ISO timestamps at millisecond precision.
+        current = entry.timestamp.replace(tzinfo=UTC) if entry.timestamp.tzinfo is None else entry.timestamp
+        current = current.astimezone(UTC)
+        expected = expected_timestamp.astimezone(UTC)
+        if current.replace(microsecond=current.microsecond // 1000 * 1000) != expected:
+            raise RegistrationChangedError()
+    # No await between the identity check and the persisted removal.
     warnings = []
     freed_spots = 0
     try:

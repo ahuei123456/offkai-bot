@@ -15,6 +15,8 @@ from offkai_bot.data.response import (
     get_responses,
     get_waitlist,
     load_responses,
+    remove_from_waitlist,
+    remove_response,
 )
 
 
@@ -59,7 +61,11 @@ async def test_admin_removal_uses_real_data_and_promotes_only_freed_places(monke
     monkeypatch.setattr(admin_api, "get_config", lambda: {"ADMIN_KEY": "synthetic-admin", "GUILDS": [555]})
     monkeypatch.setattr(admin_api, "get_event", lambda name: event)
     async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
-        payload = {"event_name": event.event_name, "user_id": str(uid)}
+        payload = {
+            "event_name": event.event_name,
+            "user_id": str(uid),
+            "registration_timestamp": kwargs["timestamp"].isoformat(),
+        }
         # Wrong credentials and malformed identities must not mutate the cache/file.
         assert (await http.post("/registrations/remove", json=payload)).status == 401
         assert (
@@ -138,7 +144,11 @@ async def test_preflight_failure_explicitly_reports_no_removal(monkeypatch, fail
     async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
         reply = await http.post(
             "/registrations/remove",
-            json={"event_name": event.event_name, "user_id": "101000000000000001"},
+            json={
+                "event_name": event.event_name,
+                "user_id": "101000000000000001",
+                "registration_timestamp": datetime.now(UTC).isoformat(),
+            },
             headers={"Authorization": "Bearer synthetic-admin"},
         )
         assert reply.status == status
@@ -177,3 +187,79 @@ async def test_optional_admin_api_real_startup_failures_do_not_block_bot(monkeyp
     finally:
         await client.close()
         listener.close()
+
+
+@pytest.mark.parametrize("waitlisted", [False, True])
+@pytest.mark.parametrize("preflight_stage", ["thread", "user"])
+async def test_stale_removal_after_awaited_preflight_preserves_rejoined_registration(
+    monkeypatch, mock_paths, waitlisted, preflight_stage
+):
+    from offkai_bot import registration_removal
+
+    Path(mock_paths["responses"]).write_text("{}")
+    uid = 101000000000000001
+    original = datetime.now(UTC) - timedelta(hours=1)
+    replacement = original + timedelta(minutes=1)
+    event = Event("Stale removal", "Venue", "Address", "", datetime.now(UTC), thread_id=999)
+    entry_type = WaitlistEntry if waitlisted else Response
+    add = add_to_waitlist if waitlisted else add_response
+    remove = remove_from_waitlist if waitlisted else remove_response
+    kwargs = dict(
+        user_id=uid,
+        username="User",
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name=event.event_name,
+        timestamp=original,
+    )
+    add(event.event_name, entry_type(**kwargs))
+    user = MagicMock(spec=discord.User, id=uid, name="User", send=AsyncMock())
+    thread = MagicMock(spec=discord.Thread, remove_user=AsyncMock())
+    thread.guild.id = 555
+    client = MagicMock(spec=discord.Client)
+    client.is_ready.return_value = True
+    client.get_user.return_value = None
+
+    def rejoin():
+        remove(event.event_name, uid)
+        add(event.event_name, entry_type(**{**kwargs, "timestamp": replacement}))
+
+    async def fetch_thread(*args):
+        if preflight_stage == "thread":
+            rejoin()
+        return thread
+
+    async def fetch_user(*args):
+        if preflight_stage == "user":
+            rejoin()
+        return user
+
+    client.fetch_user = AsyncMock(side_effect=fetch_user)
+    monkeypatch.setattr(admin_api, "fetch_thread_for_event", fetch_thread)
+    monkeypatch.setattr(admin_api, "get_config", lambda: {"ADMIN_KEY": "synthetic-admin", "GUILDS": [555]})
+    monkeypatch.setattr(admin_api, "get_event", lambda name: event)
+    rank = MagicMock()
+    promote = AsyncMock()
+    monkeypatch.setattr(registration_removal, "decrease_rank", rank)
+    monkeypatch.setattr(registration_removal, "promote_waitlist_batch", promote)
+    async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
+        payload = {"event_name": event.event_name, "user_id": str(uid), "registration_timestamp": original.isoformat()}
+        response = await http.post(
+            "/registrations/remove", json=payload, headers={"Authorization": "Bearer synthetic-admin"}
+        )
+        assert response.status == 409
+        assert await response.json() == {"error": "registration_changed", "removed": False}
+        current = get_waitlist(event.event_name) if waitlisted else get_responses(event.event_name)
+        assert current[0].timestamp == replacement
+        thread.remove_user.assert_not_awaited()
+        user.send.assert_not_awaited()
+        rank.assert_not_called()
+        promote.assert_not_awaited()
+        for invalid in [None, "bad", "2026-10-09T00:00:00"]:
+            invalid_response = await http.post(
+                "/registrations/remove",
+                json={**payload, "registration_timestamp": invalid},
+                headers={"Authorization": "Bearer synthetic-admin"},
+            )
+            assert invalid_response.status == 400

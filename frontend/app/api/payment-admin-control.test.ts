@@ -99,3 +99,45 @@ test('actual admin payment control supports confirmed cash override and private 
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('actual removal confirmation targets the displayed signup and shows changed-registration feedback', async () => {
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'node_modules', '.removal-control-test-'))
+  const previousWindow = globalThis.window
+  try {
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}')
+    fs.writeFileSync(path.join(dir, 'react.js'), `const states=[];let index=0;
+      export function begin(){index=0;}
+      export function useState(initial){const key=index++;if(!(key in states))states[key]=initial;
+        return [states[key],value=>states[key]=value];}`)
+    fs.writeFileSync(path.join(dir, 'i18n.js'), `export function useT(){return {t:{removeUser:'Remove',
+      confirmRemove:name=>'Remove '+name,removalRegistrationChanged:'Registration changed',
+      removalNotStarted:'Not removed',removalError:'Unconfirmed'}};}`)
+    const code = ts.transpileModule(fs.readFileSync('app/components/admin/RemoveRegistration.tsx', 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText.replaceAll("from 'react'", "from './react.js'").replaceAll("from '../../lib/i18n'", "from './i18n.js'")
+    fs.writeFileSync(path.join(dir, 'control.js'), code)
+    const { begin } = await import(pathToFileURL(path.join(dir, 'react.js')).href)
+    const { RemoveRegistration } = await import(pathToFileURL(path.join(dir, 'control.js')).href)
+    const attendee = { user_id: '191524132624531458', username: 'Original signup',
+      registration_timestamp: '2026-10-01T00:00:00.000Z' }
+    const calls: unknown[] = []
+    let confirm = false
+    globalThis.window = { confirm: () => confirm } as unknown as Window & typeof globalThis
+    const render = () => { begin(); return RemoveRegistration({ attendee,
+      onRemove: async (...args: unknown[]) => { calls.push(args); throw new Error('registration_changed') } }) }
+    let tree = render()
+    const click = tree.props.children[0].props.onClick
+    await click()
+    assert.deepEqual(calls, [])
+    confirm = true
+    await click()
+    assert.deepEqual(calls, [[attendee.user_id, attendee.registration_timestamp]])
+    tree = render()
+    assert.equal(tree.props.children[1].props.role, 'alert')
+    assert.equal(tree.props.children[1].props.children, 'Registration changed')
+    assert.equal(tree.props.children[0].props.disabled, false)
+  } finally {
+    globalThis.window = previousWindow
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -6,7 +6,7 @@ import type { Attendee } from '../../lib/types'
 export function WaitlistList({ waitlist, adminKey, eventName, onPayment, onRemove }: {
   waitlist: Attendee[]; adminKey: string; eventName: string
   onPayment: (userId: string, paid: boolean, timestamp: string) => Promise<boolean>
-  onRemove: (userId: string) => Promise<boolean>
+  onRemove: (userId: string, timestamp: string) => Promise<boolean>
 }) {
   if (waitlist.length === 0) return null
   return (

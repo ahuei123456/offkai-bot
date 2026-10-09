@@ -509,3 +509,34 @@ test('round-two stale paid actions, undated legacy binding, proof removal and up
     fs.rmSync(modules, { recursive: true, force: true })
   }
 })
+
+test('admin removal route requires and forwards displayed registration identity and preserves bot conflicts', async () => {
+  const modules = compileRoutes()
+  const previousFetch = globalThis.fetch
+  const previousKey = process.env.ADMIN_KEY
+  const previousUrl = process.env.BOT_ADMIN_URL
+  process.env.ADMIN_KEY = 'synthetic-test-key'
+  process.env.BOT_ADMIN_URL = 'http://synthetic-bot'
+  try {
+    const route = await import(pathToFileURL(path.join(modules, 'api/registration/remove/route.js')).href)
+    const calls: unknown[] = []
+    globalThis.fetch = async (_url, options) => {
+      calls.push(JSON.parse(options!.body as string))
+      return Response.json({ error: 'registration_changed', removed: false }, { status: 409 })
+    }
+    const body = { event_name: 'Default event', user_id: uid }
+    const url = '/api/registration/remove?key=synthetic-test-key'
+    assert.equal((await route.POST(request(url, body))).status, 400)
+    assert.equal((await route.POST(request(url, { ...body, registration_timestamp: 'bad' }))).status, 400)
+    assert.deepEqual(calls, [])
+    const response = await route.POST(request(url, { ...body, registration_timestamp: '2026-10-09T09:00:00+09:00' }))
+    assert.equal(response.status, 409)
+    assert.deepEqual(await response.json(), { error: 'registration_changed', removed: false })
+    assert.deepEqual(calls, [{ ...body, registration_timestamp: '2026-10-09T00:00:00.000Z' }])
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousKey === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previousKey
+    if (previousUrl === undefined) delete process.env.BOT_ADMIN_URL; else process.env.BOT_ADMIN_URL = previousUrl
+    fs.rmSync(modules, { recursive: true, force: true })
+  }
+})

@@ -14,7 +14,7 @@ export function AttendeeRow({
   adminKey: string
   eventName: string
   onPayment: (userId: string, paid: boolean, timestamp: string) => Promise<boolean>
-  onRemove: (userId: string) => Promise<boolean>
+  onRemove: (userId: string, timestamp: string) => Promise<boolean>
   attendee: Attendee
   checkin?: CheckinRecord
   onCheckin: (userId: string) => void

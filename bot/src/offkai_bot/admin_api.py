@@ -4,13 +4,20 @@ import hmac
 import logging
 import os
 import re
+from datetime import UTC, datetime
 
 import discord
 from aiohttp import web
 
 from offkai_bot.config import get_config
 from offkai_bot.data.event import get_event
-from offkai_bot.errors import EventNotFoundError, ResponseNotFoundError, ThreadAccessError, ThreadNotFoundError
+from offkai_bot.errors import (
+    EventNotFoundError,
+    RegistrationChangedError,
+    ResponseNotFoundError,
+    ThreadAccessError,
+    ThreadNotFoundError,
+)
 from offkai_bot.event_actions import fetch_thread_for_event
 from offkai_bot.payment_proof import registered_payment_events
 from offkai_bot.registration_removal import remove_registration
@@ -58,6 +65,18 @@ def create_admin_app(client: discord.Client) -> web.Application:
         if isinstance(parsed, web.Response):
             return parsed
         event_name, user_id = parsed
+        body = await request.json()
+        timestamp = body.get("registration_timestamp")
+        try:
+            if not isinstance(timestamp, str) or len(timestamp) > 100:
+                raise ValueError("Invalid timestamp")
+            expected_timestamp = datetime.fromisoformat(timestamp)
+            if expected_timestamp.tzinfo is None:
+                raise ValueError("Timestamp requires timezone")
+            expected_timestamp = expected_timestamp.astimezone(UTC)
+            expected_timestamp = expected_timestamp.replace(microsecond=expected_timestamp.microsecond // 1000 * 1000)
+        except ValueError:
+            return web.json_response({"error": "invalid_request", "removed": False}, status=400)
         settings = get_config()
         try:
             event = get_event(event_name)
@@ -76,7 +95,17 @@ def create_admin_app(client: discord.Client) -> web.Application:
             _log.exception("Registration removal preflight failed")
             return web.json_response({"error": "preflight_unavailable", "removed": False}, status=503)
         try:
-            result = await remove_registration(client, event, user, thread.guild, allow_waitlist=True, thread=thread)
+            result = await remove_registration(
+                client,
+                event,
+                user,
+                thread.guild,
+                allow_waitlist=True,
+                thread=thread,
+                expected_timestamp=expected_timestamp,
+            )
+        except RegistrationChangedError:
+            return web.json_response({"error": "registration_changed", "removed": False}, status=409)
         except (EventNotFoundError, ResponseNotFoundError):
             return web.json_response({"error": "not_found"}, status=404)
         except Exception:
