@@ -5,6 +5,10 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import mock_open, patch
 
 import pytest
+
+# Import the module we are testing
+from offkai_bot.data import event as event_data
+from offkai_bot.data import response as response_data
 from offkai_bot.data.encoders import DataclassJSONEncoder  # Needed for save verification
 from offkai_bot.data.event import JST, OFFKAI_MESSAGE, Event, create_event_message
 from offkai_bot.data.response import EventData, Response, WaitlistEntry
@@ -22,10 +26,6 @@ from offkai_bot.errors import (
     InvalidDateTimeFormatError,
     NoChangesProvidedError,
 )  # Import the dataclass too
-
-# Import the module we are testing
-from offkai_bot.data import event as event_data
-from offkai_bot.data import response as response_data
 
 # --- Test Data ---
 # Use explicit future dates for reliability
@@ -1402,8 +1402,7 @@ def test_event_format_details_no_datetime_no_drinks():
         "📍 **Address (住所)**: Min Addr\n"
         "🌎 **Google Maps Link (地図)**: min_gmap\n"
         "🕑 **Date and Time (日時)**: Not Set\n"
-        "📅 **Deadline (締切)**: Not Set\n"
-        "🍺 **Drinks (飲み物)**: No selection needed!"
+        "📅 **Deadline (締切)**: Not Set"
     )
     assert event.format_details() == expected
 

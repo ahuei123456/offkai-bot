@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from offkai_bot.alerts import alerts
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 from offkai_bot.alerts.task import CloseOffkaiTask
 from offkai_bot.data.event import Event, create_event_message
@@ -20,8 +21,6 @@ from offkai_bot.interactions import (
     ValidationError,
     validate_extra_people_input,
 )
-
-from offkai_bot.alerts import alerts
 
 # asyncio_mode = "auto" runs the async tests here without an explicit mark;
 # a module-level asyncio pytestmark would warn on this file's sync tests.

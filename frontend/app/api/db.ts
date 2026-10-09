@@ -14,6 +14,7 @@ export interface Event {
   max_capacity: number | null
   // Non-binding interest gauges; excluded from the check-in admin UI.
   interest_check?: boolean
+  signup_form?: { fields: string[]; payment_methods: Record<string, string>; payment_instructions_jp?: Record<string, string> } | null
 }
 
 export interface BotAttendee {
@@ -28,6 +29,8 @@ export interface BotAttendee {
   behavior_confirmed: boolean
   arrival_confirmed: boolean
   event_name: string
+  payment_method?: string | null
+  no_show_agreed?: boolean
   timestamp: string
   // Sequential per-event entry numbers assigned by the bot: the primary's own
   // number, then one per guest. Null/empty until the host numbers the event.
@@ -89,13 +92,28 @@ export function readEvents(): Event[] {
   }
 }
 
-export function readResponses(): BotResponses {
+export function readResponses(strict = false): BotResponses {
   const filePath = getResponsesFilePath()
-  if (!fs.existsSync(filePath)) return {}
+  if (!fs.existsSync(filePath)) {
+    if (strict) throw new Error('Registration storage unavailable')
+    return {}
+  }
   try {
     const data = fs.readFileSync(filePath, 'utf8')
-    return parseBotJson<BotResponses>(data)
+    const responses = parseBotJson<BotResponses>(data)
+    if (strict) {
+      if (!responses || typeof responses !== 'object' || Array.isArray(responses)) throw new Error('Invalid registration storage')
+      for (const event of Object.values(responses)) {
+        if (!event || !Array.isArray(event.attendees) || !Array.isArray(event.waitlist)) throw new Error('Invalid registration storage')
+        for (const attendee of [...event.attendees, ...event.waitlist]) {
+          if (!attendee || typeof attendee.user_id !== 'string' || typeof attendee.timestamp !== 'string' || !attendee.timestamp ||
+              !Number.isFinite(Date.parse(attendee.timestamp))) throw new Error('Invalid registration storage')
+        }
+      }
+    }
+    return responses
   } catch (e) {
+    if (strict) throw e
     console.error('Error reading responses:', e)
     return {}
   }

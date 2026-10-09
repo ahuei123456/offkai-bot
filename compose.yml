@@ -11,7 +11,10 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - GUILDS=${GUILDS}
       - FRONTEND_URL=${FRONTEND_URL}
+      - PROOF_UPLOAD_URL=http://chibachanners-frontend:8090
       - ADMIN_KEY=${ADMIN_KEY}
+      - ADMIN_API_HOST=0.0.0.0
+      - ADMIN_API_PORT=8091
     restart: unless-stopped
 
   chibachanners-frontend:
@@ -29,5 +32,6 @@ services:
       - MOCK_MODE=false
       - ADMIN_KEY=${ADMIN_KEY}
       - BOT_DATA_DIR=/app/offkai-bot-data
+      - BOT_ADMIN_URL=http://discord-offkai-bot:8091
     depends_on:
       - discord-offkai-bot

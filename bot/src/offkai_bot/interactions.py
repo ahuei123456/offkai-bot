@@ -1,11 +1,13 @@
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 import discord
 from discord import ui
 
-from offkai_bot.data.event import Event, add_response_for_event
+from offkai_bot.data.event import Event
 from offkai_bot.data.ranking import can_rank_message_sent, decrease_rank, get_rank, mark_achieved_rank, update_rank
 from offkai_bot.data.response import (
     Response,
@@ -15,10 +17,9 @@ from offkai_bot.data.response import (
     get_effective_display_name,
     get_responses,
     get_waitlist,
-    promote_from_waitlist,
+    promote_waitlist_response,
     remove_from_waitlist,
     remove_response,
-    restore_waitlist_entry,
 )
 from offkai_bot.errors import (
     DuplicateResponseError,
@@ -184,30 +185,10 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
                 break
 
         # Promote the next person
-        promoted_entry = promote_from_waitlist(event.event_name)
-        if not promoted_entry:
-            # Waitlist is empty
+        promoted_response = promote_waitlist_response(event)
+        if promoted_response is None:
             break
-
-        # Convert waitlist entry to regular response
-        promoted_response = Response(
-            user_id=promoted_entry.user_id,
-            username=promoted_entry.username,
-            extra_people=promoted_entry.extra_people,
-            behavior_confirmed=promoted_entry.behavior_confirmed,
-            arrival_confirmed=promoted_entry.arrival_confirmed,
-            event_name=promoted_entry.event_name,
-            timestamp=promoted_entry.timestamp,
-            drinks=promoted_entry.drinks,
-            extras_names=promoted_entry.extras_names,
-            display_name=promoted_entry.display_name,
-        )
-        try:
-            add_response_for_event(event, promoted_response)
-        except Exception:
-            # Roll back the waitlist pop so the user isn't dropped from both lists.
-            restore_waitlist_entry(event.event_name, promoted_entry)
-            raise
+        promoted_entry = promoted_response
         promoted_user_ids.append(promoted_entry.user_id)
 
         # Assign event participant role
@@ -221,7 +202,11 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
             rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
 
             promoted_user = await client.fetch_user(promoted_entry.user_id)
-            await promoted_user.send(
+            await send_signup_reply(
+                promoted_user.send,
+                event,
+                promoted_response,
+                "Attendance confirmed",
                 f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
                 f"You've been automatically moved from the waitlist to confirmed attendees.\n"
                 f"{rsvp_link_msg}\n\n"
@@ -233,7 +218,8 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
                 f"payment requests from the event organizer and potential server moderation action.\n\n"
                 f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-                f"すべての結果に対して、全責任を負います。"
+                f"すべての結果に対して、全責任を負います。",
+                promotion=True,
             )
             _log.info("Promoted user %s from waitlist for event '%s'.", promoted_entry.user_id, event.event_name)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
@@ -266,6 +252,7 @@ class GatheringModal(ui.Modal):
         self,
         *,
         event: Event,
+        payment_method: str | None = None,
         timeout=None,
     ):
         super().__init__(
@@ -274,6 +261,9 @@ class GatheringModal(ui.Modal):
             custom_id=f"modal_{event.event_name}",
         )
         self.event = event
+        self.payment_method = payment_method
+        self.no_show_agreed = False
+        self.fields = event.signup_form.get("fields", []) if event.signup_form else None
 
         self.preferred_name_input: ui.TextInput = ui.TextInput(
             label="Name you'd like us to use",
@@ -300,13 +290,15 @@ class GatheringModal(ui.Modal):
         self.behave_checkbox_input: ui.TextInput = self.confirmation_input
         self.arrival_checkbox_input: ui.TextInput = self.confirmation_input
 
-        self.add_item(self.preferred_name_input)
-        self.add_item(self.extra_people_input)
+        if self.fields is None or "preferred_name" in self.fields:
+            self.add_item(self.preferred_name_input)
+        if self.fields is None or "guests" in self.fields:
+            self.add_item(self.extra_people_input)
         self.add_item(self.confirmation_input)
 
         # Dynamically add drink choice only if needed
         self.drink_choice_input: ui.TextInput | None = None
-        if self.event.has_drinks:
+        if self.event.has_drinks and (self.fields is None or "drinks" in self.fields):
             self.drink_choice_input = ui.TextInput(
                 label="🍺 Drink choice(s) for you",  # Show available drinks
                 placeholder=f"Choose from: {', '.join(self.event.drinks)}. Separate with commas.",
@@ -319,9 +311,11 @@ class GatheringModal(ui.Modal):
             label="👥 Extras names",  # Show available drinks
             placeholder="Enter you extras names. Separate with commas.",
             required=False,
+            max_length=160 if self.fields is not None else None,
             custom_id="extras_names",
         )
-        self.add_item(self.extras_names_input)
+        if self.fields is None or "guests" in self.fields:
+            self.add_item(self.extras_names_input)
 
     @property
     def event_name(self) -> str:
@@ -357,7 +351,7 @@ class GatheringModal(ui.Modal):
             ValidationError: If drink input is invalid.
         """
         selected_drinks: list[str] = []
-        if self.event.has_drinks:
+        if self.event.has_drinks and (self.fields is None or "drinks" in self.fields):
             if not drink_choice_str:
                 raise ValidationError("Please specify your drink choice(s).")
 
@@ -448,7 +442,9 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            await interaction.user.send(confirmation_message)
+            await send_signup_reply(
+                interaction.user.send, self.event, response, "Attendance confirmed", confirmation_message
+            )
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
@@ -456,7 +452,14 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # If DM fails, fall back to sending an ephemeral message in the channel
-            await interaction.response.send_message(confirmation_message, ephemeral=True)
+            await send_signup_reply(
+                interaction.response.send_message,
+                self.event,
+                response,
+                "Attendance confirmed",
+                confirmation_message,
+                ephemeral=True,
+            )
 
         # 3. Update rank and announce milestones regardless of whether the DM succeeded
         update_rank(interaction.user.id, interaction.user.name)
@@ -535,7 +538,9 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            await interaction.user.send(waitlist_message)
+            await send_signup_reply(
+                interaction.user.send, self.event, entry, "Waitlisted — attendance is not confirmed", waitlist_message
+            )
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
@@ -543,7 +548,14 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            await interaction.response.send_message(waitlist_message, ephemeral=True)
+            await send_signup_reply(
+                interaction.response.send_message,
+                self.event,
+                entry,
+                "Waitlisted — attendance is not confirmed",
+                waitlist_message,
+                ephemeral=True,
+            )
 
         # 4. Add user to the thread
         try:
@@ -597,7 +609,9 @@ class GatheringModal(ui.Modal):
 
         # 2. Attempt to DM the user first
         try:
-            await interaction.user.send(waitlist_message)
+            await send_signup_reply(
+                interaction.user.send, self.event, entry, "Waitlisted — attendance is not confirmed", waitlist_message
+            )
             # If DM succeeds, send a brief confirmation to the channel
             await interaction.response.send_message(
                 "📋 Your group exceeds capacity. You've been added to the waitlist! "
@@ -606,7 +620,14 @@ class GatheringModal(ui.Modal):
             )
         except (discord.Forbidden, discord.HTTPException):
             # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            await interaction.response.send_message(waitlist_message, ephemeral=True)
+            await send_signup_reply(
+                interaction.response.send_message,
+                self.event,
+                entry,
+                "Waitlisted — attendance is not confirmed",
+                waitlist_message,
+                ephemeral=True,
+            )
 
         # 4. Add user to the thread
         try:
@@ -638,14 +659,17 @@ class GatheringModal(ui.Modal):
             _log.error("Failed to send capacity message to thread %s: %s", interaction.channel_id, e)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await self._submit(interaction)
+
+    async def _submit(self, interaction: discord.Interaction, *, final: bool = False):
         # 1. Get Input Values
         preferred_name_str = self.preferred_name_input.value
-        extra_people_str = self.extra_people_input.value
+        extra_people_str = self.extra_people_input.value if self.fields is None or "guests" in self.fields else "0"
         confirmation_str = self.confirmation_input.value
         drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
-        extra_names_str = self.extras_names_input.value
-
+        extra_names_str = self.extras_names_input.value if self.fields is None or "guests" in self.fields else ""
         try:
+            methods = (self.event.signup_form or {}).get("payment_methods", {})
             # 2. Validate Inputs using Helpers (Raises ValidationError on failure)
             num_extra_people = self._validate_extra_people(extra_people_str)
             # Older callers may still replace the two compatibility aliases.
@@ -666,6 +690,26 @@ class GatheringModal(ui.Modal):
                 self._validate_confirmations(confirmation_str)
             selected_drinks = self._validate_drinks(drink_choice_str, num_extra_people + 1)
             extra_people_names = self._validate_extra_people_names(extra_names_str, num_extra_people)
+
+            if any(
+                entry.user_id == interaction.user.id
+                for entry in [*get_responses(self.event.event_name), *get_waitlist(self.event.event_name)]
+            ):
+                raise DuplicateResponseError(self.event.event_name, interaction.user.id)
+
+            if methods or (self.fields and "no_show" in self.fields):
+                if not final:
+                    await interaction.response.send_message(
+                        "Please choose a payment method to complete your registration. "
+                        "Offkai Bot will send you the instructions on completing payment",
+                        view=SignupContinuation(self, interaction.user.id),
+                        ephemeral=True,
+                    )
+                    return
+                if methods and self.payment_method not in methods:
+                    raise ValidationError("Please choose an enabled payment method before signing up.")
+                if self.fields and "no_show" in self.fields and not self.no_show_agreed:
+                    raise ValidationError("Please agree to the no-show / no-refund policy by typing 'Yes'.")
 
             # 3. Calculate total people in this registration
             total_people_in_group = 1 + num_extra_people
@@ -696,6 +740,8 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
+                    payment_method=self.payment_method,
+                    no_show_agreed=self.no_show_agreed,
                 )
 
                 add_to_waitlist(self.event.event_name, new_entry)
@@ -721,6 +767,8 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
+                    payment_method=self.payment_method,
+                    no_show_agreed=self.no_show_agreed,
                 )
 
                 # Add to waitlist
@@ -742,6 +790,8 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
+                    payment_method=self.payment_method,
+                    no_show_agreed=self.no_show_agreed,
                 )
 
                 add_response(self.event.event_name, new_response)
@@ -752,6 +802,7 @@ class GatheringModal(ui.Modal):
                     current_count = get_current_attendance_count(self.event.event_name)
                     if current_count == self.event.max_capacity:
                         await self._send_capacity_reached_message(interaction)
+            return True
 
         except ValidationError as e:
             # Handle specific validation errors raised by helpers
@@ -934,7 +985,7 @@ class OpenEvent(EventView):
     )
     async def respond(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Pass the Event object to the modal
-        await interaction.response.send_modal(GatheringModal(event=self.event))
+        await start_signup(interaction, self.event)
 
     @discord.ui.button(
         label="Withdraw Attendance",
@@ -1058,7 +1109,7 @@ class ClosedEvent(EventView):
     )
     async def join_waitlist(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Show the modal to join waitlist
-        await interaction.response.send_modal(GatheringModal(event=self.event))
+        await start_signup(interaction, self.event)
 
     @discord.ui.button(
         label="Withdraw Attendance",
@@ -1282,7 +1333,7 @@ class PostDeadlineEvent(EventView):
     )
     async def join_waitlist(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Show the same modal, but it will add to waitlist since deadline has passed
-        await interaction.response.send_modal(GatheringModal(event=self.event))
+        await start_signup(interaction, self.event)
 
     @discord.ui.button(
         label="Withdraw Attendance",
@@ -1410,3 +1461,167 @@ class PostDeadlineEvent(EventView):
                 e,
                 exc_info=True,
             )
+
+
+def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, status: str) -> list[str]:
+    """Complete language sections; organizer translations are optional and never inferred."""
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    instruction = methods.get(entry.payment_method, "")
+    jp_instruction = (event.signup_form or {}).get("payment_instructions_jp", {}).get(entry.payment_method, "")
+    confirmed = status == "Attendance confirmed"
+    name = get_effective_display_name(entry)
+    guests = ", ".join(entry.extras_names)
+    drinks = entry.drinks if "drinks" in (event.signup_form or {}).get("fields", []) else []
+    lines = [
+        f"✅ Attendance confirmed for **{event.event_name}**!"
+        if confirmed
+        else f"📋 Waitlisted — attendance is not confirmed: **{event.event_name}**",
+        f"👤 Name recorded: {name}",
+        f"👥 Bringing: {entry.extra_people} extra guest(s)" + (f" ({guests})" if guests else ""),
+        "✔ Behavior Confirmed\n✔ Arrival Confirmed",
+    ]
+    if drinks:
+        lines.append(f"🍺 Drinks: {', '.join(drinks)}")
+    if entry.payment_method:
+        lines.extend([f"💳 Payment method: {entry.payment_method}", f"Payment instructions: {instruction}"])
+    if entry.no_show_agreed:
+        lines.append("✔ No-show / no-refund policy agreed: payments for no-shows are not refunded.")
+    url = build_checkin_url(entry.user_id, event.event_name)
+    if url:
+        if methods:
+            lines.append("📎 Please provide proof of payment on the RSVP Page.")
+        lines.append(f"🔗 RSVP Page / QR Code: {url}")
+    lines.extend(
+        [
+            "",
+            "⚠️ Important: Withdrawing after the deadline is strongly discouraged. "
+            "If you withdraw late, you are fully responsible for any consequences, including "
+            "payment requests from the event organizer and potential server moderation action.",
+        ]
+    )
+    jp_lines = [
+        f"✅ 参加確定: **{event.event_name}**"
+        if confirmed
+        else f"📋 ウェイトリスト（参加未確定）: **{event.event_name}**",
+        f"👤 登録名: {name}",
+        f"👥 同伴者: {entry.extra_people}名" + (f" ({guests})" if guests else ""),
+        "✔ 行動確認済み\n✔ 到着確認済み",
+    ]
+    if drinks:
+        jp_lines.append(f"🍺 飲み物: {', '.join(drinks)}")
+    if entry.payment_method:
+        jp_lines.append(f"💳 支払い方法: {entry.payment_method}")
+    if jp_instruction:
+        jp_lines.append(f"支払い案内: {jp_instruction}")
+    if entry.no_show_agreed:
+        jp_lines.append("✔ 不参加時の返金不可に同意済み")
+    if url:
+        if methods:
+            jp_lines.append("📎 RSVPページで支払い証明をアップロードしてください。")
+        jp_lines.append(f"🔗 RSVPページ / QRコード: {url}")
+    jp_lines.extend(
+        [
+            "",
+            "⚠️ 重要: 締め切り後の辞退は強くお勧めしません。遅れて辞退した場合、"
+            "主催者からの支払い請求やサーバーのモデレーション措置を含む"
+            "すべての結果に対して、全責任を負います。",
+        ]
+    )
+    return ["\n".join(lines), "\n".join(jp_lines)]
+
+
+def render_custom_reply(event: Event, entry: Response | WaitlistEntry, status: str) -> str:
+    return "\n\n".join(render_custom_reply_sections(event, entry, status))
+
+
+def custom_reply_embeds(event: Event, entry: Response | WaitlistEntry, status: str) -> list[discord.Embed]:
+    return [discord.Embed(description=section) for section in render_custom_reply_sections(event, entry, status)]
+
+
+async def send_signup_reply(
+    send: Callable[..., Awaitable[Any]],
+    event: Event,
+    entry: Response | WaitlistEntry,
+    status: str,
+    default_message: str,
+    promotion: bool = False,
+    **kwargs: Any,
+) -> None:
+    sections = render_custom_reply_sections(event, entry, status) if event.signup_form else []
+    if sections and promotion:
+        sections[0] = (
+            "🎉 A spot has opened up! You have moved from the waitlist to confirmed attendance.\n\n" + sections[0]
+        )
+        sections[1] = "🎉 空きが出たため、ウェイトリストから参加確定に移動しました。\n\n" + sections[1]
+    message = "\n\n".join(sections) if sections else default_message
+    if sections and len(message) > 2000:
+        await send(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
+    else:
+        await send(message, **kwargs)
+
+
+async def start_signup(interaction: discord.Interaction, event: Event):
+    await interaction.response.send_modal(GatheringModal(event=event))
+
+
+class SignupContinuation(ui.View):
+    """Keep validated first-page answers private until the owner finishes signup."""
+
+    def __init__(self, signup: GatheringModal, owner_id: int):
+        super().__init__(timeout=300)
+        self.signup = signup
+        self.owner_id = owner_id
+        self.finished = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.owner_id and not self.finished:
+            return True
+        await error_message(interaction, "This signup is finished or belongs to another user.")
+        return False
+
+    @ui.button(label="Choose Payment Method", style=discord.ButtonStyle.primary)
+    async def continue_signup(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(PaymentModal(self))
+
+
+class PaymentModal(ui.Modal):
+    def __init__(self, continuation: SignupContinuation):
+        super().__init__(title="Payment and agreement", timeout=300)
+        self.continuation = continuation
+        signup = continuation.signup
+        methods = (signup.event.signup_form or {}).get("payment_methods", {})
+        self.payment_method_input: ui.Select | None = None
+        if methods:
+            self.payment_method_input = ui.Select(
+                placeholder="Choose your payment method",
+                custom_id="payment_method",
+                options=[discord.SelectOption(label=name) for name in methods],
+                required=True,
+            )
+            self.add_item(ui.Label(text="Payment method", component=self.payment_method_input))
+        self.no_show_input: ui.TextInput | None = None
+        if signup.fields and "no_show" in signup.fields:
+            self.no_show_input = ui.TextInput(
+                label="I agree to the no-show / no-refund policy",
+                placeholder="Type Yes: payments for no-shows are not refunded",
+                custom_id="no_show_agreement",
+                required=True,
+            )
+            self.add_item(self.no_show_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not await self.continuation.interaction_check(interaction):
+            return
+        signup = self.continuation.signup
+        if self.no_show_input is not None and self.no_show_input.value.strip().casefold() != "yes":
+            await modal_error_message(
+                interaction, signup.event_name, "Please agree to the no-show / no-refund policy by typing 'Yes'."
+            )
+            return
+        if self.payment_method_input is not None:
+            selected = self.payment_method_input.values
+            signup.payment_method = selected[0] if len(selected) == 1 else None
+        signup.no_show_agreed = self.no_show_input is not None
+        if await signup._submit(interaction, final=True):
+            self.continuation.finished = True
+            self.continuation.stop()

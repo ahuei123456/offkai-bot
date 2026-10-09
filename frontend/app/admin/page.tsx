@@ -58,6 +58,7 @@ export default function AdminPage() {
       />
 
       <div className="p-4 space-y-4 lg:p-6">
+        {data.actionWarnings.map((warning, index) => <p key={index} role="status" className="brand-card rounded-xl p-3 text-sm">{warning}</p>)}
         {/* Scanner — div is always mounted so html5-qrcode can attach to it. */}
         <div className={`brand-card rounded-2xl overflow-hidden ${scanner.scanning ? '' : 'hidden'}`}>
           <div id={scanner.scannerDivId} className="w-full" />
@@ -66,8 +67,10 @@ export default function AdminPage() {
         <div className="space-y-2">
           {data.filtered.map(a => (
             <AttendeeRow
-              key={a.user_id}
+              key={`${data.eventName}:${a.user_id}`}
               attendee={a}
+              adminKey={data.key} eventName={data.eventName} onPayment={data.updatePayment}
+              onRemove={data.removeRegistration}
               checkin={data.checkins[a.user_id]}
               onCheckin={data.manualCheckin}
               onCheckout={data.manualCheckout}
@@ -78,7 +81,7 @@ export default function AdminPage() {
           )}
         </div>
 
-        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} />}
+        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} adminKey={data.key} eventName={data.eventName} onPayment={data.updatePayment} onRemove={data.removeRegistration} />}
       </div>
 
       {scanner.scanResult && (

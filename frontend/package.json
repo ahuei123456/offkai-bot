@@ -4,17 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test app/api/interest-checks.test.ts"
+    "test": "node --experimental-strip-types --test app/api/*.test.ts"
   },
   "dependencies": {
     "html5-qrcode": "^2.3.8",
     "next": "^16.2.7",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-qr-code": "^2.0.15"
+    "react-qr-code": "^2.0.15",
+    "sharp": "0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -318,3 +318,10 @@ class BroadcastSendError(BotCommandError):
 # elif isinstance(original_error, InvalidDateTimeFormat):
 #     await interaction.response.send_message(str(original_error), ephemeral=True)
 # ... and so on
+
+
+class RegistrationChangedError(BotCommandError):
+    """An admin action targeted a registration that has since changed."""
+
+    def __init__(self):
+        super().__init__("The registration changed. Refresh before trying again.")

@@ -7,6 +7,7 @@ import discord
 import pytest
 from discord.ext import commands
 from offkai_bot.cogs.events import EventsCog
+from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event
 from offkai_bot.data.response import Response, WaitlistEntry, add_response, add_to_waitlist, get_responses, get_waitlist
 from offkai_bot.interactions import (
@@ -16,8 +17,6 @@ from offkai_bot.interactions import (
     is_event_at_capacity,
     would_exceed_capacity,
 )
-
-from offkai_bot.data import response as response_data
 
 # --- Fixtures ---
 

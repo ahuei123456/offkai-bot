@@ -30,6 +30,9 @@ jobs:
           cd frontend
           npm ci --legacy-peer-deps
 
+      - name: Run native Node tests
+        run: npm test --prefix frontend
+
       - name: Run linter
         run: |
           cd frontend
@@ -42,3 +45,13 @@ jobs:
 
       - name: Build Frontend Docker Image
         run: docker build -t chibachanners-frontend -f frontend/Dockerfile frontend/
+
+      - name: Smoke test Sharp in frontend image
+        run: |
+          docker run --rm --entrypoint node chibachanners-frontend -e '
+            const sharp = require("sharp");
+            (async () => {
+              const png = await sharp({ create: { width: 1200, height: 600, channels: 3, background: "white" } }).png().toBuffer();
+              const { info } = await sharp(png).resize({ width: 1080, withoutEnlargement: true }).webp({ quality: 85 }).toBuffer({ resolveWithObject: true });
+              if (info.format !== "webp" || info.width !== 1080 || info.height !== 540) throw new Error("Unexpected Sharp output");
+            })().catch(error => { console.error(error); process.exit(1); });'

@@ -14,6 +14,12 @@ export type Attendee = {
   extras_names: string[]
   attendee_number: number | null
   extras_attendee_numbers: number[]
+  payment_enabled?: boolean
+  registration_timestamp?: string | null
+  payment_unavailable?: boolean
+  payment_method?: string | null
+  payment_instructions?: string | null
+  payment?: PaymentRecord | null
   status: 'attending' | 'waitlist'
 }
 
@@ -47,4 +53,10 @@ export type ScanResult = {
   attendeeNumber?: number | null
   extrasNumbers?: number[]
   time?: string
+}
+
+export type PaymentRecord = {
+  paid: boolean
+  paid_at?: string
+  proof: { filename: string; uploaded_at: string; expires_at: string } | null
 }

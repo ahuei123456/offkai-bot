@@ -1,4 +1,6 @@
 'use client'
+import { PaymentControl } from './PaymentControl'
+import { RemoveRegistration } from './RemoveRegistration'
 import { drinkDot } from '../../lib/format'
 import type { Attendee, CheckinRecord } from '../../lib/types'
 
@@ -7,7 +9,12 @@ export function AttendeeRow({
   checkin,
   onCheckin,
   onCheckout,
+  adminKey, eventName, onPayment, onRemove,
 }: {
+  adminKey: string
+  eventName: string
+  onPayment: (userId: string, paid: boolean, timestamp: string) => Promise<boolean>
+  onRemove: (userId: string, timestamp: string) => Promise<boolean>
   attendee: Attendee
   checkin?: CheckinRecord
   onCheckin: (userId: string) => void
@@ -75,8 +82,10 @@ export function AttendeeRow({
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
+          <RemoveRegistration attendee={a} onRemove={onRemove} />
         </div>
       </div>
+      <PaymentControl attendee={a} adminKey={adminKey} eventName={eventName} onPayment={onPayment} />
     </div>
   )
 }

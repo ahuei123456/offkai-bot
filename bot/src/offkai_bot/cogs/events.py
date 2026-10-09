@@ -3,6 +3,8 @@ import csv
 import io
 import logging
 import re
+from datetime import datetime
+from typing import Literal
 
 import discord
 from discord import app_commands
@@ -16,7 +18,6 @@ from offkai_bot.alerts.reminders import (
 )
 from offkai_bot.data.event import (
     add_event,
-    add_response_for_event,
     archive_event,
     get_event,
     load_event_data,
@@ -24,10 +25,9 @@ from offkai_bot.data.event import (
     set_event_open_status,
     update_event_details,
 )
-from offkai_bot.data.ranking import decrease_rank, migrate_legacy_rank
+from offkai_bot.data.ranking import migrate_legacy_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
-    Response,
     build_attendee_report_rows,
     calculate_attendance,
     calculate_drinks,
@@ -36,9 +36,7 @@ from offkai_bot.data.response import (
     format_organizer_name,
     get_waitlist,
     has_complete_attendee_numbers,
-    promote_specific_from_waitlist,
-    remove_response,
-    restore_waitlist_entry,
+    promote_waitlist_response,
     save_responses,
 )
 from offkai_bot.errors import (
@@ -60,8 +58,10 @@ from offkai_bot.event_actions import (
     send_event_message,
     update_event_message,
 )
-from offkai_bot.interactions import promote_waitlist_batch
-from offkai_bot.role_management import assign_event_role, create_event_role, remove_event_role
+from offkai_bot.interactions import promote_waitlist_batch, send_signup_reply
+from offkai_bot.registration_removal import remove_registration
+from offkai_bot.role_management import assign_event_role, create_event_role
+from offkai_bot.signup_setup import PublicationState, SignupSetup
 from offkai_bot.util import (
     log_command_usage,
     parse_drinks,
@@ -159,7 +159,9 @@ class EventsCog(commands.Cog):
         max_capacity="Optional: Maximum number of attendees (including +1s). Leave empty for unlimited.",
         ping_role="Optional: A role to ping in deadline reminders (filtered to roles containing 'meetups').",
         create_role="Optional: Create a mentionable role for event participants (default: False).",
+        form="Use default offkai form or customise one",
     )
+    @app_commands.rename(form="form_type")
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def create_offkai(
@@ -176,6 +178,7 @@ class EventsCog(commands.Cog):
         max_capacity: int | None = None,
         ping_role: str | None = None,
         create_role: bool = False,
+        form: Literal["default", "custom"] = "default",
     ):
         # 1. Business Logic Validation
         validate_event_name(event_name)
@@ -200,16 +203,75 @@ class EventsCog(commands.Cog):
         validate_event_datetime(event_datetime)
         validate_event_deadline(event_datetime, event_deadline)
 
+        async def create(config: dict | None, source: discord.Interaction, publication: PublicationState | None = None):
+            await self._create_event(
+                source,
+                event_name,
+                venue,
+                address,
+                google_maps_link,
+                event_datetime,
+                event_deadline,
+                drinks_list,
+                announce_msg,
+                max_capacity,
+                ping_role_id,
+                create_role,
+                config,
+                publication=publication,
+            )
+
+        if form == "custom":
+            await interaction.response.send_message(
+                "Configure the signup form. Nothing is published until Create.",
+                view=SignupSetup(interaction.user.id, drinks_list, create),
+                ephemeral=True,
+            )
+        else:
+            await create(None, interaction)
+
+    async def _create_event(
+        self,
+        interaction: discord.Interaction,
+        event_name: str,
+        venue: str,
+        address: str,
+        google_maps_link: str,
+        event_datetime: datetime,
+        event_deadline: datetime | None,
+        drinks_list: list[str],
+        announce_msg: str | None,
+        max_capacity: int | None,
+        ping_role_id: int | None,
+        create_role: bool,
+        signup_form: dict | None,
+        publication: PublicationState | None = None,
+    ):
+        # Recheck a draft's identity and dates at publication time.
+        with contextlib.suppress(EventNotFoundError):
+            if get_event(event_name):
+                raise DuplicateEventError(event_name)
+        validate_interaction_context(interaction)
+        validate_event_datetime(event_datetime)
+        validate_event_deadline(event_datetime, event_deadline)
         # 4. Acknowledge the interaction before the slow Discord API calls below
         # (thread/role creation, event message send) exceed the 3-second window.
-        # The confirmation is a public announcement, so defer non-ephemerally.
-        await interaction.response.defer()
+        # Custom setup stays private; its successful announcement is sent separately.
+        if signup_form is not None:
+            await interaction.response.defer(thinking=True, ephemeral=True)
+        else:
+            await interaction.response.defer()
 
         # --- Discord Interaction Block ---
         try:
             assert isinstance(interaction.channel, discord.TextChannel)
+            if publication is not None:
+                publication.resources_may_exist = True
             thread = await interaction.channel.create_thread(name=event_name, type=discord.ChannelType.public_thread)
         except discord.HTTPException as e:
+            # Explicit rejection means no thread; transport/server failures remain ambiguous.
+            if publication is not None and e.status in (400, 401, 403, 404):
+                publication.resources_may_exist = False
             _log.error("Failed to create thread for '%s': %s", event_name, e)
             raise ThreadCreationError(event_name, e)
         except AssertionError:
@@ -249,6 +311,7 @@ class EventsCog(commands.Cog):
             creator_id=interaction.user.id,
             ping_role_id=ping_role_id,
             role_id=role_id,
+            signup_form=signup_form,
         )
 
         register_deadline_reminders(self.bot, new_event, thread)
@@ -262,7 +325,11 @@ class EventsCog(commands.Cog):
         if announce_msg:
             announce_text += f"{announce_msg}\n\n"
         announce_text += f"Join the discussion and RSVP here: {thread.mention}"
-        message = await interaction.followup.send(announce_text, wait=True)
+        message = (
+            await interaction.channel.send(announce_text)
+            if signup_form is not None
+            else await interaction.followup.send(announce_text, wait=True)
+        )
 
         try:
             await message.pin()
@@ -272,6 +339,9 @@ class EventsCog(commands.Cog):
                 raise PinPermissionError(message.channel, e) from e
         except discord.HTTPException as e:
             _log.error("Failed to pin message due to HTTP error: %s", e)
+
+        if signup_form is not None:
+            await interaction.edit_original_response(content=f"Offkai created: {event_name}. {thread.mention}")
 
     @app_commands.command(
         name="create_interest_check",
@@ -610,53 +680,13 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
         event = get_event(event_name)
-        removed_response = remove_response(event_name, member.id)
-        freed_spots = 1 + removed_response.extra_people
-
-        # Interest registrations never touched ranks or the waitlist.
-        if not event.interest_check:
-            decrease_rank(member.id, member.name)
-
-        if event.role_id and interaction.guild:
-            await remove_event_role(interaction.guild, member.id, event.role_id)
-
-        # Offer the freed spots to the waitlist, mirroring the self-withdrawal paths.
-        # The delete has already persisted, so promotion failure must not fail the command.
+        result = await remove_registration(self.bot, event, member, interaction.guild)
         message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
-        if not event.interest_check:
-            try:
-                promoted_user_ids = await promote_waitlist_batch(event, self.bot, freed_spots=freed_spots)
-                if promoted_user_ids:
-                    message += (
-                        f"\n⬆️ Promoted {len(promoted_user_ids)} user(s) from the waitlist to fill the freed spots."
-                    )
-            except Exception as e:
-                _log.error(
-                    "Waitlist promotion failed after deleting response from user %s for event '%s': %s",
-                    member.id,
-                    event_name,
-                    e,
-                    exc_info=True,
-                )
-                message += "\n⚠️ Waitlist promotion failed; check the logs and promote manually if needed."
+        if result["promoted"]:
+            message += f"\n⬆️ Promoted {len(result['promoted'])} user(s) from the waitlist to fill the freed spots."
+        for warning in result["warnings"]:
+            message += f"\n⚠️ {warning}"
         await interaction.followup.send(message, ephemeral=True)
-
-        # Keep the live interested count on the announcement accurate.
-        if event.interest_check:
-            await update_event_message(self.bot, event)
-
-        if event.thread_id:
-            thread = self.bot.get_channel(event.thread_id)
-            if isinstance(thread, discord.Thread):
-                try:
-                    await thread.remove_user(member)
-                    _log.info("Removed user %s from thread %s for event '%s'.", member.id, thread.id, event_name)
-                except discord.HTTPException as e:
-                    _log.error("Failed to remove user %s from thread %s: %s", member.id, thread.id, e)
-            else:
-                _log.warning("Could not find thread %s to remove user for event '%s'.", event.thread_id, event_name)
-        else:
-            _log.warning("Event '%s' is missing thread_id, cannot remove user from thread.", event_name)
 
     @app_commands.command(
         name="migrate_rank",
@@ -701,27 +731,8 @@ class EventsCog(commands.Cog):
             )
             return
 
-        promoted_entry, original_index = promote_specific_from_waitlist(event_name, user_id)
-
-        promoted_response = Response(
-            user_id=promoted_entry.user_id,
-            username=promoted_entry.username,
-            extra_people=promoted_entry.extra_people,
-            behavior_confirmed=promoted_entry.behavior_confirmed,
-            arrival_confirmed=promoted_entry.arrival_confirmed,
-            event_name=promoted_entry.event_name,
-            timestamp=promoted_entry.timestamp,
-            drinks=promoted_entry.drinks,
-            extras_names=promoted_entry.extras_names,
-            display_name=promoted_entry.display_name,
-        )
-        try:
-            add_response_for_event(event, promoted_response)
-        except Exception:
-            # Roll back the waitlist pop so the user isn't dropped from both lists,
-            # restoring them at their original position so they don't jump the queue.
-            restore_waitlist_entry(event_name, promoted_entry, position=original_index)
-            raise
+        promoted_response = promote_waitlist_response(event, user_id)
+        assert promoted_response is not None
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id)
@@ -733,7 +744,11 @@ class EventsCog(commands.Cog):
 
         try:
             promoted_user = await self.bot.fetch_user(user_id)
-            await promoted_user.send(
+            await send_signup_reply(
+                promoted_user.send,
+                event,
+                promoted_response,
+                "Attendance confirmed",
                 f"Great news! You've been manually promoted from the waitlist "
                 f"for **{event_name}**!\n"
                 f"You are now a confirmed attendee.\n\n"
@@ -744,7 +759,8 @@ class EventsCog(commands.Cog):
                 f"payment requests from the event organizer and potential server moderation action.\n\n"
                 f"**重要:** 締め切り後の辞退は強くお勧めしません。"
                 f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-                f"すべての結果に対して、全責任を負います。"
+                f"すべての結果に対して、全責任を負います。",
+                promotion=True,
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
             _log.warning("Could not DM promoted user %s for event '%s': %s", user_id, event_name, e)

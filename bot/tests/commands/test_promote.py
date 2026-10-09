@@ -75,15 +75,13 @@ def mock_waitlist_entry():
 
 
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.add_response_for_event")
-@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.promote_waitlist_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_promote_success(
     mock_log,
     mock_get_event,
     mock_promote_specific,
-    mock_add_response_for_event,
     mock_update_event_msg,
     mock_interaction,
     mock_event_obj,
@@ -93,7 +91,7 @@ async def test_promote_success(
 ):
     """Test successful promotion: user promoted, DM sent, confirmation message sent."""
     mock_get_event.return_value = mock_event_obj
-    mock_promote_specific.return_value = (mock_waitlist_entry, 0)
+    mock_promote_specific.return_value = mock_waitlist_entry
 
     mock_promoted_user = MagicMock()
     mock_promoted_user.send = AsyncMock()
@@ -107,11 +105,10 @@ async def test_promote_success(
     )
 
     mock_get_event.assert_called_once_with("Summer Bash")
-    mock_promote_specific.assert_called_once_with("Summer Bash", 99999)
-    mock_add_response_for_event.assert_called_once()
+    mock_promote_specific.assert_called_once_with(mock_event_obj, 99999)
 
     # Verify the Response was created from the WaitlistEntry
-    added_response = mock_add_response_for_event.call_args[0][1]
+    added_response = mock_promote_specific.return_value
     assert added_response.user_id == 99999
     assert added_response.username == "waitlistuser"
     assert added_response.display_name == "WaitlistUser"
@@ -126,15 +123,13 @@ async def test_promote_success(
 
 
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.add_response_for_event")
-@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.promote_waitlist_response")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_promote_dm_failure(
     mock_log,
     mock_get_event,
     mock_promote_specific,
-    mock_add_response_for_event,
     mock_update_event_msg,
     mock_interaction,
     mock_event_obj,
@@ -144,7 +139,7 @@ async def test_promote_dm_failure(
 ):
     """Test that promote succeeds even if DM fails."""
     mock_get_event.return_value = mock_event_obj
-    mock_promote_specific.return_value = (mock_waitlist_entry, 0)
+    mock_promote_specific.return_value = mock_waitlist_entry
 
     mock_promoted_user = MagicMock()
     mock_promoted_user.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "Cannot send DM"))
@@ -159,7 +154,6 @@ async def test_promote_dm_failure(
 
     # Promotion should still succeed
     mock_promote_specific.assert_called_once()
-    mock_add_response_for_event.assert_called_once()
     mock_interaction.followup.send.assert_awaited_once()
     mock_update_event_msg.assert_awaited_once()
 
@@ -168,7 +162,7 @@ async def test_promote_dm_failure(
     assert "Could not DM promoted user" in mock_log.warning.call_args[0][0]
 
 
-@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.promote_waitlist_response")
 @patch("offkai_bot.cogs.events.get_event")
 async def test_promote_event_not_found(
     mock_get_event,
@@ -193,13 +187,11 @@ async def test_promote_event_not_found(
     mock_interaction.followup.send.assert_not_awaited()
 
 
-@patch("offkai_bot.cogs.events.add_response_for_event")
-@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.promote_waitlist_response")
 @patch("offkai_bot.cogs.events.get_event")
 async def test_promote_user_not_on_waitlist(
     mock_get_event,
     mock_promote_specific,
-    mock_add_response_for_event,
     mock_interaction,
     mock_event_obj,
     prepopulated_event_cache,
@@ -217,21 +209,16 @@ async def test_promote_user_not_on_waitlist(
             username="99999",
         )
 
-    mock_promote_specific.assert_called_once_with("Summer Bash", 99999)
-    mock_add_response_for_event.assert_not_called()
+    mock_promote_specific.assert_called_once_with(mock_event_obj, 99999)
     mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.restore_waitlist_entry")
-@patch("offkai_bot.cogs.events.add_response_for_event")
-@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.promote_waitlist_response")
 @patch("offkai_bot.cogs.events.get_event")
-async def test_promote_add_response_failure_restores_waitlist_entry(
+async def test_promote_transaction_failure_stops_notifications(
     mock_get_event,
     mock_promote_specific,
-    mock_add_response_for_event,
-    mock_restore_waitlist_entry,
     mock_update_event_msg,
     mock_interaction,
     mock_event_obj,
@@ -239,11 +226,10 @@ async def test_promote_add_response_failure_restores_waitlist_entry(
     prepopulated_event_cache,
     mock_cog,
 ):
-    """If add_response_for_event fails after the waitlist pop, the entry is restored at its
-    original (possibly non-front) position and the error propagates."""
+    """A failed promotion transaction propagates before any notification or role work."""
     mock_get_event.return_value = mock_event_obj
-    mock_promote_specific.return_value = (mock_waitlist_entry, 2)
-    mock_add_response_for_event.side_effect = DuplicateResponseError("Summer Bash", 99999)
+    mock_promote_specific.return_value = mock_waitlist_entry
+    mock_promote_specific.side_effect = DuplicateResponseError("Summer Bash", 99999)
 
     with pytest.raises(DuplicateResponseError):
         await EventsCog.promote.callback(
@@ -253,13 +239,12 @@ async def test_promote_add_response_failure_restores_waitlist_entry(
             username="99999",
         )
 
-    mock_restore_waitlist_entry.assert_called_once_with("Summer Bash", mock_waitlist_entry, position=2)
     mock_interaction.followup.send.assert_not_awaited()
     mock_cog.bot.fetch_user.assert_not_awaited()
     mock_update_event_msg.assert_not_awaited()
 
 
-@patch("offkai_bot.cogs.events.promote_specific_from_waitlist")
+@patch("offkai_bot.cogs.events.promote_waitlist_response")
 @patch("offkai_bot.cogs.events.get_event")
 async def test_promote_invalid_username(
     mock_get_event,

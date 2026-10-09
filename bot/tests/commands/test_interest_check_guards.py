@@ -178,10 +178,10 @@ async def test_modify_rejects_drinks_for_interest_check(
     mock_update_details.assert_not_called()
 
 
-@patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.decrease_rank")
-@patch("offkai_bot.cogs.events.remove_response")
+@patch("offkai_bot.registration_removal.update_event_message", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.promote_waitlist_batch", new_callable=AsyncMock)
+@patch("offkai_bot.registration_removal.decrease_rank")
+@patch("offkai_bot.registration_removal.remove_response")
 @patch("offkai_bot.cogs.events.get_event")
 async def test_delete_response_interest_check_skips_rank_and_promotion(
     mock_get_event,

@@ -76,6 +76,8 @@ class Event:
     role_id: int | None = None  # Discord role ID for event participants
     interest_check: bool = False  # Lightweight interest gauge instead of a binding signup
 
+    signup_form: dict | None = None
+
     @property
     def has_drinks(self):
         return len(self.drinks) > 0
@@ -101,7 +103,7 @@ class Event:
         return now_utc > self.event_deadline
 
     def format_details(self):
-        drinks_str = ", ".join(self.drinks) if self.drinks else "No selection needed!"
+        drinks_line = f"\n🍺 **Drinks (飲み物)**: {', '.join(self.drinks)}" if self.has_drinks else ""
 
         if self.event_datetime:
             event_dt_jst = self.event_datetime.astimezone(JST)
@@ -132,8 +134,8 @@ class Event:
             f"📍 **Address (住所)**: {self.address}\n"
             f"🌎 **Google Maps Link (地図)**: {self.google_maps_link}\n"
             f"🕑 **Date and Time (日時)**: {dt_str}\n"
-            f"📅 **Deadline (締切)**: {deadline_str}\n"
-            f"🍺 **Drinks (飲み物)**: {drinks_str}"
+            f"📅 **Deadline (締切)**: {deadline_str}"
+            f"{drinks_line}"
             f"{role_line}"
         )
 
@@ -160,9 +162,16 @@ def create_event_message(event: Event) -> str:
             "興味がある方は下のボタンをクリックしてください！"
         )
 
+    rules = OFFKAI_MESSAGE
+    if event.signup_form and event.signup_form.get("payment_methods"):
+        start = rules.index("4. To simplify accounting")
+        end = rules.index("5. Depending on turnout")
+        payment_notice = "4. Payment instructions are supplied at signup.\n支払い方法は参加登録時にご案内します。\n"
+        rules = rules[:start] + payment_notice + rules[end:]
+
     return (
         f"{event_details}\n\n"  # Event details first
-        f"{OFFKAI_MESSAGE}\n"  # Standard rules
+        f"{rules}\n"  # Standard rules
         "Click the button below to confirm your attendance!\n"  # Call to action
         "下のボタンをクリックして参加を確認してください！"
     )
@@ -290,6 +299,7 @@ def _load_event_data() -> list[Event]:
                         ping_role_id=event_dict.get("ping_role_id"),
                         role_id=event_dict.get("role_id"),
                         interest_check=event_dict.get("interest_check", False),
+                        signup_form=event_dict.get("signup_form"),
                     )
                 else:
                     # Old format, so we ignore channel_id and event_deadline
@@ -314,6 +324,7 @@ def _load_event_data() -> list[Event]:
                         ping_role_id=event_dict.get("ping_role_id"),
                         role_id=event_dict.get("role_id"),
                         interest_check=event_dict.get("interest_check", False),
+                        signup_form=event_dict.get("signup_form"),
                     )
                     _log.info(
                         "Found old events.json format for %s. Successfully converted to new format.",
@@ -425,6 +436,7 @@ def add_event(
     creator_id: int | None = None,  # Discord user ID of the event creator
     ping_role_id: int | None = None,  # Discord role ID to ping in deadline reminders
     role_id: int | None = None,  # Discord role ID for event participants
+    signup_form: dict | None = None,
     interest_check: bool = False,  # Lightweight interest gauge instead of a binding signup
 ) -> Event:
     """Creates an Event object and adds it to the in-memory cache."""
@@ -453,6 +465,7 @@ def add_event(
         ping_role_id=ping_role_id,
         role_id=role_id,
         interest_check=interest_check,
+        signup_form=signup_form,
     )
 
     # Step 3: State Modification

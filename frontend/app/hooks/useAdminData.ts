@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attendee, AdminFilter, CheckinRecord } from '../lib/types'
 
 const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
@@ -8,6 +8,8 @@ const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
 // check-in/out actions, and the filtered/derived view data. The scanner hook is
 // kept separate and feeds successful scans back via `applyScanCheckin`.
 export function useAdminData() {
+  const selectedEventRef = useRef('')
+  const eventGeneration = useRef(0)
   const [key, setKey] = useState('')
   const [authed, setAuthed] = useState(false)
   const [keyInput, setKeyInput] = useState('')
@@ -22,20 +24,27 @@ export function useAdminData() {
   // Rows the admin just checked in/out — kept visible regardless of the active
   // filter so a mistaken action can be undone in place (e.g. on the Pending tab).
   const [stickyIds, setStickyIds] = useState<Set<string>>(new Set())
+  const [actionWarnings, setActionWarnings] = useState<string[]>([])
 
   const loadCheckins = useCallback(async (adminKey: string, ev: string) => {
+    const generation = eventGeneration.current
+    if (selectedEventRef.current !== ev) return
     const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
     const res = await fetch(`/api/checkin?key=${encodeURIComponent(adminKey)}${evParam}`)
     if (!res.ok) return
     const chk: CheckinRecord[] = await res.json()
+    if (generation !== eventGeneration.current || selectedEventRef.current !== ev) return
     setCheckins(Object.fromEntries(chk.map(c => [c.user_id, c])))
   }, [])
 
   const loadAttendees = useCallback(async (adminKey: string, ev: string) => {
+    const generation = eventGeneration.current
+    if (selectedEventRef.current !== ev) return false
     const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
     const res = await fetch(`/api/attendees?key=${encodeURIComponent(adminKey)}${evParam}`)
     if (!res.ok) return false
     const { event_name, attendees: att } = await res.json()
+    if (generation !== eventGeneration.current || selectedEventRef.current !== ev) return false
     setEventName(event_name)
     setAttendees(att)
     return true
@@ -48,6 +57,8 @@ export function useAdminData() {
     const { events: evs, default_event_name } = await evRes.json()
     const startEvent: string = default_event_name || (evs[0]?.event_name ?? '')
     setEvents(evs)
+    selectedEventRef.current = startEvent
+    eventGeneration.current += 1
     setSelectedEvent(startEvent)
     const ok = await loadAttendees(adminKey, startEvent)
     if (!ok) return false
@@ -76,15 +87,21 @@ export function useAdminData() {
   // Poll check-ins for the selected event every 10s.
   useEffect(() => {
     if (!authed || !selectedEvent) return
-    const id = setInterval(() => loadCheckins(key, selectedEvent), 10_000)
+    const id = setInterval(() => {
+      loadCheckins(key, selectedEvent)
+      loadAttendees(key, selectedEvent)
+    }, 10_000)
     return () => clearInterval(id)
-  }, [authed, selectedEvent, key, loadCheckins])
+  }, [authed, selectedEvent, key, loadCheckins, loadAttendees])
 
   // Switch the viewed event (resets transient view state at the source, not in
   // an effect, per react-hooks guidance).
   const changeEvent = useCallback((next: string) => {
+    selectedEventRef.current = next
+    eventGeneration.current += 1
     setSelectedEvent(next)
     setStickyIds(new Set())
+    setActionWarnings([])
   }, [])
 
   const changeFilter = useCallback((next: AdminFilter) => {
@@ -126,6 +143,44 @@ export function useAdminData() {
     }
   }, [key, selectedEvent])
 
+  const updatePayment = useCallback(async (userId: string, paid: boolean, timestamp: string) => {
+    // An event switch can leave the previous rows visible while the new list loads.
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
+    const generation = eventGeneration.current
+    const res = await fetch('/api/payment?key=' + encodeURIComponent(key), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, event_name: eventName, paid, registration_timestamp: timestamp }),
+    })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      if (res.status === 409) await loadAttendees(key, eventName)
+      return false
+    }
+    await loadAttendees(key, selectedEvent)
+    if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
+      setActionWarnings(result.warning ? [result.warning] : [])
+    }
+    return true
+  }, [key, selectedEvent, eventName, loadAttendees])
+
+  const removeRegistration = useCallback(async (userId: string, timestamp: string) => {
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
+    const generation = eventGeneration.current
+    const response = await fetch('/api/registration/remove?key=' + encodeURIComponent(key), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, event_name: eventName, registration_timestamp: timestamp }),
+    })
+    const result = await response.json().catch(() => ({}))
+    // Refresh even after an ambiguous failure; a persisted removal cannot be retried blindly.
+    await loadAttendees(key, eventName)
+    if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
+      setActionWarnings(response.ok ? result.warnings ?? [] : [])
+    }
+    if (response.status === 409) throw new Error('registration_changed')
+    if (!response.ok && result.removed === false) throw new Error('not_removed')
+    return response.ok && result.removed === true
+  }, [key, selectedEvent, eventName, loadAttendees])
+
   // Record a successful camera scan into the check-in map (no sticky — scans
   // aren't undo-in-place like the manual buttons).
   const applyScanCheckin = useCallback((record: CheckinRecord) => {
@@ -161,7 +216,8 @@ export function useAdminData() {
   return {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
-    attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
+    updatePayment, attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
+    removeRegistration, actionWarnings,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,
     waitlistCount: waitlist.length,
