@@ -51,11 +51,20 @@ def interaction(user_id=191524132624531458):
     return value
 
 
-async def submit_payment(source, values=None, agreement=" Yes "):
-    """Submit the real second modal after the details step's private Continue button."""
-    view = source.response.send_message.call_args.kwargs["view"]
-    await view.continue_signup.callback(source)
-    payment = source.response.send_modal.call_args.args[0]
+def signup_continuation(source):
+    for sender in (source.followup.send, source.user.send, source.response.send_message):
+        for call in reversed(sender.call_args_list):
+            if "view" in call.kwargs:
+                return call.kwargs["view"]
+    raise AssertionError("Signup continuation was not sent")
+
+
+async def submit_payment(source, values=None, agreement=" Yes ", target=None):
+    """Submit the real second modal from the DM or private channel continuation."""
+    view = signup_continuation(source)
+    target = target or source
+    await view.continue_signup.callback(target)
+    payment = target.response.send_modal.call_args.args[0]
     submitted = []
     if payment.payment_method_input is not None:
         submitted.append(
@@ -70,8 +79,8 @@ async def submit_payment(source, values=None, agreement=" Yes "):
         )
     if payment.no_show_input is not None:
         submitted.append({"type": 1, "components": [{"type": 4, "custom_id": "no_show_agreement", "value": agreement}]})
-    source.response.send_message.reset_mock()
-    await payment._scheduled_task(source, submitted, {})
+    target.response.send_message.reset_mock()
+    await payment._scheduled_task(target, submitted, {})
     return payment
 
 
@@ -182,13 +191,17 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
         assert responses.get_responses(custom_event.event_name) == []
         assert responses.get_waitlist(custom_event.event_name) == []
         update_rank.assert_not_called()
-        source.user.send.assert_not_awaited()
-        assert source.response.send_message.call_args.kwargs["ephemeral"] is True
-        assert source.response.send_message.call_args.args[0] == (
+        source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+        source.user.send.assert_awaited_once()
+        assert source.user.send.call_args.args[0] == (
+            f"**{custom_event.event_name}**\n\n"
             "Please choose a payment method to complete your registration. "
             "Offkai Bot will send you the instructions on completing payment"
         )
-        assert source.response.send_message.call_args.kwargs["view"].children[0].label == "Choose Payment Method"
+        source.followup.send.assert_awaited_once_with(
+            "Check your DMs now. Choose a payment method there to complete your registration.", ephemeral=True
+        )
+        assert signup_continuation(source).children[0].label == "Choose Payment Method"
         payment_modal = await submit_payment(source)
     payment, policy = payment_modal.to_dict()["components"]
     assert payment["type"] == 18 and payment["label"] == "Payment method"
@@ -260,7 +273,7 @@ async def test_continuation_and_payment_are_bound_to_original_attendee(custom_ev
     modal.extra_people_input._value = "0"
     modal.confirmation_input._value = "Yes"
     await modal.on_submit(source)
-    view = source.response.send_message.call_args.kwargs["view"]
+    view = signup_continuation(source)
     assert not await view.interaction_check(interaction(43))
     await view.continue_signup.callback(source)
     payment = source.response.send_modal.call_args.args[0]
@@ -642,7 +655,7 @@ async def test_long_custom_reply_has_complete_language_embeds(custom_event, outc
     link = "https://synthetic.invalid/" + "a" * 100 + "/?token=" + token
     with patch("offkai_bot.interactions.build_checkin_url", return_value=link):
         await complete_signup(modal, source)
-    source.user.send.assert_awaited_once()
+    assert source.user.send.await_count == 2  # Payment prompt, then the final confirmation.
     delivery = source.response.send_message if dm_fails else source.user.send
     embeds = delivery.call_args.kwargs["embeds"]
     assert len(embeds) == 2
@@ -916,3 +929,118 @@ async def test_custom_create_keeps_private_ack_and_public_pinned_announcement(cu
     announcement.pin.assert_awaited_once()
     source.edit_original_response.assert_awaited_once()
     source.followup.send.assert_not_awaited()
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "closed", "capacity", "group_too_large"])
+async def test_payment_dm_keeps_original_server_context_and_replies_directly(custom_event, outcome):
+    from offkai_bot import interactions
+
+    custom_event.role_id = 333
+    if outcome == "closed":
+        custom_event.open = False
+    elif outcome == "capacity":
+        custom_event.max_capacity = 0
+    elif outcome == "group_too_large":
+        custom_event.max_capacity = 1
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread)
+    source.channel.add_user = AsyncMock()
+    source.channel.send = AsyncMock()
+    source.user.display_name = "Original server nickname"
+    target = interaction(source.user.id)
+    target.guild = None
+    target.channel = MagicMock(spec=discord.DMChannel)
+    target.channel.send = AsyncMock()
+    target.user = MagicMock(spec=discord.User, id=source.user.id, name=source.user.name, display_name="Global name")
+    target.user.send = AsyncMock()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "1" if outcome == "group_too_large" else "0"
+    modal.extras_names_input._value = "Guest" if outcome == "group_too_large" else ""
+    modal.confirmation_input._value = "Yes"
+    assert "check your DMs" in modal.confirmation_input.placeholder
+    with (
+        patch.object(interactions, "assign_event_role", new_callable=AsyncMock) as role,
+        patch.object(interactions, "update_rank") as rank,
+        patch.object(interactions, "get_rank", return_value=next(iter(interactions.MILESTONE_MESSAGES))),
+        patch.object(interactions, "can_rank_message_sent", return_value=True),
+        patch.object(interactions, "mark_achieved_rank"),
+    ):
+        await modal.on_submit(source)
+        assert responses.get_responses(custom_event.event_name) == []
+        assert responses.get_waitlist(custom_event.event_name) == []
+        await submit_payment(source, target=target)
+        recorded = (responses.get_responses if outcome == "confirmed" else responses.get_waitlist)(
+            custom_event.event_name
+        )
+        assert len(recorded) == 1
+        assert recorded[0].display_name == "Original server nickname"
+        assert recorded[0].payment_method == "PayNow" and recorded[0].no_show_agreed
+        source.channel.add_user.assert_awaited_once_with(target.user)
+        target.user.send.assert_not_awaited()
+        target.channel.send.assert_not_awaited()
+        target.response.send_message.assert_awaited_once()
+        reply = target.response.send_message.call_args.args[0]
+        assert "Synthetic organizer instructions" in reply
+        assert "I've sent you a DM" not in reply
+        if outcome == "confirmed":
+            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id)
+            rank.assert_called_once()
+            source.channel.send.assert_awaited_once()  # Milestone stays in the event thread.
+        else:
+            role.assert_not_awaited()
+            rank.assert_not_called()
+        assert signup_continuation(source).finished
+
+
+@pytest.mark.parametrize("failure", [discord.Forbidden, discord.HTTPException])
+async def test_blocked_payment_dm_reuses_private_continuation_and_entered_details(custom_event, failure):
+    source = interaction()
+    source.user.send.side_effect = failure(MagicMock(status=403), "DM unavailable")
+    modal = GatheringModal(event=custom_event)
+    modal.preferred_name_input._value = "Saved name"
+    modal.extra_people_input._value = "1"
+    modal.extras_names_input._value = "Saved guest"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    assert source.followup.send.call_args.kwargs["ephemeral"] is True
+    assert signup_continuation(source).signup is modal
+    assert responses.get_responses(custom_event.event_name) == []
+    await submit_payment(source)
+    saved = responses.get_responses(custom_event.event_name)[0]
+    assert saved.display_name == "Saved name" and saved.extras_names == ["Saved guest"]
+    assert saved.payment_method == "PayNow" and saved.no_show_agreed
+    assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+
+
+async def test_payment_validation_error_stays_in_dm_and_can_retry(custom_event):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    target = interaction(source.user.id)
+    target.guild = None
+    await submit_payment(source, agreement="No", target=target)
+    assert "no-show / no-refund" in target.response.send_message.call_args.args[0]
+    target.user.send.assert_not_awaited()
+    assert responses.get_responses(custom_event.event_name) == []
+    await submit_payment(source, target=target)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+
+
+async def test_capacity_notice_from_payment_dm_stays_in_event_thread(custom_event):
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread, add_user=AsyncMock(), send=AsyncMock())
+    custom_event.max_capacity = 1
+    target = interaction(source.user.id)
+    target.guild = None
+    target.channel = MagicMock(spec=discord.DMChannel, send=AsyncMock())
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    with patch("offkai_bot.interactions.get_rank", return_value=-1):
+        await modal.on_submit(source)
+        await submit_payment(source, target=target)
+    assert "Maximum capacity has been reached" in source.channel.send.call_args.args[0]
+    target.channel.send.assert_not_awaited()
