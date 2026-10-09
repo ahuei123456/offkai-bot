@@ -744,8 +744,12 @@ class GatheringModal(ui.Modal):
                         try:
                             await interaction.user.send(f"**{self.event_name}**\n\n{prompt}", view=view)
                         except (discord.Forbidden, discord.HTTPException):
-                            # Reuse the existing private-channel fallback when DMs are unavailable.
-                            await interaction.followup.send(prompt, view=view, ephemeral=True)
+                            view.stop()
+                            await interaction.followup.send(
+                                "I couldn't send you a DM. Please enable DMs from this server, then click "
+                                "Confirm Attendance again to restart registration. You haven't been registered yet.",
+                                ephemeral=True,
+                            )
                         else:
                             await interaction.followup.send(
                                 "Check your DMs now. Choose a payment method there to complete your registration.",

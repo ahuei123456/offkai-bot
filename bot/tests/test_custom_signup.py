@@ -104,7 +104,7 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
         custom_event.max_capacity = 1
     source = interaction()
     if dm_fails:
-        source.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM blocked")
+        source.user.send.side_effect = [None, discord.Forbidden(MagicMock(status=403), "DM blocked")]
     modal = GatheringModal(event=custom_event, payment_method="PayNow")
     modal.preferred_name_input._value = "Recorded Name"
     modal.extra_people_input._value = "1"
@@ -645,7 +645,7 @@ async def test_long_custom_reply_has_complete_language_embeds(custom_event, outc
     elif outcome == "capacity_exceeded":
         custom_event.max_capacity = 1
     if dm_fails:
-        source.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM blocked")
+        source.user.send.side_effect = [None, discord.Forbidden(MagicMock(status=403), "DM blocked")]
     modal = GatheringModal(event=custom_event, payment_method="PayNow")
     modal.preferred_name_input._value = "N" * 32
     modal.extra_people_input._value = "5"
@@ -993,24 +993,43 @@ async def test_payment_dm_keeps_original_server_context_and_replies_directly(cus
 
 
 @pytest.mark.parametrize("failure", [discord.Forbidden, discord.HTTPException])
-async def test_blocked_payment_dm_reuses_private_continuation_and_entered_details(custom_event, failure):
+async def test_blocked_payment_dm_requires_fresh_signup(custom_event, failure):
     source = interaction()
     source.user.send.side_effect = failure(MagicMock(status=403), "DM unavailable")
     modal = GatheringModal(event=custom_event)
-    modal.preferred_name_input._value = "Saved name"
+    modal.preferred_name_input._value = "First attempt"
     modal.extra_people_input._value = "1"
-    modal.extras_names_input._value = "Saved guest"
+    modal.extras_names_input._value = "Guest"
     modal.confirmation_input._value = "Yes"
-    await modal.on_submit(source)
+    with patch("offkai_bot.interactions.update_rank") as rank:
+        await modal.on_submit(source)
+        rank.assert_not_called()
     source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
-    assert source.followup.send.call_args.kwargs["ephemeral"] is True
-    assert signup_continuation(source).signup is modal
+    source.followup.send.assert_awaited_once_with(
+        "I couldn't send you a DM. Please enable DMs from this server, then click "
+        "Confirm Attendance again to restart registration. You haven't been registered yet.",
+        ephemeral=True,
+    )
+    assert signup_continuation(source).is_finished()
     assert responses.get_responses(custom_event.event_name) == []
-    await submit_payment(source)
-    saved = responses.get_responses(custom_event.event_name)[0]
-    assert saved.display_name == "Saved name" and saved.extras_names == ["Saved guest"]
-    assert saved.payment_method == "PayNow" and saved.no_show_agreed
-    assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+    assert responses.get_waitlist(custom_event.event_name) == []
+
+    # After enabling DMs, the existing attendance button opens a fresh first modal.
+    retry = interaction(source.user.id)
+    await start_signup(retry, custom_event)
+    fresh = retry.response.send_modal.call_args.args[0]
+    assert fresh is not modal
+    fresh.preferred_name_input._value = "New attempt"
+    fresh.extra_people_input._value = "0"
+    fresh.confirmation_input._value = "Yes"
+    await fresh.on_submit(retry)
+    target = interaction(source.user.id)
+    target.guild = None
+    await submit_payment(retry, target=target)
+    saved = responses.get_responses(custom_event.event_name)
+    assert len(saved) == 1
+    assert saved[0].display_name == "New attempt" and saved[0].extra_people == 0
+    assert saved[0].payment_method == "PayNow" and saved[0].no_show_agreed
 
 
 async def test_payment_validation_error_stays_in_dm_and_can_retry(custom_event):
