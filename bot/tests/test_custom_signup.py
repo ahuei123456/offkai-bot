@@ -136,8 +136,15 @@ async def test_custom_signup_all_outcomes_reply_in_dm(custom_event, outcome):
     assert "Recorded Name" in payload and "Guest" in payload
     assert "no-refund" in payload
     assert "Drinks:" not in payload and "飲み物:" not in payload
-    assert f"Please provide proof of payment on the RSVP Page.\n🔗 RSVP Page / QR Code: {link}" in payload
-    assert f"RSVPページで支払い証明をアップロードしてください。\n🔗 RSVPページ / QRコード: {link}" in payload
+    assert (
+        f'📎 **Please provide proof of payment by replying with "I paid {custom_event.event_name}" '
+        "and a screenshot in the same message, or upload it to the RSVP page.**\n"
+        f"🔗 RSVP Page / QR Code: {link}"
+    ) in payload
+    assert (
+        f"📎 **「I paid {custom_event.event_name}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
+        f"RSVPページにアップロードしてください。**\n🔗 RSVPページ / QRコード: {link}"
+    ) in payload
     assert payload.count(link) == 2 and payload.count("Synthetic organizer instructions") == 1
     assert ("✅ 参加確定" in payload) == (outcome == "confirmed")
     assert ("Attendance confirmed" in payload) == (outcome == "confirmed")
@@ -497,7 +504,7 @@ async def test_optional_jp_instructions_edit_clear_and_omit(custom_event):
     assert "Original language" in en and "Original language" not in jp
     assert "支払い案内:" not in jp
     assert "💳 支払い方法: PayNow" in jp
-    assert "📎 Please provide proof" in en and "📎 Please provide proof" not in jp
+    assert "📎 **Please provide proof" in en and "📎 **Please provide proof" not in jp
 
 
 @pytest.mark.parametrize(

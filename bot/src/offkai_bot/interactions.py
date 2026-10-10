@@ -1529,9 +1529,13 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
     if entry.no_show_agreed:
         lines.append("✔ No-show / no-refund policy agreed: payments for no-shows are not refunded.")
     url = build_checkin_url(entry.user_id, event.event_name)
+    proof_command = discord.utils.escape_markdown(f"I paid {event.event_name}")
     if url:
         if methods:
-            lines.append("📎 Please provide proof of payment on the RSVP Page.")
+            lines.append(
+                f'📎 **Please provide proof of payment by replying with "{proof_command}" '
+                "and a screenshot in the same message, or upload it to the RSVP page.**"
+            )
         lines.append(f"🔗 RSVP Page / QR Code: {url}")
     lines.extend(
         [
@@ -1559,7 +1563,10 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
         jp_lines.append("✔ 不参加時の返金不可に同意済み")
     if url:
         if methods:
-            jp_lines.append("📎 RSVPページで支払い証明をアップロードしてください。")
+            jp_lines.append(
+                f"📎 **「{proof_command}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
+                "RSVPページにアップロードしてください。**"
+            )
         jp_lines.append(f"🔗 RSVPページ / QRコード: {url}")
     jp_lines.extend(
         [
