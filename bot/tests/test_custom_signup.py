@@ -205,7 +205,9 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
         assert source.user.send.call_args.args[0] == (
             f"**{custom_event.event_name}**\n\n"
             "Please choose a payment method to complete your registration. "
-            "Offkai Bot will send you the instructions on completing payment"
+            "I'll send you the payment instructions after you choose.\n\n"
+            "This button expires in 5 minutes. If it no longer works, restart registration "
+            "using the event's signup button."
         )
         source.followup.send.assert_awaited_once_with(
             "Check your DMs now. Choose a payment method there to complete your registration.", ephemeral=True
@@ -1232,7 +1234,7 @@ async def test_nonpayment_signup_retains_guild_fallback(custom_event, default_fo
 
 
 @pytest.mark.parametrize("failure_path", ["dm_send", "followup_send"])
-async def test_post_defer_send_failure_recovers_via_followup_without_registration(custom_event, failure_path):
+async def test_unexpected_post_defer_failure_recovers_via_followup_without_registration(custom_event, failure_path):
     source = interaction()
 
     async def acknowledge(**kwargs):
@@ -1255,3 +1257,35 @@ async def test_post_defer_send_failure_recovers_via_followup_without_registratio
     assert source.followup.send.call_args.kwargs == {"ephemeral": True}
     assert responses.get_responses(custom_event.event_name) == []
     assert responses.get_waitlist(custom_event.event_name) == []
+
+
+@pytest.mark.parametrize("failure", [discord.Forbidden, discord.HTTPException])
+async def test_payment_dm_survives_channel_notice_failure(custom_event, failure, caplog):
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread)
+    source.channel.add_user = AsyncMock()
+
+    async def acknowledge(**kwargs):
+        source.response.is_done.return_value = True
+
+    source.response.defer.side_effect = acknowledge
+    source.followup.send.side_effect = failure(MagicMock(status=403 if failure is discord.Forbidden else 500), "Failed")
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+
+    source.user.send.assert_awaited_once()
+    source.followup.send.assert_awaited_once()
+    source.response.send_message.assert_not_awaited()
+    assert "Payment DM sent, but could not deliver notice" in caplog.text
+    view = signup_continuation(source)
+    assert not view.is_finished() and not view.continue_signup.disabled
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+
+    await submit_payment(source)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    assert view.finished and view.continue_signup.label == "Completed"
+    source.channel.add_user.assert_awaited_once_with(source.user)
+    source.followup.send.assert_awaited_once()  # No misleading generic error or retry notice.

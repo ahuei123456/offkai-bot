@@ -714,6 +714,12 @@ class GatheringModal(ui.Modal):
                     )
                     view = SignupContinuation(self, interaction.user.id)
                     if methods:
+                        prompt = (
+                            "Please choose a payment method to complete your registration. "
+                            "I'll send you the payment instructions after you choose.\n\n"
+                            "This button expires in 5 minutes. If it no longer works, restart registration "
+                            "using the event's signup button."
+                        )
                         self.origin_context = SignupContext.from_interaction(interaction)
                         self.reply_in_dm = True
                         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -729,10 +735,15 @@ class GatheringModal(ui.Modal):
                                 ephemeral=True,
                             )
                         else:
-                            await interaction.followup.send(
-                                "Check your DMs now. Choose a payment method there to complete your registration.",
-                                ephemeral=True,
-                            )
+                            try:
+                                await interaction.followup.send(
+                                    "Check your DMs now. Choose a payment method there to complete your registration.",
+                                    ephemeral=True,
+                                )
+                            except discord.HTTPException:
+                                _log.warning(
+                                    "Payment DM sent, but could not deliver notice for user %s", interaction.user.id
+                                )
                     else:
                         await interaction.response.send_message(prompt, view=view, ephemeral=True)
                     return
