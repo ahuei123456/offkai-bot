@@ -28,6 +28,7 @@ from offkai_bot.event_actions import (
     update_event_message,
 )
 from offkai_bot.payment_proof import handle_payment_proof
+from offkai_bot.util import send_interaction_error
 
 # --- End Updated Imports ---
 
@@ -135,20 +136,7 @@ client = OffkaiClient(intents=intents)
 
 async def _send_error_message(interaction: discord.Interaction, message: str, user_info: str) -> None:
     """Sends an ephemeral error message, falling back to a followup if the interaction was already acknowledged."""
-    try:
-        if not interaction.response.is_done():
-            await interaction.response.send_message(message, ephemeral=True)
-        else:
-            await interaction.followup.send(message, ephemeral=True)
-    except discord.HTTPException as http_err:
-        _log.error("%s - Failed to send error response message: %s", user_info, http_err)
-    except Exception as e:
-        _log.error(
-            "%s - Exception sending error response message: %s",
-            user_info,
-            e,
-            exc_info=e,
-        )
+    await send_interaction_error(interaction, message, user_info=user_info, logger=_log)
 
 
 @client.tree.error
