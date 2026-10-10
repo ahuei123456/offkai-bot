@@ -1,6 +1,7 @@
 import logging
 import random
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,9 +28,10 @@ from offkai_bot.errors import (
 )
 from offkai_bot.messages import MILESTONE_MESSAGES
 from offkai_bot.role_management import assign_event_role, remove_event_role
-from offkai_bot.util import build_checkin_url
+from offkai_bot.util import build_checkin_url, send_interaction_error
 
 _log = logging.getLogger(__name__)
+_active_signups: dict[tuple[str, int], "SignupContinuation"] = {}
 
 
 # --- Custom Exception for Validation ---
@@ -41,7 +43,33 @@ class ValidationError(Exception):
 
 # --- Helper ---
 async def error_message(interaction: discord.Interaction, message: str):
-    await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+    await send_interaction_error(interaction, f"❌ {message}", logger=_log)
+
+
+def _payment_methods(event: Event) -> dict[str, str]:
+    return (event.signup_form or {}).get("payment_methods", {})
+
+
+@dataclass(frozen=True)
+class SignupContext:
+    channel: (
+        discord.abc.GuildChannel
+        | discord.Thread
+        | discord.DMChannel
+        | discord.GroupChannel
+        | discord.PartialMessageable
+        | None
+    )
+    guild: discord.Guild | None
+    user: discord.User | discord.Member
+
+    @classmethod
+    def from_interaction(cls, interaction: discord.Interaction) -> "SignupContext":
+        return cls(interaction.channel, interaction.guild, interaction.user)
+
+    @property
+    def channel_id(self) -> int | None:
+        return self.channel.id if self.channel else None
 
 
 def validate_extra_people_input(extra_people_str: str) -> int:
@@ -70,8 +98,11 @@ def resolve_submitted_display_name(
     return submitted or discord_name or username
 
 
-async def modal_error_message(interaction: discord.Interaction, event_name: str, message: str):
+async def modal_error_message(interaction: discord.Interaction, event_name: str, message: str, *, in_dm: bool = False):
     dm_message = f"❌ I couldn't process your response for **{event_name}**.\n\n{message}"
+    if in_dm:
+        await send_interaction_error(interaction, dm_message, dm_fallback=True, logger=_log)
+        return
     try:
         await interaction.user.send(dm_message)
     except (discord.Forbidden, discord.HTTPException) as e:
@@ -263,6 +294,8 @@ class GatheringModal(ui.Modal):
         self.event = event
         self.payment_method = payment_method
         self.no_show_agreed = False
+        self.origin_context: SignupContext | None = None
+        self.reply_in_dm = False
         self.fields = event.signup_form.get("fields", []) if event.signup_form else None
 
         self.preferred_name_input: ui.TextInput = ui.TextInput(
@@ -281,7 +314,11 @@ class GatheringModal(ui.Modal):
         )
         self.confirmation_input: ui.TextInput = ui.TextInput(
             label="I agree to behave and arrive on time",
-            placeholder="Type Yes to confirm both",
+            placeholder=(
+                "Type Yes to confirm both. After submitting, check your DMs for payment."
+                if _payment_methods(event)
+                else "Type Yes to confirm both"
+            ),
             required=True,
             custom_id="behavior_arrival_confirm",
         )
@@ -407,8 +444,57 @@ class GatheringModal(ui.Modal):
             )
         return non_empty_names
 
+    def _context(self, interaction: discord.Interaction) -> SignupContext:
+        return self.origin_context or SignupContext.from_interaction(interaction)
+
+    async def _deliver_signup_reply(
+        self,
+        interaction: discord.Interaction,
+        entry: Response | WaitlistEntry,
+        status: str,
+        message: str,
+        ack_text: str,
+    ) -> None:
+        """A delivery failure must not interrupt an already-saved registration."""
+        try:
+            if self.reply_in_dm:
+                try:
+                    send = (
+                        interaction.followup.send
+                        if interaction.response.is_done()
+                        else interaction.response.send_message
+                    )
+                    await send_signup_reply(send, self.event, entry, status, message)
+                except (discord.HTTPException, discord.InteractionResponded):
+                    await send_signup_reply(interaction.user.send, self.event, entry, status, message)
+            else:
+                try:
+                    await send_signup_reply(interaction.user.send, self.event, entry, status, message)
+                except discord.HTTPException:
+                    await send_signup_reply(
+                        interaction.response.send_message, self.event, entry, status, message, ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(ack_text, ephemeral=True)
+        except discord.HTTPException:
+            _log.warning(
+                "Registration saved for user %s in event %r, but the signup reply could not be delivered",
+                entry.user_id,
+                self.event_name,
+            )
+
+    async def _add_signup_user_to_thread(self, context: SignupContext) -> None:
+        try:
+            if isinstance(context.channel, discord.Thread):
+                await context.channel.add_user(context.user)
+            else:
+                _log.warning("Could not add user %s to thread %s (not a thread?).", context.user.id, context.channel_id)
+        except discord.HTTPException as error:
+            _log.error("Failed to add user %s to thread %s: %s", context.user.id, context.channel_id, error)
+
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
+        context = self._context(interaction)
         recorded_name = get_effective_display_name(response)
         rsvp_url = build_checkin_url(response.user_id, response.event_name)
         rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
@@ -440,71 +526,48 @@ class GatheringModal(ui.Modal):
             f"すべての結果に対して、全責任を負います。"
         )
 
-        # 2. Attempt to DM the user first
-        try:
-            await send_signup_reply(
-                interaction.user.send, self.event, response, "Attendance confirmed", confirmation_message
-            )
-            # If DM succeeds, send a brief confirmation to the channel
-            await interaction.response.send_message(
-                f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
-                ephemeral=True,
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            # If DM fails, fall back to sending an ephemeral message in the channel
-            await send_signup_reply(
-                interaction.response.send_message,
-                self.event,
-                response,
-                "Attendance confirmed",
-                confirmation_message,
-                ephemeral=True,
-            )
+        await self._deliver_signup_reply(
+            interaction,
+            response,
+            "Attendance confirmed",
+            confirmation_message,
+            f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
+        )
 
         # 3. Update rank and announce milestones regardless of whether the DM succeeded
-        update_rank(interaction.user.id, interaction.user.name)
-        rank = get_rank(interaction.user.id, interaction.user.name)
+        update_rank(context.user.id, context.user.name)
+        rank = get_rank(context.user.id, context.user.name)
         if (
             rank in MILESTONE_MESSAGES
-            and can_rank_message_sent(interaction.user.id)
-            and isinstance(interaction.channel, discord.abc.Messageable)
+            and can_rank_message_sent(context.user.id)
+            and isinstance(context.channel, discord.abc.Messageable)
         ):
             try:
                 msg_template = random.choice(MILESTONE_MESSAGES[rank])
                 # Milestone messages congratulate the user by mention; opt in to
                 # user pings past the client-wide AllowedMentions.none() default.
-                await interaction.channel.send(
-                    msg_template.format(user_id=interaction.user.id),
+                await context.channel.send(
+                    msg_template.format(user_id=context.user.id),
                     allowed_mentions=discord.AllowedMentions(users=True),
                 )
-                mark_achieved_rank(interaction.user.id)
+                mark_achieved_rank(context.user.id)
             except discord.HTTPException as e:
                 _log.error(
                     "Failed to send milestone message for user %s in channel %s: %s",
-                    interaction.user.id,
-                    interaction.channel_id,
+                    context.user.id,
+                    context.channel_id,
                     e,
                 )
 
-        # 4. Add user to the thread
-        try:
-            if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                await interaction.channel.add_user(interaction.user)
-            else:
-                _log.warning(
-                    "Could not add user %s to thread %s (not a thread?).",
-                    interaction.user.id,
-                    interaction.channel_id,
-                )
-        except discord.HTTPException as e:
-            _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
+        await self._add_signup_user_to_thread(context)
 
         # 5. Assign event participant role
-        if self.event.role_id and interaction.guild:
-            await assign_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+        if self.event.role_id and context.guild:
+            await assign_event_role(context.guild, context.user.id, self.event.role_id)
 
     async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
         """Handles actions after a user is added to the waitlist."""
+        context = self._context(interaction)
         recorded_name = get_effective_display_name(entry)
         # 1. Create the waitlist confirmation message
         drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
@@ -536,44 +599,21 @@ class GatheringModal(ui.Modal):
             f"主催者から追加料金が請求される場合があります。"
         )
 
-        # 2. Attempt to DM the user first
-        try:
-            await send_signup_reply(
-                interaction.user.send, self.event, entry, "Waitlisted — attendance is not confirmed", waitlist_message
-            )
-            # If DM succeeds, send a brief confirmation to the channel
-            await interaction.response.send_message(
-                f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
-                ephemeral=True,
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            await send_signup_reply(
-                interaction.response.send_message,
-                self.event,
-                entry,
-                "Waitlisted — attendance is not confirmed",
-                waitlist_message,
-                ephemeral=True,
-            )
+        await self._deliver_signup_reply(
+            interaction,
+            entry,
+            "Waitlisted — attendance is not confirmed",
+            waitlist_message,
+            f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
+        )
 
-        # 4. Add user to the thread
-        try:
-            if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                await interaction.channel.add_user(interaction.user)
-            else:
-                _log.warning(
-                    "Could not add user %s to thread %s (not a thread?).",
-                    interaction.user.id,
-                    interaction.channel_id,
-                )
-        except discord.HTTPException as e:
-            _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
+        await self._add_signup_user_to_thread(context)
 
     async def _handle_waitlist_capacity_exceeded(
         self, interaction: discord.Interaction, entry: WaitlistEntry, total_people_in_group: int, remaining_spots: int
     ):
         """Handles actions when a user's group exceeds capacity and is added to waitlist."""
+        context = self._context(interaction)
         recorded_name = get_effective_display_name(entry)
         # 1. Create the capacity exceeded + waitlist message
         drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
@@ -607,46 +647,23 @@ class GatheringModal(ui.Modal):
             f"主催者から追加料金が請求される場合があります。"
         )
 
-        # 2. Attempt to DM the user first
-        try:
-            await send_signup_reply(
-                interaction.user.send, self.event, entry, "Waitlisted — attendance is not confirmed", waitlist_message
-            )
-            # If DM succeeds, send a brief confirmation to the channel
-            await interaction.response.send_message(
-                "📋 Your group exceeds capacity. You've been added to the waitlist! "
-                f"Your name is recorded as **{recorded_name}**. I've sent you a DM with the details.",
-                ephemeral=True,
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            # 3. If DM fails, fall back to sending an ephemeral message in the channel
-            await send_signup_reply(
-                interaction.response.send_message,
-                self.event,
-                entry,
-                "Waitlisted — attendance is not confirmed",
-                waitlist_message,
-                ephemeral=True,
-            )
+        await self._deliver_signup_reply(
+            interaction,
+            entry,
+            "Waitlisted — attendance is not confirmed",
+            waitlist_message,
+            "📋 Your group exceeds capacity. You've been added to the waitlist! "
+            f"Your name is recorded as **{recorded_name}**. I've sent you a DM with the details.",
+        )
 
-        # 4. Add user to the thread
-        try:
-            if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                await interaction.channel.add_user(interaction.user)
-            else:
-                _log.warning(
-                    "Could not add user %s to thread %s (not a thread?).",
-                    interaction.user.id,
-                    interaction.channel_id,
-                )
-        except discord.HTTPException as e:
-            _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
+        await self._add_signup_user_to_thread(context)
 
     async def _send_capacity_reached_message(self, interaction: discord.Interaction):
         """Sends a message to the thread when capacity is first reached."""
+        context = self._context(interaction)
         try:
-            if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                await interaction.channel.send(
+            if isinstance(context.channel, discord.Thread):
+                await context.channel.send(
                     f"⚠️ **Maximum capacity has been reached for {self.event.event_name}!**\n"
                     f"New registrations will be added to the waitlist.\n\n"
                     f"⚠️ **{self.event.event_name}の定員に達しました！**\n"
@@ -654,9 +671,9 @@ class GatheringModal(ui.Modal):
                 )
                 _log.info("Sent capacity reached message to thread for event '%s'.", self.event.event_name)
             else:
-                _log.warning("Could not send capacity message to thread %s (not a thread?).", interaction.channel_id)
+                _log.warning("Could not send capacity message to thread %s (not a thread?).", context.channel_id)
         except discord.HTTPException as e:
-            _log.error("Failed to send capacity message to thread %s: %s", interaction.channel_id, e)
+            _log.error("Failed to send capacity message to thread %s: %s", context.channel_id, e)
 
     async def on_submit(self, interaction: discord.Interaction):
         await self._submit(interaction)
@@ -669,7 +686,7 @@ class GatheringModal(ui.Modal):
         drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
         extra_names_str = self.extras_names_input.value if self.fields is None or "guests" in self.fields else ""
         try:
-            methods = (self.event.signup_form or {}).get("payment_methods", {})
+            methods = _payment_methods(self.event)
             # 2. Validate Inputs using Helpers (Raises ValidationError on failure)
             num_extra_people = self._validate_extra_people(extra_people_str)
             # Older callers may still replace the two compatibility aliases.
@@ -699,12 +716,48 @@ class GatheringModal(ui.Modal):
 
             if methods or (self.fields and "no_show" in self.fields):
                 if not final:
-                    await interaction.response.send_message(
+                    prompt = (
                         "Please choose a payment method to complete your registration. "
-                        "Offkai Bot will send you the instructions on completing payment",
-                        view=SignupContinuation(self, interaction.user.id),
-                        ephemeral=True,
+                        "Offkai Bot will send you the instructions on completing payment"
                     )
+                    view = SignupContinuation(self, interaction.user.id)
+                    if methods:
+                        prompt = (
+                            "Please choose a payment method to complete your registration. "
+                            "I'll send you the payment instructions after you choose.\n\n"
+                            "This button expires in 5 minutes. If it no longer works, restart registration "
+                            "using the event's signup button."
+                        )
+                        self.origin_context = SignupContext.from_interaction(interaction)
+                        self.reply_in_dm = True
+                        await interaction.response.defer(ephemeral=True, thinking=True)
+                        try:
+                            event_name = discord.utils.escape_markdown(self.event_name)
+                            view.message = await interaction.user.send(f"**{event_name}**\n\n{prompt}", view=view)
+                        except (discord.Forbidden, discord.HTTPException):
+                            view.stop()
+                            self.reply_in_dm = False
+                            await interaction.followup.send(
+                                "I couldn't send you a DM. Please enable DMs from this server, then click "
+                                "the event's signup button again to restart registration. "
+                                "You haven't been registered yet.",
+                                ephemeral=True,
+                            )
+                        else:
+                            await view.activate()
+                            notice = (
+                                "This payment prompt is closed. Check your DMs for your registration status."
+                                if view.finished
+                                else "Check your DMs now. Choose a payment method there to complete your registration."
+                            )
+                            try:
+                                await interaction.followup.send(notice, ephemeral=True)
+                            except discord.HTTPException:
+                                _log.warning(
+                                    "Payment DM sent, but could not deliver notice for user %s", interaction.user.id
+                                )
+                    else:
+                        await interaction.response.send_message(prompt, view=view, ephemeral=True)
                     return
                 if methods and self.payment_method not in methods:
                     raise ValidationError("Please choose an enabled payment method before signing up.")
@@ -713,10 +766,11 @@ class GatheringModal(ui.Modal):
 
             # 3. Calculate total people in this registration
             total_people_in_group = 1 + num_extra_people
-            username = interaction.user.name
+            signup_user = self._context(interaction).user
+            username = signup_user.name
             resolved_display_name = resolve_submitted_display_name(
                 preferred_name_str,
-                getattr(interaction.user, "display_name", ""),
+                getattr(signup_user, "display_name", ""),
                 username,
             )
 
@@ -812,11 +866,11 @@ class GatheringModal(ui.Modal):
                 interaction.user.id,
                 e,
             )
-            await modal_error_message(interaction, self.event.event_name, str(e))
+            await modal_error_message(interaction, self.event.event_name, str(e), in_dm=self.reply_in_dm)
             # No return needed here, function ends after except block
 
         except DuplicateResponseError as e:
-            await modal_error_message(interaction, self.event.event_name, str(e))
+            await modal_error_message(interaction, self.event.event_name, str(e), in_dm=self.reply_in_dm)
 
         except Exception as e:
             # Catch any other unexpected errors during Response creation or add_response
@@ -1487,9 +1541,13 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
     if entry.no_show_agreed:
         lines.append("✔ No-show / no-refund policy agreed: payments for no-shows are not refunded.")
     url = build_checkin_url(entry.user_id, event.event_name)
+    proof_command = discord.utils.escape_markdown(f"I paid {event.event_name}")
     if url:
         if methods:
-            lines.append("📎 Please provide proof of payment on the RSVP Page.")
+            lines.append(
+                f'📎 **Please provide proof of payment by replying with "{proof_command}" '
+                "and a screenshot in the same message, or upload it to the RSVP page.**"
+            )
         lines.append(f"🔗 RSVP Page / QR Code: {url}")
     lines.extend(
         [
@@ -1517,7 +1575,10 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
         jp_lines.append("✔ 不参加時の返金不可に同意済み")
     if url:
         if methods:
-            jp_lines.append("📎 RSVPページで支払い証明をアップロードしてください。")
+            jp_lines.append(
+                f"📎 **「{proof_command}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
+                "RSVPページにアップロードしてください。**"
+            )
         jp_lines.append(f"🔗 RSVPページ / QRコード: {url}")
     jp_lines.extend(
         [
@@ -1572,12 +1633,57 @@ class SignupContinuation(ui.View):
         self.signup = signup
         self.owner_id = owner_id
         self.finished = False
+        self.message: discord.Message | None = None
+
+    @property
+    def key(self) -> tuple[str, int]:
+        return self.signup.event_name, self.owner_id
+
+    def _registered(self) -> bool:
+        return any(
+            entry.user_id == self.owner_id
+            for entry in [*get_responses(self.signup.event_name), *get_waitlist(self.signup.event_name)]
+        )
+
+    async def activate(self) -> None:
+        previous = _active_signups.get(self.key)
+        if self._registered():
+            if previous is not None:
+                await previous.finish()
+            await self.finish()
+            return
+        _active_signups[self.key] = self
+        if previous is not None and previous is not self:
+            await previous.finish(superseded=True)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.owner_id and not self.finished:
             return True
         await error_message(interaction, "This signup is finished or belongs to another user.")
         return False
+
+    async def finish(self, *, expired: bool = False, superseded: bool = False) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        self.continue_signup.disabled = True
+        if (expired or superseded) and not self._registered():
+            self.continue_signup.label = (
+                "Replaced — use latest prompt" if superseded else "Expired — start signup again"
+            )
+        else:
+            self.continue_signup.label = "Completed"
+        self.stop()
+        if _active_signups.get(self.key) is self:
+            del _active_signups[self.key]
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                _log.warning("Could not update payment prompt for user %s", self.owner_id)
+
+    async def on_timeout(self) -> None:
+        await self.finish(expired=True)
 
     @ui.button(label="Choose Payment Method", style=discord.ButtonStyle.primary)
     async def continue_signup(self, interaction: discord.Interaction, button: ui.Button):
@@ -1589,7 +1695,7 @@ class PaymentModal(ui.Modal):
         super().__init__(title="Payment and agreement", timeout=300)
         self.continuation = continuation
         signup = continuation.signup
-        methods = (signup.event.signup_form or {}).get("payment_methods", {})
+        methods = _payment_methods(signup.event)
         self.payment_method_input: ui.Select | None = None
         if methods:
             self.payment_method_input = ui.Select(
@@ -1615,7 +1721,10 @@ class PaymentModal(ui.Modal):
         signup = self.continuation.signup
         if self.no_show_input is not None and self.no_show_input.value.strip().casefold() != "yes":
             await modal_error_message(
-                interaction, signup.event_name, "Please agree to the no-show / no-refund policy by typing 'Yes'."
+                interaction,
+                signup.event_name,
+                "Please agree to the no-show / no-refund policy by typing 'Yes'.",
+                in_dm=signup.reply_in_dm,
             )
             return
         if self.payment_method_input is not None:
@@ -1623,5 +1732,4 @@ class PaymentModal(ui.Modal):
             signup.payment_method = selected[0] if len(selected) == 1 else None
         signup.no_show_agreed = self.no_show_input is not None
         if await signup._submit(interaction, final=True):
-            self.continuation.finished = True
-            self.continuation.stop()
+            await self.continuation.finish()
