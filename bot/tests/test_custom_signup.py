@@ -15,6 +15,17 @@ from offkai_bot.signup_setup import InstructionModal, SignupSetup
 from offkai_bot.util import build_checkin_token
 
 
+@pytest.fixture(autouse=True)
+def isolate_signup_registry():
+    from offkai_bot.interactions import _active_signups
+
+    _active_signups.clear()
+    yield
+    for view in _active_signups.values():
+        view.stop()
+    _active_signups.clear()
+
+
 @pytest.fixture
 def custom_event():
     responses.RESPONSE_DATA_CACHE = {}
@@ -38,11 +49,12 @@ def interaction(user_id=191524132624531458):
     value.user.id = user_id
     value.user.name = "Synthetic"
     value.user.display_name = "Discord Name"
-    value.user.send = AsyncMock()
+    value.user.send = AsyncMock(return_value=MagicMock(spec=discord.Message, edit=AsyncMock()))
     value.user.roles = [MagicMock(name="role")]
     value.user.roles[0].name = "Offkai Organizer"
     value.channel = MagicMock(spec=discord.TextChannel)
     value.guild = MagicMock(spec=discord.Guild)
+    value.response.is_done.return_value = False
     value.response.send_message = AsyncMock()
     value.response.edit_message = AsyncMock()
     value.response.send_modal = AsyncMock()
@@ -51,11 +63,31 @@ def interaction(user_id=191524132624531458):
     return value
 
 
-async def submit_payment(source, values=None, agreement=" Yes "):
-    """Submit the real second modal after the details step's private Continue button."""
-    view = source.response.send_message.call_args.kwargs["view"]
-    await view.continue_signup.callback(source)
-    payment = source.response.send_modal.call_args.args[0]
+def signup_continuation(source):
+    for sender in (source.followup.send, source.user.send, source.response.send_message):
+        for call in reversed(sender.call_args_list):
+            if "view" in call.kwargs:
+                return call.kwargs["view"]
+    raise AssertionError("Signup continuation was not sent")
+
+
+def dm_interaction(source):
+    target = interaction(source.user.id)
+    target.guild = None
+    target.channel = MagicMock(spec=discord.DMChannel, send=AsyncMock())
+    target.user = MagicMock(spec=discord.User, id=source.user.id, name=source.user.name, display_name="Global name")
+    target.user.name = source.user.name
+    target.user.send = AsyncMock()
+    return target
+
+
+async def submit_payment(source, values=None, agreement=" Yes ", target=None):
+    """Submit the real second modal from the DM or private channel continuation."""
+    view = signup_continuation(source)
+    target = target or (dm_interaction(source) if view.signup.reply_in_dm else interaction(source.user.id))
+    source.payment_target = target
+    await view.continue_signup.callback(target)
+    payment = target.response.send_modal.call_args.args[0]
     submitted = []
     if payment.payment_method_input is not None:
         submitted.append(
@@ -70,8 +102,8 @@ async def submit_payment(source, values=None, agreement=" Yes "):
         )
     if payment.no_show_input is not None:
         submitted.append({"type": 1, "components": [{"type": 4, "custom_id": "no_show_agreement", "value": agreement}]})
-    source.response.send_message.reset_mock()
-    await payment._scheduled_task(source, submitted, {})
+    target.response.send_message.reset_mock()
+    await payment._scheduled_task(target, submitted, {})
     return payment
 
 
@@ -81,8 +113,7 @@ async def complete_signup(modal, source):
 
 
 @pytest.mark.parametrize("outcome", ["confirmed", "closed", "deadline", "capacity", "group_exceeds"])
-@pytest.mark.parametrize("dm_fails", [False, True])
-async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm_fails):
+async def test_custom_signup_all_outcomes_reply_in_dm(custom_event, outcome):
     events.EVENT_DATA_CACHE = [custom_event]
     responses.RESPONSE_DATA_CACHE = {}
     if outcome == "closed":
@@ -94,8 +125,6 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
     if outcome == "group_exceeds":
         custom_event.max_capacity = 1
     source = interaction()
-    if dm_fails:
-        source.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM blocked")
     modal = GatheringModal(event=custom_event, payment_method="PayNow")
     modal.preferred_name_input._value = "Recorded Name"
     modal.extra_people_input._value = "1"
@@ -112,14 +141,21 @@ async def test_custom_signup_all_outcomes_and_fallback(custom_event, outcome, dm
     )[0]
     assert entry.payment_method == "PayNow"
     assert entry.no_show_agreed is True
-    payload = (source.response.send_message if dm_fails else source.user.send).call_args.args[0]
+    payload = source.payment_target.response.send_message.call_args.args[0]
     assert "Synthetic organizer instructions" in payload
     assert link in payload
     assert "Recorded Name" in payload and "Guest" in payload
     assert "no-refund" in payload
     assert "Drinks:" not in payload and "飲み物:" not in payload
-    assert f"Please provide proof of payment on the RSVP Page.\n🔗 RSVP Page / QR Code: {link}" in payload
-    assert f"RSVPページで支払い証明をアップロードしてください。\n🔗 RSVPページ / QRコード: {link}" in payload
+    assert (
+        f'📎 **Please provide proof of payment by replying with "I paid {custom_event.event_name}" '
+        "and a screenshot in the same message, or upload it to the RSVP page.**\n"
+        f"🔗 RSVP Page / QR Code: {link}"
+    ) in payload
+    assert (
+        f"📎 **「I paid {custom_event.event_name}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
+        f"RSVPページにアップロードしてください。**\n🔗 RSVPページ / QRコード: {link}"
+    ) in payload
     assert payload.count(link) == 2 and payload.count("Synthetic organizer instructions") == 1
     assert ("✅ 参加確定" in payload) == (outcome == "confirmed")
     assert ("Attendance confirmed" in payload) == (outcome == "confirmed")
@@ -182,13 +218,19 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
         assert responses.get_responses(custom_event.event_name) == []
         assert responses.get_waitlist(custom_event.event_name) == []
         update_rank.assert_not_called()
-        source.user.send.assert_not_awaited()
-        assert source.response.send_message.call_args.kwargs["ephemeral"] is True
-        assert source.response.send_message.call_args.args[0] == (
+        source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+        source.user.send.assert_awaited_once()
+        assert source.user.send.call_args.args[0] == (
+            f"**{custom_event.event_name}**\n\n"
             "Please choose a payment method to complete your registration. "
-            "Offkai Bot will send you the instructions on completing payment"
+            "I'll send you the payment instructions after you choose.\n\n"
+            "This button expires in 5 minutes. If it no longer works, restart registration "
+            "using the event's signup button."
         )
-        assert source.response.send_message.call_args.kwargs["view"].children[0].label == "Choose Payment Method"
+        source.followup.send.assert_awaited_once_with(
+            "Check your DMs now. Choose a payment method there to complete your registration.", ephemeral=True
+        )
+        assert signup_continuation(source).children[0].label == "Choose Payment Method"
         payment_modal = await submit_payment(source)
     payment, policy = payment_modal.to_dict()["components"]
     assert payment["type"] == 18 and payment["label"] == "Payment method"
@@ -200,7 +242,7 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
     assert saved.payment_method == "PayNow"
     assert saved.display_name == "Recorded Name" and saved.extra_people == 1 and saved.extras_names == ["Guest"]
     assert saved.no_show_agreed
-    reply = source.user.send.call_args.args[0]
+    reply = source.payment_target.response.send_message.call_args.args[0]
     assert "Synthetic organizer instructions" in reply and "https://synthetic.invalid/pass" in reply
 
 
@@ -224,7 +266,7 @@ async def test_full_drinks_form_keeps_every_existing_field_before_payment(custom
     modal.confirmation_input._value = "Yes"
     await complete_signup(modal, source)
     assert responses.get_responses(custom_event.event_name)[0].drinks == ["tea"]
-    assert "🍺 Drinks: tea" in source.user.send.call_args.args[0]
+    assert "🍺 Drinks: tea" in source.payment_target.response.send_message.call_args.args[0]
 
 
 @pytest.mark.parametrize("values", [[], ["Unconfigured"], ["PayNow", "Unconfigured"]])
@@ -238,7 +280,7 @@ async def test_modal_rejects_missing_or_unconfigured_payment(custom_event, value
     await submit_payment(source, values=values)
     assert responses.get_responses(custom_event.event_name) == []
     assert responses.get_waitlist(custom_event.event_name) == []
-    assert "choose an enabled payment method" in source.user.send.call_args.args[0]
+    assert "choose an enabled payment method" in source.payment_target.response.send_message.call_args.args[0]
 
 
 async def test_separate_policy_rejects_no_without_recording_signup(custom_event):
@@ -251,7 +293,7 @@ async def test_separate_policy_rejects_no_without_recording_signup(custom_event)
     assert responses.get_responses(custom_event.event_name) == []
     assert responses.get_waitlist(custom_event.event_name) == []
     assert not modal.no_show_agreed
-    assert "no-show / no-refund policy" in source.user.send.call_args.args[0]
+    assert "no-show / no-refund policy" in source.payment_target.response.send_message.call_args.args[0]
 
 
 async def test_continuation_and_payment_are_bound_to_original_attendee(custom_event):
@@ -260,7 +302,7 @@ async def test_continuation_and_payment_are_bound_to_original_attendee(custom_ev
     modal.extra_people_input._value = "0"
     modal.confirmation_input._value = "Yes"
     await modal.on_submit(source)
-    view = source.response.send_message.call_args.kwargs["view"]
+    view = signup_continuation(source)
     assert not await view.interaction_check(interaction(43))
     await view.continue_signup.callback(source)
     payment = source.response.send_modal.call_args.args[0]
@@ -307,7 +349,7 @@ async def test_custom_without_policy_never_records_assumed_agreement(custom_even
             payment = await submit_payment(source)
             assert payment.no_show_input is None
     assert responses.get_responses(custom_event.event_name)[0].no_show_agreed is False
-    reply = source.user.send.call_args.args[0]
+    reply = (source.payment_target.response.send_message if with_payment else source.user.send).call_args.args[0]
     assert ("Please provide proof of payment" in reply) == with_payment
     assert "no-refund policy agreed" not in reply
 
@@ -399,7 +441,7 @@ async def test_creator_named_payment_reaches_attendee_form_and_reply(custom_even
     payment = await submit_payment(source, values=[name])
     assert [option.value for option in payment.payment_method_input.options] == [name]
     assert responses.get_responses(custom_event.event_name)[0].payment_method == name
-    reply = source.user.send.call_args.args[0]
+    reply = source.payment_target.response.send_message.call_args.args[0]
     assert "Transfer using event reference" in reply
     assert "支払い案内: 主催者が入力した支払い案内" in reply
     await setup.publish.callback(source)
@@ -473,7 +515,7 @@ async def test_optional_jp_instructions_edit_clear_and_omit(custom_event):
     assert "Original language" in en and "Original language" not in jp
     assert "支払い案内:" not in jp
     assert "💳 支払い方法: PayNow" in jp
-    assert "📎 Please provide proof" in en and "📎 Please provide proof" not in jp
+    assert "📎 **Please provide proof" in en and "📎 **Please provide proof" not in jp
 
 
 @pytest.mark.parametrize(
@@ -607,7 +649,7 @@ async def test_synthetic_cross_stack_fixture(custom_event, tmp_path):
         url = f"https://synthetic.invalid/?token={token}"
         with patch("offkai_bot.interactions.build_checkin_url", return_value=url):
             await complete_signup(modal, source)
-        reply = source.user.send.call_args.args[0]
+        reply = source.payment_target.response.send_message.call_args.args[0]
         assert "Synthetic organizer instructions" in reply and token in reply
         replies[name] = {"token": token, "reply": reply}
     for filename, value in [
@@ -631,8 +673,9 @@ async def test_long_custom_reply_has_complete_language_embeds(custom_event, outc
         custom_event.open = False
     elif outcome == "capacity_exceeded":
         custom_event.max_capacity = 1
+    target = dm_interaction(source)
     if dm_fails:
-        source.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM blocked")
+        target.response.send_message.side_effect = discord.HTTPException(MagicMock(status=500), "Reply unavailable")
     modal = GatheringModal(event=custom_event, payment_method="PayNow")
     modal.preferred_name_input._value = "N" * 32
     modal.extra_people_input._value = "5"
@@ -641,9 +684,14 @@ async def test_long_custom_reply_has_complete_language_embeds(custom_event, outc
     token = build_checkin_token(source.user.id, custom_event.event_name, "synthetic-test-key")
     link = "https://synthetic.invalid/" + "a" * 100 + "/?token=" + token
     with patch("offkai_bot.interactions.build_checkin_url", return_value=link):
-        await complete_signup(modal, source)
-    source.user.send.assert_awaited_once()
-    delivery = source.response.send_message if dm_fails else source.user.send
+        await modal.on_submit(source)
+        await submit_payment(source, target=target)
+    entries = [*responses.get_responses(custom_event.event_name), *responses.get_waitlist(custom_event.event_name)]
+    assert len(entries) == 1 and signup_continuation(source).finished
+    target.response.send_message.assert_awaited_once()
+    target.followup.send.assert_not_awaited()
+    assert source.user.send.await_count == 1  # Only the retained payment prompt is a new DM.
+    delivery = target.response.send_message
     embeds = delivery.call_args.kwargs["embeds"]
     assert len(embeds) == 2
     descriptions = [embed.description for embed in embeds]
@@ -916,3 +964,508 @@ async def test_custom_create_keeps_private_ack_and_public_pinned_announcement(cu
     announcement.pin.assert_awaited_once()
     source.edit_original_response.assert_awaited_once()
     source.followup.send.assert_not_awaited()
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "closed", "capacity", "group_too_large"])
+async def test_payment_dm_keeps_original_server_context_and_replies_directly(custom_event, outcome):
+    from offkai_bot import interactions
+
+    custom_event.role_id = 333
+    if outcome == "closed":
+        custom_event.open = False
+    elif outcome == "capacity":
+        custom_event.max_capacity = 0
+    elif outcome == "group_too_large":
+        custom_event.max_capacity = 1
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread)
+    source.channel.add_user = AsyncMock()
+    source.channel.send = AsyncMock()
+    source.user.display_name = "Original server nickname"
+    target = interaction(source.user.id)
+    target.guild = None
+    target.channel = MagicMock(spec=discord.DMChannel)
+    target.channel.send = AsyncMock()
+    target.user = MagicMock(spec=discord.User, id=source.user.id, name=source.user.name, display_name="Global name")
+    target.user.name = source.user.name
+    target.user.send = AsyncMock()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "1" if outcome == "group_too_large" else "0"
+    modal.extras_names_input._value = "Guest" if outcome == "group_too_large" else ""
+    modal.confirmation_input._value = "Yes"
+    assert "check your DMs" in modal.confirmation_input.placeholder
+    with (
+        patch.object(interactions, "assign_event_role", new_callable=AsyncMock) as role,
+        patch.object(interactions, "update_rank") as rank,
+        patch.object(interactions, "get_rank", return_value=next(iter(interactions.MILESTONE_MESSAGES))),
+        patch.object(interactions, "can_rank_message_sent", return_value=True),
+        patch.object(interactions, "mark_achieved_rank"),
+    ):
+        await modal.on_submit(source)
+        assert responses.get_responses(custom_event.event_name) == []
+        assert responses.get_waitlist(custom_event.event_name) == []
+        await submit_payment(source, target=target)
+        recorded = (responses.get_responses if outcome == "confirmed" else responses.get_waitlist)(
+            custom_event.event_name
+        )
+        assert len(recorded) == 1
+        assert recorded[0].display_name == "Original server nickname"
+        assert recorded[0].payment_method == "PayNow" and recorded[0].no_show_agreed
+        source.channel.add_user.assert_awaited_once_with(source.user)
+        target.user.send.assert_not_awaited()
+        target.channel.send.assert_not_awaited()
+        target.response.send_message.assert_awaited_once()
+        reply = target.response.send_message.call_args.args[0]
+        assert "Synthetic organizer instructions" in reply
+        assert "I've sent you a DM" not in reply
+        if outcome == "confirmed":
+            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id)
+            rank.assert_called_once()
+            source.channel.send.assert_awaited_once()  # Milestone stays in the event thread.
+        else:
+            role.assert_not_awaited()
+            rank.assert_not_called()
+        assert signup_continuation(source).finished
+
+
+@pytest.mark.parametrize("failure", [discord.Forbidden, discord.HTTPException])
+async def test_blocked_payment_dm_requires_fresh_signup(custom_event, failure):
+    source = interaction()
+    source.user.send.side_effect = failure(MagicMock(status=403), "DM unavailable")
+    modal = GatheringModal(event=custom_event)
+    modal.preferred_name_input._value = "First attempt"
+    modal.extra_people_input._value = "1"
+    modal.extras_names_input._value = "Guest"
+    modal.confirmation_input._value = "Yes"
+    with patch("offkai_bot.interactions.update_rank") as rank:
+        await modal.on_submit(source)
+        rank.assert_not_called()
+    source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    source.followup.send.assert_awaited_once_with(
+        "I couldn't send you a DM. Please enable DMs from this server, then click "
+        "the event's signup button again to restart registration. You haven't been registered yet.",
+        ephemeral=True,
+    )
+    assert signup_continuation(source).is_finished()
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+
+    # After enabling DMs, the existing attendance button opens a fresh first modal.
+    retry = interaction(source.user.id)
+    await start_signup(retry, custom_event)
+    fresh = retry.response.send_modal.call_args.args[0]
+    assert fresh is not modal
+    fresh.preferred_name_input._value = "New attempt"
+    fresh.extra_people_input._value = "0"
+    fresh.confirmation_input._value = "Yes"
+    await fresh.on_submit(retry)
+    target = interaction(source.user.id)
+    target.guild = None
+    await submit_payment(retry, target=target)
+    saved = responses.get_responses(custom_event.event_name)
+    assert len(saved) == 1
+    assert saved[0].display_name == "New attempt" and saved[0].extra_people == 0
+    assert saved[0].payment_method == "PayNow" and saved[0].no_show_agreed
+
+
+async def test_payment_validation_error_stays_in_dm_and_can_retry(custom_event):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    target = interaction(source.user.id)
+    target.guild = None
+    await submit_payment(source, agreement="No", target=target)
+    assert "no-show / no-refund" in target.response.send_message.call_args.args[0]
+    target.user.send.assert_not_awaited()
+    assert responses.get_responses(custom_event.event_name) == []
+    await submit_payment(source, target=target)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+
+
+async def test_capacity_notice_from_payment_dm_stays_in_event_thread(custom_event):
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread, add_user=AsyncMock(), send=AsyncMock())
+    custom_event.max_capacity = 1
+    target = interaction(source.user.id)
+    target.guild = None
+    target.channel = MagicMock(spec=discord.DMChannel, send=AsyncMock())
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    with patch("offkai_bot.interactions.get_rank", return_value=-1):
+        await modal.on_submit(source)
+        await submit_payment(source, target=target)
+    assert "Maximum capacity has been reached" in source.channel.send.call_args.args[0]
+    target.channel.send.assert_not_awaited()
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "waitlist", "capacity_exceeded"])
+@pytest.mark.parametrize("failure", [discord.HTTPException, discord.Forbidden])
+async def test_saved_payment_dm_reply_failure_keeps_bookkeeping(custom_event, outcome, failure):
+    from offkai_bot import interactions
+
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread, add_user=AsyncMock(), send=AsyncMock())
+    custom_event.role_id = 333
+    custom_event.max_capacity = 1
+    if outcome == "waitlist":
+        custom_event.open = False
+    target = dm_interaction(source)
+    target.response.send_message.side_effect = failure(MagicMock(status=403), "Final reply failed")
+    target.user.send.side_effect = failure(MagicMock(status=403), "Ordinary DM failed")
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "1" if outcome == "capacity_exceeded" else "0"
+    modal.extras_names_input._value = "Guest" if outcome == "capacity_exceeded" else ""
+    modal.confirmation_input._value = "Yes"
+    with (
+        patch.object(interactions, "assign_event_role", new_callable=AsyncMock) as role,
+        patch.object(interactions, "update_rank") as rank,
+        patch.object(interactions, "get_rank", return_value=next(iter(interactions.MILESTONE_MESSAGES))),
+        patch.object(interactions, "can_rank_message_sent", return_value=True),
+        patch.object(interactions, "mark_achieved_rank") as milestone,
+        patch.object(interactions._log, "warning") as warning,
+    ):
+        await modal.on_submit(source)
+        view = signup_continuation(source)
+        assert view.message is source.user.send.return_value
+        assert modal.origin_context.user is source.user
+        assert not hasattr(modal, "origin_interaction")
+        await submit_payment(source, target=target)
+        all_entries = [
+            *responses.get_responses(custom_event.event_name),
+            *responses.get_waitlist(custom_event.event_name),
+        ]
+        assert len(all_entries) == 1
+        assert all_entries[0].payment_method == "PayNow" and all_entries[0].no_show_agreed
+        assert view.finished and view.is_finished()
+        assert view.continue_signup.disabled and view.continue_signup.label == "Completed"
+        view.message.edit.assert_awaited_once_with(view=view)
+        source.channel.add_user.assert_awaited_once_with(source.user)
+        warning.assert_called_once()
+        assert "Registration saved" in warning.call_args.args[0]
+        target.response.send_message.assert_awaited_once()  # No second generic-error reply.
+        target.followup.send.assert_not_awaited()
+        target.user.send.assert_awaited_once()
+        assert target.user.send.call_args == target.response.send_message.call_args
+        if outcome == "confirmed":
+            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id)
+            rank.assert_called_once_with(source.user.id, source.user.name)
+            milestone.assert_called_once()
+            texts = [call.args[0] for call in source.channel.send.call_args_list]
+            assert any("Maximum capacity has been reached" in text for text in texts)
+            assert len(texts) == 2  # Milestone plus capacity notice.
+        else:
+            role.assert_not_awaited()
+            rank.assert_not_called()
+            source.channel.send.assert_not_awaited()
+
+
+@pytest.mark.parametrize("edit_failure", [None, discord.NotFound, discord.HTTPException])
+async def test_payment_continuation_completion_edits_retained_dm_best_effort(custom_event, edit_failure):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    view = signup_continuation(source)
+    message = source.user.send.return_value
+    if edit_failure:
+        message.edit.side_effect = edit_failure(MagicMock(status=404), "Prompt unavailable")
+    await submit_payment(source)
+    assert view.message is message
+    message.edit.assert_awaited_once_with(view=view)
+    assert view.finished and view.is_finished()
+    assert view.continue_signup.disabled and view.continue_signup.label == "Completed"
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    assert "Synthetic organizer instructions" in source.payment_target.response.send_message.call_args.args[0]
+    await view.on_timeout()  # Completion cannot be overwritten with an expired label.
+    assert view.continue_signup.label == "Completed" and message.edit.await_count == 1
+
+
+async def test_expiry_rejects_already_open_payment_modal(custom_event):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    view = signup_continuation(source)
+    target = dm_interaction(source)
+    await view.continue_signup.callback(target)
+    payment = target.response.send_modal.call_args.args[0]
+    await view.on_timeout()
+    assert view.is_finished() and view.finished
+    assert view.continue_signup.disabled and view.continue_signup.label == "Expired — start signup again"
+    view.message.edit.assert_awaited_once_with(view=view)
+    assert responses.get_responses(custom_event.event_name) == []
+    payload = [
+        {"type": 18, "component": {"type": 3, "custom_id": "payment_method", "values": ["PayNow"]}},
+        {"type": 1, "components": [{"type": 4, "custom_id": "no_show_agreement", "value": "Yes"}]},
+    ]
+    await payment._scheduled_task(target, payload, {})
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+    assert "finished" in target.response.send_message.call_args.args[0]
+    assert view.continue_signup.label == "Expired — start signup again"
+    assert view.message.edit.await_count == 1
+
+
+@pytest.mark.parametrize("acknowledged", [False, True])
+async def test_defer_failure_recovers_using_current_ack_state(custom_event, acknowledged):
+    source = interaction()
+    source.response.defer.side_effect = discord.HTTPException(MagicMock(status=500), "Defer failed")
+    source.response.is_done.return_value = acknowledged
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    sender = source.followup.send if acknowledged else source.response.send_message
+    sender.assert_awaited_once()
+    assert "error" in sender.call_args.args[0].lower()
+    source.user.send.assert_not_awaited()
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+    retry = interaction(source.user.id)
+    await start_signup(retry, custom_event)
+    fresh = retry.response.send_modal.call_args.args[0]
+    fresh.extra_people_input._value = "0"
+    fresh.confirmation_input._value = "Yes"
+    await complete_signup(fresh, retry)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+
+
+@pytest.mark.parametrize("default_form", [False, True])
+async def test_nonpayment_signup_retains_guild_fallback(custom_event, default_form):
+    custom_event.signup_form = None if default_form else {"fields": ["guests"], "payment_methods": {}}
+    source = interaction()
+    source.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM blocked")
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    assert not modal.reply_in_dm
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    source.response.send_message.assert_awaited_once()
+    assert source.response.send_message.call_args.kwargs["ephemeral"] is True
+    assert "Attendance confirmed" in source.response.send_message.call_args.args[0]
+
+
+@pytest.mark.parametrize("failure_path", ["dm_send", "followup_send"])
+async def test_unexpected_post_defer_failure_recovers_via_followup_without_registration(custom_event, failure_path):
+    source = interaction()
+
+    async def acknowledge(**kwargs):
+        source.response.is_done.return_value = True
+
+    source.response.defer.side_effect = acknowledge
+    if failure_path == "dm_send":
+        source.user.send.side_effect = RuntimeError("Unexpected DM transport error")
+    else:
+        source.followup.send.side_effect = [RuntimeError("Payment prompt acknowledgement failed"), None]
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    assert source.response.is_done()
+    source.response.send_message.assert_not_awaited()
+    assert source.followup.send.await_count == (1 if failure_path == "dm_send" else 2)
+    assert source.followup.send.call_args.args[0] == "❌ An internal error occurred processing your response."
+    assert source.followup.send.call_args.kwargs == {"ephemeral": True}
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+
+
+@pytest.mark.parametrize("failure", [discord.Forbidden, discord.HTTPException])
+async def test_payment_dm_survives_channel_notice_failure(custom_event, failure, caplog):
+    source = interaction()
+    source.channel = MagicMock(spec=discord.Thread)
+    source.channel.add_user = AsyncMock()
+
+    async def acknowledge(**kwargs):
+        source.response.is_done.return_value = True
+
+    source.response.defer.side_effect = acknowledge
+    source.followup.send.side_effect = failure(MagicMock(status=403 if failure is discord.Forbidden else 500), "Failed")
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+
+    source.user.send.assert_awaited_once()
+    source.followup.send.assert_awaited_once()
+    source.response.send_message.assert_not_awaited()
+    assert "Payment DM sent, but could not deliver notice" in caplog.text
+    view = signup_continuation(source)
+    assert not view.is_finished() and not view.continue_signup.disabled
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+
+    await submit_payment(source)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    assert view.finished and view.continue_signup.label == "Completed"
+    source.channel.add_user.assert_awaited_once_with(source.user)
+    source.followup.send.assert_awaited_once()  # No misleading generic error or retry notice.
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "waitlist", "capacity_exceeded"])
+@pytest.mark.parametrize("acknowledged", [False, True])
+async def test_final_payment_reply_falls_back_to_ordinary_dm(custom_event, outcome, acknowledged):
+    source = interaction()
+    if outcome == "waitlist":
+        custom_event.open = False
+    elif outcome == "capacity_exceeded":
+        custom_event.max_capacity = 1
+    target = dm_interaction(source)
+    target.response.is_done.return_value = acknowledged
+    send = target.followup.send if acknowledged else target.response.send_message
+    send.side_effect = discord.HTTPException(MagicMock(status=404), "Expired interaction")
+    # A long reply must use the same complete language embeds on the fallback.
+    custom_event.signup_form["payment_methods"]["PayNow"] = "Instructions " + "x" * 987
+    custom_event.signup_form["payment_instructions_jp"] = {"PayNow": "案内" + "あ" * 998}
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "1" if outcome == "capacity_exceeded" else "0"
+    modal.extras_names_input._value = "Guest" if outcome == "capacity_exceeded" else ""
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    await submit_payment(source, target=target)
+    send.assert_awaited_once()
+    target.user.send.assert_awaited_once()
+    assert target.user.send.call_args == send.call_args
+    embeds = target.user.send.call_args.kwargs["embeds"]
+    assert len(embeds) == 2
+    assert "Instructions" in embeds[0].description and "案内" in embeds[1].description
+    assert "confirmed" in embeds[0].description.lower()
+    assert signup_continuation(source).finished
+    assert (
+        len([*responses.get_responses(custom_event.event_name), *responses.get_waitlist(custom_event.event_name)]) == 1
+    )
+
+
+@pytest.mark.parametrize("acknowledged", [False, True])
+@pytest.mark.parametrize("failure", ["http", "responded", "both"])
+async def test_payment_validation_error_ack_and_ordinary_dm_fallback(custom_event, acknowledged, failure, caplog):
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    target = dm_interaction(source)
+    target.response.is_done.return_value = acknowledged
+    send = target.followup.send if acknowledged else target.response.send_message
+    send.side_effect = (
+        discord.InteractionResponded(target)
+        if failure == "responded"
+        else discord.HTTPException(MagicMock(status=404), "Expired interaction")
+    )
+    if failure == "both":
+        target.user.send.side_effect = discord.Forbidden(MagicMock(status=403), "DM unavailable")
+    await submit_payment(source, target=target, agreement="No")
+    send.assert_awaited_once()
+    target.user.send.assert_awaited_once()
+    assert target.user.send.call_args.args == send.call_args.args
+    assert "no-show / no-refund" in target.user.send.call_args.args[0]
+    assert target.user.send.call_args.kwargs == send.call_args.kwargs == {}
+    other = target.response.send_message if acknowledged else target.followup.send
+    other.assert_not_awaited()
+    assert responses.get_responses(custom_event.event_name) == []
+    assert responses.get_waitlist(custom_event.event_name) == []
+    assert not signup_continuation(source).finished
+    if failure == "both":
+        assert "DM unavailable" in caplog.text
+        assert any(record.levelname == "ERROR" for record in caplog.records)
+
+
+def ready_modal(event):
+    modal = GatheringModal(event=event)
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    return modal
+
+
+async def test_new_payment_prompt_supersedes_old_open_modal_and_preserves_registry_identity(custom_event):
+    from offkai_bot.interactions import _active_signups
+
+    source = interaction()
+    first = ready_modal(custom_event)
+    await first.on_submit(source)
+    old = signup_continuation(source)
+    old_target = dm_interaction(source)
+    await old.continue_signup.callback(old_target)
+    old_modal = old_target.response.send_modal.call_args.args[0]
+    retry = interaction(source.user.id)
+    await ready_modal(custom_event).on_submit(retry)
+    new = signup_continuation(retry)
+    assert old.finished and old.continue_signup.disabled
+    assert old.continue_signup.label == "Replaced — use latest prompt"
+    old.message.edit.assert_awaited_once_with(view=old)
+    assert _active_signups[new.key] is new
+    await old.on_timeout()  # Identity-safe cleanup cannot remove the replacement.
+    assert _active_signups[new.key] is new
+    await old_modal.on_submit(old_target)
+    assert "finished" in old_target.response.send_message.call_args.args[0]
+    assert responses.get_responses(custom_event.event_name) == []
+    await submit_payment(retry)
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    assert new.finished and new.key not in _active_signups
+
+
+async def test_post_save_timeout_and_late_delivered_prompt_are_completed(custom_event):
+    import asyncio
+
+    from offkai_bot.interactions import _active_signups
+
+    source = interaction()
+    await ready_modal(custom_event).on_submit(source)
+    current = signup_continuation(source)
+    retry = interaction(source.user.id)
+    dm_started, release_dm = asyncio.Event(), asyncio.Event()
+    retry_message = retry.user.send.return_value
+
+    async def delayed_prompt(*args, **kwargs):
+        dm_started.set()
+        await release_dm.wait()
+        return retry_message
+
+    retry.user.send.side_effect = delayed_prompt
+    retry_task = asyncio.create_task(ready_modal(custom_event).on_submit(retry))
+    await dm_started.wait()
+    target = dm_interaction(source)
+    reply_started, release_reply = asyncio.Event(), asyncio.Event()
+
+    async def delayed_reply(*args, **kwargs):
+        reply_started.set()
+        await release_reply.wait()
+
+    target.response.send_message.side_effect = delayed_reply
+    payment_task = asyncio.create_task(submit_payment(source, target=target))
+    await reply_started.wait()
+    try:
+        assert len(responses.get_responses(custom_event.event_name)) == 1
+        await current.on_timeout()
+        assert current.finished and current.continue_signup.label == "Completed"
+        assert current.key not in _active_signups
+        release_dm.set()
+        await retry_task
+        late = signup_continuation(retry)
+        assert late.finished and late.continue_signup.disabled
+        assert late.continue_signup.label == "Completed" and late.key not in _active_signups
+        retry_message.edit.assert_awaited_once_with(view=late)
+        retry.followup.send.assert_awaited_once_with(
+            "This payment prompt is closed. Check your DMs for your registration status.", ephemeral=True
+        )
+    finally:
+        release_dm.set()
+        release_reply.set()
+        await retry_task
+        await payment_task
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+
+
+async def test_payment_prompt_escapes_event_header(custom_event):
+    custom_event.event_name = "**Event** _italic_ [link](https://synthetic.invalid)"
+    source = interaction()
+    await ready_modal(custom_event).on_submit(source)
+    expected = discord.utils.escape_markdown(custom_event.event_name)
+    assert source.user.send.call_args.args[0].startswith(f"**{expected}**\n\n")
