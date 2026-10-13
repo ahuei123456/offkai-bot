@@ -66,16 +66,13 @@ def parse_drinks(drinks_str: str | None) -> list[str]:
     return [d.strip() for d in drinks_str.split(",") if d.strip()]
 
 
-# Discord caps both thread names and component/modal custom_ids at 100 characters.
-# The event name is embedded in the modal custom_id as "modal_<event_name>" (6-char
-# prefix), so the hard ceiling is 94; 90 leaves a little headroom.
+# Discord caps thread names at 100 characters; 90 leaves a little headroom.
 MAX_EVENT_NAME_LENGTH = 90
 
 
 def validate_event_name(event_name: str):
     """
-    Validates that the event name fits within Discord's thread-name and
-    modal custom_id limits.
+    Validates that the event name fits within Discord's thread-name limit.
 
     Raises:
         EventNameTooLongError: If the event name exceeds MAX_EVENT_NAME_LENGTH.
