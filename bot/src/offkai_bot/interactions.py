@@ -377,6 +377,11 @@ def _build_modal_title(event_name: str) -> str:
     return event_name[: MODAL_TITLE_MAX_LENGTH - 1] + "…"
 
 
+# Discord never reports a dismissed modal, and each modal has a unique custom_id,
+# so discord.py only drops an unsubmitted modal from its store when it times out.
+SIGNUP_MODAL_TIMEOUT_SECONDS = 60 * 60
+
+
 # Class to handle the modal for event attendance
 class GatheringModal(ui.Modal):
     def __init__(
@@ -384,7 +389,7 @@ class GatheringModal(ui.Modal):
         *,
         event: Event,
         payment_method: str | None = None,
-        timeout=None,
+        timeout: float | None = SIGNUP_MODAL_TIMEOUT_SECONDS,
     ):
         # No fixed custom_id: discord.py tracks open modals by custom_id alone, so a
         # per-event id routes every user's submission to whichever modal was opened
@@ -939,7 +944,7 @@ class InterestCheckModal(ui.Modal):
         self,
         *,
         event: Event,
-        timeout=None,
+        timeout: float | None = SIGNUP_MODAL_TIMEOUT_SECONDS,
     ):
         # No fixed custom_id, for the same reason as GatheringModal.
         super().__init__(

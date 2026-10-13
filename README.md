@@ -382,11 +382,11 @@ uv run ty check
 - `/waitlist` - View waitlisted users
   - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False; includes `@username` for disambiguation)
 
-- `/export_responses` - DM yourself the raw responses data (all events) as JSON
+- `/export_responses` - DM yourself the raw responses data (all events) as JSON, plus an `_export` section that `/import_responses` needs
 
 - `/import_responses` - Replace the responses data with an edited export
   - Parameters: file, apply (optional, default: False; without it the command only previews the changes)
-  - Uploads are validated strictly; any error rejects the whole file. Registrations missing from the file (e.g. sign-ups after the export) are flagged in the preview. On apply, the previous data is attached to the reply and also backed up on disk. The waitlist is not rebalanced automatically.
+  - Uploads are validated strictly; any error rejects the whole file. Only the events you edited are changed, so registrations made after the export are kept. If an event you edited also changed in the bot after the export, the import is rejected and you need a fresh export. On apply, a file that undoes the import is attached to the reply and the previous data is also backed up on disk. The waitlist is not rebalanced automatically.
 
 - `/resend_confirmation` - DM registrants their current registration details with a note that the organizers updated them (e.g. after `/import_responses`)
   - Parameters: event_name, member (optional; leave empty to DM every attendee and waitlisted user)

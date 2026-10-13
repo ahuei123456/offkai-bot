@@ -44,6 +44,7 @@ from offkai_bot.data.response import (
 from offkai_bot.data.responses_transfer import (
     describe_responses_changes,
     export_responses_json,
+    merge_responses_import,
     parse_responses_import,
     replace_responses,
 )
@@ -728,7 +729,8 @@ class EventsCog(commands.Cog):
         try:
             await interaction.user.send(
                 "Raw responses data is attached. Edit it and upload it with `/import_responses` to apply changes. "
-                "Anyone who signs up after this export won't be in the file.",
+                "Only the events you edit are changed; if one of them changes in the bot before you import, "
+                "the import is rejected and you'll need a fresh export. Keep the `_export` section as it is.",
                 file=_responses_file(exported, "responses"),
             )
             await interaction.followup.send("Responses data has been sent to you by DM.", ephemeral=True)
@@ -755,8 +757,10 @@ class EventsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         if file.size > MAX_RESPONSES_IMPORT_BYTES:
             raise ResponsesImportError("The file is too large.")
-        new_data = parse_responses_import(await file.read())
-        changes, changed_events = describe_responses_changes(load_responses(), new_data)
+        upload = parse_responses_import(await file.read())
+        current = load_responses()
+        new_data = merge_responses_import(current, upload)
+        changes, changed_events = describe_responses_changes(current, new_data)
         if not changes:
             await interaction.followup.send("No differences from the current data; nothing to import.", ephemeral=True)
             return
@@ -769,7 +773,8 @@ class EventsCog(commands.Cog):
             )
             return
 
-        previous = export_responses_json()
+        # Importing this file undoes the import, as long as nothing else changes first.
+        previous = export_responses_json(data=current, baseline=new_data)
         backup_path = replace_responses(new_data)
         for event_name in changed_events:
             with contextlib.suppress(EventNotFoundError):
