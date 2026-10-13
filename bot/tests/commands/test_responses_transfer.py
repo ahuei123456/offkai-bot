@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord.ext import commands
+
 from offkai_bot.cogs.events import EventsCog
+from offkai_bot.data import response as response_data
 from offkai_bot.data.response import EventData, Response, WaitlistEntry, get_responses, get_waitlist
 from offkai_bot.data.responses_transfer import (
     describe_responses_changes,
@@ -18,8 +20,6 @@ from offkai_bot.data.responses_transfer import (
     replace_responses,
 )
 from offkai_bot.errors import ResponsesImportError
-
-from offkai_bot.data import response as response_data
 
 TS = datetime(2026, 10, 10, 1, 0, tzinfo=UTC)
 

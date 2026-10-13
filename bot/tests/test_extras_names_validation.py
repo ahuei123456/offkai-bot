@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
+
 from offkai_bot.data.event import Event
 from offkai_bot.interactions import GatheringModal, ValidationError
 

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import mock_open, patch
 
 import pytest
+
 from offkai_bot.data import ranking as ranking_data
 from offkai_bot.data.encoders import DataclassJSONEncoder
 from offkai_bot.data.ranking import UserRank

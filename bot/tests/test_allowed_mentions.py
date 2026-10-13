@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 from discord.ext import commands
+
 from offkai_bot.cogs.general import GeneralCog
 from offkai_bot.main import OffkaiClient
 

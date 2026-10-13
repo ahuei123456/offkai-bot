@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+
 from offkai_bot.alerts import alerts
 from offkai_bot.alerts.reminders import (
     CHECKIN_REMINDER_LEAD,

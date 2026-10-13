@@ -1,6 +1,7 @@
 import logging
 
 import pytest
+
 from offkai_bot.main import configure_logging
 
 

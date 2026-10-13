@@ -336,10 +336,10 @@ uv run pytest bot/tests --cov=bot/src/offkai_bot
 uv run prek run --all-files
 
 # Format code
-uvx ruff format .
+uv run ruff format .
 
 # Check linting
-uvx ruff check .
+uv run ruff check .
 
 # Type checking
 uv run ty check
@@ -458,8 +458,8 @@ We welcome contributions! Here's how you can help:
 4. **Run tests and quality checks:**
    ```bash
    uv run pytest bot/tests
-   uvx ruff format .
-   uvx ruff check .
+   uv run ruff format .
+   uv run ruff check .
    uv run ty check
    ```
 5. **Commit your changes:**

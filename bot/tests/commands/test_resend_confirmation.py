@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord.ext import commands
+
 from offkai_bot.cogs.events import EventsCog
+from offkai_bot.data import event as event_data
+from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event
 from offkai_bot.data.response import EventData, Response, WaitlistEntry
 from offkai_bot.errors import InterestCheckOperationError, ResponseNotFoundError
-
-from offkai_bot.data import event as event_data
-from offkai_bot.data import response as response_data
 
 TS = datetime(2026, 10, 10, 1, 0, tzinfo=UTC)
 EVENT_NAME = "Resend Event"

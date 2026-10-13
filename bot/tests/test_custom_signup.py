@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord.ui.view import ViewStore
+
 from offkai_bot.cogs.events import EventsCog
+from offkai_bot.data import event as events
+from offkai_bot.data import response as responses
 from offkai_bot.data.event import Event, create_event_message
 from offkai_bot.interactions import GatheringModal, promote_waitlist_batch, render_custom_reply_sections, start_signup
 from offkai_bot.signup_setup import InstructionModal, SignupSetup
 from offkai_bot.util import build_checkin_token
-
-from offkai_bot.data import event as events
-from offkai_bot.data import response as responses
 
 
 @pytest.fixture(autouse=True)

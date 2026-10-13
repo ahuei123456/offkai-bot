@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+
 from offkai_bot.role_management import (
     assign_event_role,
     create_event_role,

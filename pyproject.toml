@@ -74,6 +74,9 @@ exclude = [
     "venv",
 ]
 
+# Where first-party code lives, so import sorting doesn't depend on stray local directories.
+src = ["bot/src"]
+
 # Same as Black.
 line-length = 120
 indent-width = 4
