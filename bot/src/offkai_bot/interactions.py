@@ -23,6 +23,7 @@ from offkai_bot.data.response import (
     remove_response,
 )
 from offkai_bot.errors import (
+    BotCommandError,
     DuplicateResponseError,
     ResponseNotFoundError,
 )
@@ -70,6 +71,49 @@ class SignupContext:
     @property
     def channel_id(self) -> int | None:
         return self.channel.id if self.channel else None
+
+
+async def _add_user_to_event_thread(event: Event, context: SignupContext, client: discord.Client) -> None:
+    """Join the saved signup's thread, including threads auto-archived during a DM step."""
+    thread = context.channel
+    try:
+        if not isinstance(thread, discord.Thread) or (event.thread_id and thread.id != event.thread_id):
+            # Local import avoids the event_actions -> interactions import cycle.
+            from offkai_bot.event_actions import fetch_thread_for_event
+
+            thread = await fetch_thread_for_event(client, event)
+
+        for attempt in range(2):
+            if event.archived or (thread.archived and thread.locked):
+                _log.warning(
+                    "Not adding user %s to archived event or locked archived thread %s for '%s'.",
+                    context.user.id,
+                    thread.id,
+                    event.event_name,
+                )
+                return
+            if thread.archived:
+                thread = await thread.edit(archived=False)
+            try:
+                await thread.add_user(context.user)
+                return
+            except discord.HTTPException as error:
+                if error.code != 50083 or attempt:
+                    raise
+                # Refresh once when the gateway lags behind Discord's archive state.
+                # The member PUT is idempotent; never unlock a moderator-locked thread.
+                refreshed = await client.fetch_channel(thread.id)
+                if not isinstance(refreshed, discord.Thread):
+                    raise
+                thread = refreshed
+    except (discord.HTTPException, BotCommandError) as error:
+        _log.error(
+            "Failed to add user %s to event thread %s for '%s': %s",
+            context.user.id,
+            event.thread_id or context.channel_id,
+            event.event_name,
+            error,
+        )
 
 
 def validate_extra_people_input(extra_people_str: str) -> int:
@@ -591,15 +635,6 @@ class GatheringModal(ui.Modal):
                 self.event_name,
             )
 
-    async def _add_signup_user_to_thread(self, context: SignupContext) -> None:
-        try:
-            if isinstance(context.channel, discord.Thread):
-                await context.channel.add_user(context.user)
-            else:
-                _log.warning("Could not add user %s to thread %s (not a thread?).", context.user.id, context.channel_id)
-        except discord.HTTPException as error:
-            _log.error("Failed to add user %s to thread %s: %s", context.user.id, context.channel_id, error)
-
     async def _handle_successful_submission(self, interaction: discord.Interaction, response: Response):
         """Handles actions after a response is successfully added."""
         context = self._context(interaction)
@@ -613,7 +648,12 @@ class GatheringModal(ui.Modal):
             f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
         )
 
-        # 3. Update rank and announce milestones regardless of whether the DM succeeded
+        # Membership must not depend on the optional ranking file or milestone update.
+        await _add_user_to_event_thread(self.event, context, interaction.client)
+        if self.event.role_id and context.guild:
+            await assign_event_role(context.guild, context.user.id, self.event.role_id)
+
+        # Update rank and announce milestones regardless of whether the DM succeeded
         update_rank(context.user.id, context.user.name)
         rank = get_rank(context.user.id, context.user.name)
         if (
@@ -638,12 +678,6 @@ class GatheringModal(ui.Modal):
                     e,
                 )
 
-        await self._add_signup_user_to_thread(context)
-
-        # 5. Assign event participant role
-        if self.event.role_id and context.guild:
-            await assign_event_role(context.guild, context.user.id, self.event.role_id)
-
     async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
         """Handles actions after a user is added to the waitlist."""
         context = self._context(interaction)
@@ -657,7 +691,7 @@ class GatheringModal(ui.Modal):
             f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
         )
 
-        await self._add_signup_user_to_thread(context)
+        await _add_user_to_event_thread(self.event, context, interaction.client)
 
     async def _handle_waitlist_capacity_exceeded(
         self, interaction: discord.Interaction, entry: WaitlistEntry, total_people_in_group: int, remaining_spots: int
@@ -706,7 +740,7 @@ class GatheringModal(ui.Modal):
             f"Your name is recorded as **{recorded_name}**. I've sent you a DM with the details.",
         )
 
-        await self._add_signup_user_to_thread(context)
+        await _add_user_to_event_thread(self.event, context, interaction.client)
 
     async def _send_capacity_reached_message(self, interaction: discord.Interaction):
         """Sends a message to the thread when capacity is first reached."""
@@ -1016,17 +1050,7 @@ class InterestCheckModal(ui.Modal):
             )
 
             # Add user to the thread so they can be reached for follow-ups.
-            try:
-                if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await interaction.channel.add_user(interaction.user)
-                else:
-                    _log.warning(
-                        "Could not add user %s to thread %s (not a thread?).",
-                        interaction.user.id,
-                        interaction.channel_id,
-                    )
-            except discord.HTTPException as e:
-                _log.error("Failed to add user %s to thread %s: %s", interaction.user.id, interaction.channel_id, e)
+            await _add_user_to_event_thread(self.event, SignupContext.from_interaction(interaction), interaction.client)
 
             await _refresh_interest_check_message(interaction.client, self.event)
 

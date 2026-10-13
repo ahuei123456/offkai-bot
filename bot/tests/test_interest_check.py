@@ -78,7 +78,7 @@ def mock_interaction():
     interaction.user.name = "TestUser"
     interaction.user.display_name = "Test Display"
     interaction.user.send = AsyncMock()
-    interaction.channel = MagicMock(spec=discord.Thread)
+    interaction.channel = MagicMock(spec=discord.Thread, archived=False, locked=False)
     interaction.channel.id = 789
     interaction.channel.add_user = AsyncMock()
     interaction.channel.remove_user = AsyncMock()
@@ -169,6 +169,25 @@ async def test_interest_modal_submit_records_noncommittal_response(
     assert mock_interaction.response.send_message.call_args.kwargs.get("ephemeral") is True
     mock_interaction.channel.add_user.assert_awaited_once_with(mock_interaction.user)
     mock_refresh.assert_awaited_once_with(mock_interaction.client, event)
+
+
+@patch("offkai_bot.interactions._refresh_interest_check_message", new_callable=AsyncMock)
+@patch("offkai_bot.interactions.add_response")
+async def test_interest_signup_unarchives_thread_before_adding_member(
+    mock_add_response, mock_refresh, mock_interaction
+):
+    modal = InterestCheckModal(event=make_interest_event())
+    modal.extra_people_input._value = "0"
+    mock_interaction.channel.archived = True
+    active_thread = MagicMock(spec=discord.Thread, id=789, archived=False, locked=False, add_user=AsyncMock())
+    mock_interaction.channel.edit = AsyncMock(return_value=active_thread)
+
+    await modal.on_submit(mock_interaction)
+
+    mock_add_response.assert_called_once()
+    mock_interaction.channel.edit.assert_awaited_once_with(archived=False)
+    active_thread.add_user.assert_awaited_once_with(mock_interaction.user)
+    mock_refresh.assert_awaited_once()
 
 
 @patch("offkai_bot.interactions._refresh_interest_check_message", new_callable=AsyncMock)

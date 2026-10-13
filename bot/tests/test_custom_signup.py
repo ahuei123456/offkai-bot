@@ -1044,7 +1044,7 @@ async def test_payment_dm_keeps_original_server_context_and_replies_directly(cus
     elif outcome == "group_too_large":
         custom_event.max_capacity = 1
     source = interaction()
-    source.channel = MagicMock(spec=discord.Thread)
+    source.channel = MagicMock(spec=discord.Thread, archived=False, locked=False)
     source.channel.add_user = AsyncMock()
     source.channel.send = AsyncMock()
     source.user.display_name = "Original server nickname"
@@ -1152,7 +1152,9 @@ async def test_payment_validation_error_stays_in_dm_and_can_retry(custom_event):
 
 async def test_capacity_notice_from_payment_dm_stays_in_event_thread(custom_event):
     source = interaction()
-    source.channel = MagicMock(spec=discord.Thread, add_user=AsyncMock(), send=AsyncMock())
+    source.channel = MagicMock(
+        spec=discord.Thread, archived=False, locked=False, add_user=AsyncMock(), send=AsyncMock()
+    )
     custom_event.max_capacity = 1
     target = interaction(source.user.id)
     target.guild = None
@@ -1173,7 +1175,9 @@ async def test_saved_payment_dm_reply_failure_keeps_bookkeeping(custom_event, ou
     from offkai_bot import interactions
 
     source = interaction()
-    source.channel = MagicMock(spec=discord.Thread, add_user=AsyncMock(), send=AsyncMock())
+    source.channel = MagicMock(
+        spec=discord.Thread, archived=False, locked=False, add_user=AsyncMock(), send=AsyncMock()
+    )
     custom_event.role_id = 333
     custom_event.max_capacity = 1
     if outcome == "waitlist":
@@ -1346,7 +1350,7 @@ async def test_unexpected_post_defer_failure_recovers_via_followup_without_regis
 @pytest.mark.parametrize("failure", [discord.Forbidden, discord.HTTPException])
 async def test_payment_dm_survives_channel_notice_failure(custom_event, failure, caplog):
     source = interaction()
-    source.channel = MagicMock(spec=discord.Thread)
+    source.channel = MagicMock(spec=discord.Thread, archived=False, locked=False)
     source.channel.add_user = AsyncMock()
 
     async def acknowledge(**kwargs):
@@ -1448,6 +1452,63 @@ def ready_modal(event):
     modal.extra_people_input._value = "0"
     modal.confirmation_input._value = "Yes"
     return modal
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "closed", "capacity", "group_too_large"])
+async def test_payment_signup_adds_user_after_thread_auto_archives(custom_event, outcome):
+    source = interaction()
+    thread = MagicMock(spec=discord.Thread, id=789, archived=False, locked=False)
+    custom_event.thread_id = thread.id
+    source.channel = thread
+    thread.edit = AsyncMock(return_value=thread)
+    members = set()
+
+    async def unarchive(**kwargs):
+        assert kwargs == {"archived": False}
+        thread.archived = False
+        return thread
+
+    async def add_user(user):
+        if thread.archived:
+            raise discord.HTTPException(MagicMock(status=400), {"code": 50083, "message": "Thread is archived"})
+        members.add(user.id)
+
+    thread.edit.side_effect = unarchive
+    thread.add_user = AsyncMock(side_effect=add_user)
+    thread.send = AsyncMock()
+    if outcome == "closed":
+        custom_event.open = False
+    elif outcome == "capacity":
+        custom_event.max_capacity = 0
+    elif outcome == "group_too_large":
+        custom_event.max_capacity = 1
+    modal = ready_modal(custom_event)
+    modal.extra_people_input._value = "1" if outcome == "group_too_large" else "0"
+    modal.extras_names_input._value = "Guest" if outcome == "group_too_large" else ""
+    await modal.on_submit(source)
+    # The event thread can go idle while payment is completed in DMs.
+    thread.archived = True
+    with patch("offkai_bot.interactions.get_rank", return_value=2):
+        await submit_payment(source)
+
+    assert (
+        len([*responses.get_responses(custom_event.event_name), *responses.get_waitlist(custom_event.event_name)]) == 1
+    )
+    assert source.user.id in members
+    thread.edit.assert_awaited_once_with(archived=False)
+
+
+async def test_saved_signup_adds_user_even_when_ranking_file_fails(custom_event):
+    custom_event.signup_form = None
+    source = interaction()
+    source.channel = MagicMock(
+        spec=discord.Thread, archived=False, locked=False, add_user=AsyncMock(), send=AsyncMock()
+    )
+    with patch("offkai_bot.interactions.update_rank", side_effect=OSError("Ranking file is not writable")):
+        await ready_modal(custom_event).on_submit(source)
+
+    assert len(responses.get_responses(custom_event.event_name)) == 1
+    source.channel.add_user.assert_awaited_once_with(source.user)
 
 
 async def test_new_payment_prompt_supersedes_old_open_modal_and_preserves_registry_identity(custom_event):
