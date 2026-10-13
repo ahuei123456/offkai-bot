@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-from offkai_bot.alerts import alerts
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 from offkai_bot.alerts.task import CloseOffkaiTask
 from offkai_bot.data.event import Event, create_event_message
@@ -21,6 +20,8 @@ from offkai_bot.interactions import (
     ValidationError,
     validate_extra_people_input,
 )
+
+from offkai_bot.alerts import alerts
 
 # asyncio_mode = "auto" runs the async tests here without an explicit mark;
 # a module-level asyncio pytestmark would warn on this file's sync tests.
@@ -105,10 +106,9 @@ def test_validate_extra_people_input_rejects_invalid(bad_input):
 # --- InterestCheckModal construction ---
 
 
-async def test_interest_modal_custom_id_uses_short_prefix():
+async def test_interest_modal_custom_id_is_unique_per_instance():
     event = make_interest_event()
-    modal = InterestCheckModal(event=event)
-    assert modal.custom_id == f"imodal_{event.event_name}"
+    assert InterestCheckModal(event=event).custom_id != InterestCheckModal(event=event).custom_id
 
 
 async def test_interest_modal_custom_id_fits_discord_limit_for_max_length_name():

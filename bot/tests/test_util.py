@@ -168,9 +168,9 @@ def test_validate_event_name_too_long():
     assert exc_info.value.max_length == MAX_EVENT_NAME_LENGTH
 
 
-def test_validate_event_name_limit_fits_discord_custom_id():
-    """The modal custom_id 'modal_<event_name>' must fit Discord's 100-char cap."""
-    assert len("modal_") + MAX_EVENT_NAME_LENGTH <= 100
+def test_validate_event_name_limit_fits_discord_thread_name():
+    """Event names become thread names, which Discord caps at 100 characters."""
+    assert MAX_EVENT_NAME_LENGTH <= 100
 
 
 # --- Tests for validate_interaction_context ---

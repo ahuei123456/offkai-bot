@@ -264,10 +264,8 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
     return promoted_user_ids
 
 
-# Discord's modal title cap is smaller than the custom_id cap, so a name that
-# fits "modal_<event_name>" (see MAX_EVENT_NAME_LENGTH) can still be too long
-# to display as the modal's title. Truncate the title only; custom_id keeps
-# the full event name for identity.
+# Discord's modal title cap is smaller than MAX_EVENT_NAME_LENGTH, so a valid
+# event name can still be too long to display as the modal's title.
 MODAL_TITLE_MAX_LENGTH = 45
 
 
@@ -286,14 +284,17 @@ class GatheringModal(ui.Modal):
         payment_method: str | None = None,
         timeout=None,
     ):
+        # No fixed custom_id: discord.py tracks open modals by custom_id alone, so a
+        # per-event id routes every user's submission to whichever modal was opened
+        # last. The library default is random per instance.
         super().__init__(
             title=_build_modal_title(event.event_name),
             timeout=timeout,
-            custom_id=f"modal_{event.event_name}",
         )
         self.event = event
         self.payment_method = payment_method
         self.no_show_agreed = False
+        self._submitted_answers: tuple[str, str, str, str, str] | None = None
         self.origin_context: SignupContext | None = None
         self.reply_in_dm = False
         self.fields = event.signup_form.get("fields", []) if event.signup_form else None
@@ -679,12 +680,19 @@ class GatheringModal(ui.Modal):
         await self._submit(interaction)
 
     async def _submit(self, interaction: discord.Interaction, *, final: bool = False):
-        # 1. Get Input Values
-        preferred_name_str = self.preferred_name_input.value
-        extra_people_str = self.extra_people_input.value if self.fields is None or "guests" in self.fields else "0"
-        confirmation_str = self.confirmation_input.value
-        drink_choice_str = self.drink_choice_input.value if self.drink_choice_input else "N/A"
-        extra_names_str = self.extras_names_input.value if self.fields is None or "guests" in self.fields else ""
+        # 1. Get Input Values. The final (post-payment) step reuses the answers
+        # captured on the first submit rather than re-reading the input widgets.
+        if final and self._submitted_answers is not None:
+            answers = self._submitted_answers
+        else:
+            answers = (
+                self.preferred_name_input.value,
+                self.extra_people_input.value if self.fields is None or "guests" in self.fields else "0",
+                self.confirmation_input.value,
+                self.drink_choice_input.value if self.drink_choice_input else "N/A",
+                self.extras_names_input.value if self.fields is None or "guests" in self.fields else "",
+            )
+        preferred_name_str, extra_people_str, confirmation_str, drink_choice_str, extra_names_str = answers
         try:
             methods = _payment_methods(self.event)
             # 2. Validate Inputs using Helpers (Raises ValidationError on failure)
@@ -716,6 +724,7 @@ class GatheringModal(ui.Modal):
 
             if methods or (self.fields and "no_show" in self.fields):
                 if not final:
+                    self._submitted_answers = answers
                     prompt = (
                         "Please choose a payment method to complete your registration. "
                         "Offkai Bot will send you the instructions on completing payment"
@@ -888,12 +897,10 @@ class InterestCheckModal(ui.Modal):
         event: Event,
         timeout=None,
     ):
-        # Short "imodal_" prefix keeps the custom_id within Discord's 100-char
-        # cap for names up to MAX_EVENT_NAME_LENGTH (see GatheringModal).
+        # No fixed custom_id, for the same reason as GatheringModal.
         super().__init__(
             title=_build_modal_title(event.event_name),
             timeout=timeout,
-            custom_id=f"imodal_{event.event_name}",
         )
         self.event = event
 

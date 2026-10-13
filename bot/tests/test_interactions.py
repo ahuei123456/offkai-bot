@@ -44,7 +44,14 @@ async def test_gathering_modal_title_truncated_for_long_event_name():
     modal = GatheringModal(event=_make_event(event_name))
 
     assert len(modal.title) <= MODAL_TITLE_MAX_LENGTH
-    assert modal.custom_id == f"modal_{event_name}"
+
+
+async def test_gathering_modal_custom_id_is_unique_per_instance():
+    """discord.py routes modal submissions by custom_id alone, so ids must not be shared per event."""
+    event = _make_event("Shared Event")
+    first, second = GatheringModal(event=event), GatheringModal(event=event)
+    assert first.custom_id != second.custom_id
+    assert len(first.custom_id) <= 100
 
 
 async def test_gathering_modal_title_unchanged_for_short_event_name():

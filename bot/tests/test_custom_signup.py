@@ -1,18 +1,21 @@
 """Focused custom signup regression, with all Discord delivery mocked."""
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from discord.ui.view import ViewStore
 from offkai_bot.cogs.events import EventsCog
-from offkai_bot.data import event as events
-from offkai_bot.data import response as responses
 from offkai_bot.data.event import Event, create_event_message
 from offkai_bot.interactions import GatheringModal, promote_waitlist_batch, render_custom_reply_sections, start_signup
 from offkai_bot.signup_setup import InstructionModal, SignupSetup
 from offkai_bot.util import build_checkin_token
+
+from offkai_bot.data import event as events
+from offkai_bot.data import response as responses
 
 
 @pytest.fixture(autouse=True)
@@ -244,6 +247,69 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
     assert saved.no_show_agreed
     reply = source.payment_target.response.send_message.call_args.args[0]
     assert "Synthetic organizer instructions" in reply and "https://synthetic.invalid/pass" in reply
+
+
+async def test_overlapping_signups_keep_each_users_answers(custom_event):
+    """Two users with modals open at once must each be recorded with their own answers.
+
+    Routes submissions through discord.py's real ViewStore, which looks modals up by
+    custom_id alone; a shared per-event id sent both submissions to the last-opened modal.
+    """
+    events.EVENT_DATA_CACHE = [custom_event]
+    store = ViewStore(MagicMock())
+    tasks: list[asyncio.Task[None]] = []
+    store.add_task = tasks.append  # type: ignore[method-assign]
+    alice, bob = interaction(1), interaction(2)
+    await start_signup(alice, custom_event)
+    await start_signup(bob, custom_event)
+    alice_modal = alice.response.send_modal.call_args.args[0]
+    bob_modal = bob.response.send_modal.call_args.args[0]
+    store.add_view(alice_modal)
+    store.add_view(bob_modal)
+
+    def answers(name, guests, guest_names):
+        return [
+            {"type": 1, "components": [{"type": 4, "custom_id": custom_id, "value": value}]}
+            for custom_id, value in [
+                ("preferred_name", name),
+                ("extra_people", guests),
+                ("behavior_arrival_confirm", "Yes"),
+                ("extras_names", guest_names),
+            ]
+        ]
+
+    # Both users finish the details step before either reaches the payment step.
+    store.dispatch_modal(alice_modal.custom_id, alice, answers("Alice", "1", "Alice Guest"), {})
+    store.dispatch_modal(bob_modal.custom_id, bob, answers("Bob", "0", ""), {})
+    await asyncio.gather(*tasks)
+    assert len(tasks) == 2
+
+    with patch("offkai_bot.interactions.build_checkin_url", return_value=None):
+        await submit_payment(alice)
+        await submit_payment(bob)
+
+    saved = {r.user_id: r for r in responses.get_responses(custom_event.event_name)}
+    assert saved[1].display_name == "Alice" and saved[1].extra_people == 1 and saved[1].extras_names == ["Alice Guest"]
+    assert saved[2].display_name == "Bob" and saved[2].extra_people == 0 and saved[2].extras_names == []
+    alice_reply = alice.payment_target.response.send_message.call_args.args[0]
+    assert "Alice" in alice_reply and "Bob" not in alice_reply
+
+
+async def test_payment_step_uses_answers_captured_at_first_submit(custom_event):
+    events.EVENT_DATA_CACHE = [custom_event]
+    source = interaction()
+    modal = GatheringModal(event=custom_event)
+    modal.preferred_name_input._value = "First Answer"
+    modal.extra_people_input._value = "0"
+    modal.confirmation_input._value = "Yes"
+    await modal.on_submit(source)
+    # Anything that touches the widgets after the first submit must not leak into the record.
+    modal.preferred_name_input._value = "Overwritten"
+    modal.extra_people_input._value = "2"
+    with patch("offkai_bot.interactions.build_checkin_url", return_value=None):
+        await submit_payment(source)
+    saved = responses.get_responses(custom_event.event_name)[0]
+    assert saved.display_name == "First Answer" and saved.extra_people == 0
 
 
 async def test_full_drinks_form_keeps_every_existing_field_before_payment(custom_event):
