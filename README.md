@@ -388,6 +388,10 @@ uv run ty check
   - Parameters: file, apply (optional, default: False; without it the command only previews the changes)
   - Uploads are validated strictly; any error rejects the whole file. Registrations missing from the file (e.g. sign-ups after the export) are flagged in the preview. On apply, the previous data is attached to the reply and also backed up on disk. The waitlist is not rebalanced automatically.
 
+- `/resend_confirmation` - DM registrants their current registration details with a note that the organizers updated them (e.g. after `/import_responses`)
+  - Parameters: event_name, member (optional; leave empty to DM every attendee and waitlisted user)
+  - Reports anyone whose DMs couldn't be delivered.
+
 ### Communication
 
 - `/broadcast` - Send message to all attendees
