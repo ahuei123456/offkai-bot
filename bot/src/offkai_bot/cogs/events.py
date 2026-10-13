@@ -34,6 +34,7 @@ from offkai_bot.data.response import (
     calculate_waitlist,
     clear_attendee_numbers,
     format_organizer_name,
+    get_responses,
     get_waitlist,
     has_complete_attendee_numbers,
     load_responses,
@@ -55,6 +56,7 @@ from offkai_bot.errors import (
     InvalidChannelTypeError,
     MissingChannelIDError,
     PinPermissionError,
+    ResponseNotFoundError,
     ResponsesImportError,
     ThreadAccessError,
     ThreadCreationError,
@@ -66,7 +68,7 @@ from offkai_bot.event_actions import (
     send_event_message,
     update_event_message,
 )
-from offkai_bot.interactions import promote_waitlist_batch, send_signup_reply
+from offkai_bot.interactions import promote_waitlist_batch, resend_registration_details, send_signup_reply
 from offkai_bot.registration_removal import remove_registration
 from offkai_bot.role_management import assign_event_role, create_event_role
 from offkai_bot.signup_setup import PublicationState, SignupSetup
@@ -787,6 +789,37 @@ class EventsCog(commands.Cog):
         )
 
     @app_commands.command(
+        name="resend_confirmation",
+        description="DMs registrants their current registration details, e.g. after a correction.",
+    )
+    @app_commands.describe(
+        event_name="The name of the event.",
+        member="Only DM this member. Leave empty to DM everyone registered, including the waitlist.",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def resend_confirmation(
+        self, interaction: discord.Interaction, event_name: str, member: discord.Member | None = None
+    ):
+        validate_guild_context(interaction)
+        await interaction.response.defer(ephemeral=True)
+        event = get_event(event_name)
+        if event.interest_check:
+            raise InterestCheckOperationError(event_name, "Resending confirmations")
+        user_ids = None
+        if member is not None:
+            registered = [*get_responses(event_name), *get_waitlist(event_name)]
+            if not any(entry.user_id == member.id for entry in registered):
+                raise ResponseNotFoundError(event_name, member.id)
+            user_ids = {member.id}
+
+        sent, failed = await resend_registration_details(event, self.bot, user_ids)
+        message = f"📨 Sent updated details for '{event_name}' to {len(sent)} registrant(s)."
+        if failed:
+            message += f"\n⚠️ Couldn't DM {len(failed)} (DMs closed?): {', '.join(failed)}"
+        await _send_long_followup(interaction, message, "resend_confirmation")
+
+    @app_commands.command(
         name="migrate_rank",
         description="Reassigns a legacy username-keyed rank entry to a member.",
     )
@@ -1091,6 +1124,7 @@ class EventsCog(commands.Cog):
     close_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     broadcast.autocomplete("event_name")(offkai_autocomplete_active)
     delete_response.autocomplete("event_name")(offkai_autocomplete_active)
+    resend_confirmation.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     promote.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     promote.autocomplete("username")(waitlist_user_autocomplete)
     attendance.autocomplete("event_name")(offkai_autocomplete_all_non_archived)

@@ -154,6 +154,108 @@ def get_remaining_capacity(event: Event) -> int | None:
     return max(0, event.max_capacity - current_count)
 
 
+def build_confirmation_message(event: Event, response: Response) -> str:
+    """Default (non-custom-form) DM body for a confirmed attendee."""
+    recorded_name = get_effective_display_name(response)
+    rsvp_url = build_checkin_url(response.user_id, response.event_name)
+    rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
+    rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
+    drinks_msg = f"\n🍺 Drinks: {', '.join(response.drinks)}" if response.drinks else ""
+    drinks_msg_jp = f"\n🍺 飲み物: {', '.join(response.drinks)}" if response.drinks else ""
+    return (
+        f"✅ Attendance confirmed for **{event.event_name}**!\n"
+        f"👤 Name recorded: {recorded_name}\n"
+        f"👥 Bringing: {response.extra_people} extra guest(s)\n"
+        f"✔ Behavior Confirmed\n"
+        f"✔ Arrival Confirmed"
+        f"{drinks_msg}"
+        f"{rsvp_link_msg}\n\n"
+        f"✅ 参加確定: **{event.event_name}**\n"
+        f"👤 登録名: {recorded_name}\n"
+        f"👥 同伴者: {response.extra_people}名\n"
+        f"✔ 行動確認済み\n"
+        f"✔ 到着確認済み"
+        f"{drinks_msg_jp}"
+        f"{rsvp_link_msg_jp}\n\n"
+        f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+        f"If you withdraw late, you are fully responsible for any consequences, including "
+        f"payment requests from the event organizer and potential server moderation action.\n\n"
+        f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
+        f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+        f"すべての結果に対して、全責任を負います。"
+    )
+
+
+def build_waitlist_message(event: Event, entry: WaitlistEntry) -> str:
+    """Default (non-custom-form) DM body for a waitlisted registrant."""
+    recorded_name = get_effective_display_name(entry)
+    drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
+    drinks_msg_jp = f"\n🍺 飲み物: {', '.join(entry.drinks)}" if entry.drinks else ""
+    return (
+        f"📋 You've been added to the waitlist for **{event.event_name}**!\n"
+        f"👤 Name recorded: {recorded_name}\n"
+        f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
+        f"✔ Behavior Confirmed\n"
+        f"✔ Arrival Confirmed"
+        f"{drinks_msg}\n\n"
+        f"📋 **{event.event_name}**のウェイトリストに追加されました！\n"
+        f"👤 登録名: {recorded_name}\n"
+        f"👥 同伴者: {entry.extra_people}名\n"
+        f"✔ 行動確認済み\n"
+        f"✔ 到着確認済み"
+        f"{drinks_msg_jp}\n\n"
+        f"You will be automatically added to the event if a spot opens up.\n"
+        f"空きが出た場合、自動的にイベントに追加されます。\n\n"
+        f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+        f"If you withdraw late, you are fully responsible for any consequences, including "
+        f"payment requests from the event organizer and potential server moderation action.\n\n"
+        f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
+        f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+        f"すべての結果に対して、全責任を負います。\n\n"
+        f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
+        f"you may be charged extra by the organizers.\n"
+        f"💰 **注意:** 誰もキャンセルせず、それでもオフ会への参加が認められた場合、"
+        f"主催者から追加料金が請求される場合があります。"
+    )
+
+
+# Prepended to a resent confirmation so the registrant knows why they got it again.
+REGISTRATION_UPDATED_NOTICE = (
+    "🔄 The organizers updated your registration for **{event_name}**. Your current details are below.",
+    "🔄 主催者が**{event_name}**の登録内容を更新しました。現在の登録内容は以下の通りです。",
+)
+
+
+async def resend_registration_details(
+    event: Event, client: discord.Client, user_ids: set[int] | None = None
+) -> tuple[list[str], list[str]]:
+    """DM registrants their current details, as recorded now.
+
+    Covers attendees and the waitlist, or only `user_ids` when given.
+    Returns (sent, failed) as lists of usernames.
+    """
+    targets: list[tuple[Response | WaitlistEntry, str, str]] = [
+        (r, "Attendance confirmed", build_confirmation_message(event, r)) for r in get_responses(event.event_name)
+    ] + [
+        (w, "Waitlisted — attendance is not confirmed", build_waitlist_message(event, w))
+        for w in get_waitlist(event.event_name)
+    ]
+    notice = tuple(line.format(event_name=event.event_name) for line in REGISTRATION_UPDATED_NOTICE)
+    sent: list[str] = []
+    failed: list[str] = []
+    for entry, status, message in targets:
+        if user_ids is not None and entry.user_id not in user_ids:
+            continue
+        try:
+            user = await client.fetch_user(entry.user_id)
+            await send_signup_reply(user.send, event, entry, status, message, notice=(notice[0], notice[1]))
+            sent.append(entry.username)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            _log.warning("Could not resend details to user %s for '%s': %s", entry.user_id, event.event_name, e)
+            failed.append(entry.username)
+    return sent, failed
+
+
 async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spots: int | None = None) -> list[int]:
     """
     Promote users from waitlist to fill available capacity.
@@ -497,41 +599,12 @@ class GatheringModal(ui.Modal):
         """Handles actions after a response is successfully added."""
         context = self._context(interaction)
         recorded_name = get_effective_display_name(response)
-        rsvp_url = build_checkin_url(response.user_id, response.event_name)
-        rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
-        rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
-
-        # 1. Create the confirmation message string
-        drinks_msg = f"\n🍺 Drinks: {', '.join(response.drinks)}" if response.drinks else ""
-        drinks_msg_jp = f"\n🍺 飲み物: {', '.join(response.drinks)}" if response.drinks else ""
-        confirmation_message = (
-            f"✅ Attendance confirmed for **{self.event.event_name}**!\n"
-            f"👤 Name recorded: {recorded_name}\n"
-            f"👥 Bringing: {response.extra_people} extra guest(s)\n"
-            f"✔ Behavior Confirmed\n"
-            f"✔ Arrival Confirmed"
-            f"{drinks_msg}"
-            f"{rsvp_link_msg}\n\n"
-            f"✅ 参加確定: **{self.event.event_name}**\n"
-            f"👤 登録名: {recorded_name}\n"
-            f"👥 同伴者: {response.extra_people}名\n"
-            f"✔ 行動確認済み\n"
-            f"✔ 到着確認済み"
-            f"{drinks_msg_jp}"
-            f"{rsvp_link_msg_jp}\n\n"
-            f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
-            f"If you withdraw late, you are fully responsible for any consequences, including "
-            f"payment requests from the event organizer and potential server moderation action.\n\n"
-            f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
-            f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-            f"すべての結果に対して、全責任を負います。"
-        )
 
         await self._deliver_signup_reply(
             interaction,
             response,
             "Attendance confirmed",
-            confirmation_message,
+            build_confirmation_message(self.event, response),
             f"✅ Your attendance is confirmed as **{recorded_name}**! I've sent you a DM with the details.",
         )
 
@@ -570,41 +643,12 @@ class GatheringModal(ui.Modal):
         """Handles actions after a user is added to the waitlist."""
         context = self._context(interaction)
         recorded_name = get_effective_display_name(entry)
-        # 1. Create the waitlist confirmation message
-        drinks_msg = f"\n🍺 Drinks: {', '.join(entry.drinks)}" if entry.drinks else ""
-        drinks_msg_jp = f"\n🍺 飲み物: {', '.join(entry.drinks)}" if entry.drinks else ""
-        waitlist_message = (
-            f"📋 You've been added to the waitlist for **{self.event.event_name}**!\n"
-            f"👤 Name recorded: {recorded_name}\n"
-            f"👥 Bringing: {entry.extra_people} extra guest(s)\n"
-            f"✔ Behavior Confirmed\n"
-            f"✔ Arrival Confirmed"
-            f"{drinks_msg}\n\n"
-            f"📋 **{self.event.event_name}**のウェイトリストに追加されました！\n"
-            f"👤 登録名: {recorded_name}\n"
-            f"👥 同伴者: {entry.extra_people}名\n"
-            f"✔ 行動確認済み\n"
-            f"✔ 到着確認済み"
-            f"{drinks_msg_jp}\n\n"
-            f"You will be automatically added to the event if a spot opens up.\n"
-            f"空きが出た場合、自動的にイベントに追加されます。\n\n"
-            f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
-            f"If you withdraw late, you are fully responsible for any consequences, including "
-            f"payment requests from the event organizer and potential server moderation action.\n\n"
-            f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
-            f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-            f"すべての結果に対して、全責任を負います。\n\n"
-            f"💰 **Note:** If no one drops out and you are still allowed to join the offkai, "
-            f"you may be charged extra by the organizers.\n"
-            f"💰 **注意:** 誰もキャンセルせず、それでもオフ会への参加が認められた場合、"
-            f"主催者から追加料金が請求される場合があります。"
-        )
 
         await self._deliver_signup_reply(
             interaction,
             entry,
             "Waitlisted — attendance is not confirmed",
-            waitlist_message,
+            build_waitlist_message(self.event, entry),
             f"📋 You've been added to the waitlist as **{recorded_name}**! I've sent you a DM with the details.",
         )
 
@@ -1613,14 +1657,21 @@ async def send_signup_reply(
     status: str,
     default_message: str,
     promotion: bool = False,
+    notice: tuple[str, str] | None = None,
     **kwargs: Any,
 ) -> None:
+    """`notice` is an (English, Japanese) pair shown above the reply."""
     sections = render_custom_reply_sections(event, entry, status) if event.signup_form else []
     if sections and promotion:
         sections[0] = (
             "🎉 A spot has opened up! You have moved from the waitlist to confirmed attendance.\n\n" + sections[0]
         )
         sections[1] = "🎉 空きが出たため、ウェイトリストから参加確定に移動しました。\n\n" + sections[1]
+    if sections and notice:
+        sections[0] = f"{notice[0]}\n\n{sections[0]}"
+        sections[1] = f"{notice[1]}\n\n{sections[1]}"
+    elif notice:
+        default_message = f"{notice[0]}\n{notice[1]}\n\n{default_message}"
     message = "\n\n".join(sections) if sections else default_message
     if sections and len(message) > 2000:
         await send(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
