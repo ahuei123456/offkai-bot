@@ -3,7 +3,7 @@ import csv
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 import discord
@@ -36,8 +36,15 @@ from offkai_bot.data.response import (
     format_organizer_name,
     get_waitlist,
     has_complete_attendee_numbers,
+    load_responses,
     promote_waitlist_response,
     save_responses,
+)
+from offkai_bot.data.responses_transfer import (
+    describe_responses_changes,
+    export_responses_json,
+    parse_responses_import,
+    replace_responses,
 )
 from offkai_bot.errors import (
     BroadcastPermissionError,
@@ -48,6 +55,7 @@ from offkai_bot.errors import (
     InvalidChannelTypeError,
     MissingChannelIDError,
     PinPermissionError,
+    ResponsesImportError,
     ThreadAccessError,
     ThreadCreationError,
     ThreadNotFoundError,
@@ -77,6 +85,7 @@ _log = logging.getLogger(__name__)
 
 ATTENDANCE_FILE_THRESHOLD = 100
 DISCORD_MESSAGE_SOFT_LIMIT = 1900
+MAX_RESPONSES_IMPORT_BYTES = 8 * 1024 * 1024
 
 
 def _format_attendance_output(event_name: str, total_count: int, attendee_list: list[str]) -> str:
@@ -87,6 +96,22 @@ def _format_attendance_output(event_name: str, total_count: int, attendee_list: 
     lines = [f"{attendee_numbers[i] if use_stored_numbers else i + 1}. {name}" for i, name in enumerate(attendee_list)]
     output += "\n".join(lines)
     return output
+
+
+def _responses_file(data: bytes, stem: str) -> discord.File:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return discord.File(fp=io.BytesIO(data), filename=f"{stem}_{timestamp}.json")
+
+
+async def _send_long_followup(
+    interaction: discord.Interaction, text: str, stem: str, extra_files: list[discord.File] | None = None
+) -> None:
+    """Send `text` ephemerally, moving it into an attached .txt when it is too long for one message."""
+    files = list(extra_files or [])
+    if len(text) > DISCORD_MESSAGE_SOFT_LIMIT:
+        files.append(discord.File(fp=io.BytesIO(text.encode("utf-8")), filename=f"{stem}.txt"))
+        text = text.split("\n", 1)[0] + "\nThe full list of changes is attached."
+    await interaction.followup.send(text, files=files, ephemeral=True)
 
 
 def _attendance_filename(event_name: str) -> str:
@@ -687,6 +712,79 @@ class EventsCog(commands.Cog):
         for warning in result["warnings"]:
             message += f"\n⚠️ {warning}"
         await interaction.followup.send(message, ephemeral=True)
+
+    @app_commands.command(
+        name="export_responses",
+        description="Downloads the raw responses data (all events) as a JSON file.",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def export_responses(self, interaction: discord.Interaction):
+        validate_guild_context(interaction)
+        await interaction.response.defer(ephemeral=True)
+        exported = export_responses_json()
+        try:
+            await interaction.user.send(
+                "Raw responses data is attached. Edit it and upload it with `/import_responses` to apply changes. "
+                "Anyone who signs up after this export won't be in the file.",
+                file=_responses_file(exported, "responses"),
+            )
+            await interaction.followup.send("Responses data has been sent to you by DM.", ephemeral=True)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            _log.warning("Could not DM responses export to user %s: %s", interaction.user.id, e)
+            await interaction.followup.send(
+                "I couldn't send you a DM, so I've attached the responses data here.",
+                file=_responses_file(exported, "responses"),
+                ephemeral=True,
+            )
+
+    @app_commands.command(
+        name="import_responses",
+        description="Replaces the responses data with an uploaded JSON file. Previews unless apply is set.",
+    )
+    @app_commands.describe(
+        file="An edited JSON file from /export_responses.",
+        apply="Apply the changes. Leave unset to only preview them.",
+    )
+    @app_commands.checks.has_role("Offkai Organizer")
+    @log_command_usage
+    async def import_responses(self, interaction: discord.Interaction, file: discord.Attachment, apply: bool = False):
+        validate_guild_context(interaction)
+        await interaction.response.defer(ephemeral=True)
+        if file.size > MAX_RESPONSES_IMPORT_BYTES:
+            raise ResponsesImportError("The file is too large.")
+        new_data = parse_responses_import(await file.read())
+        changes, changed_events = describe_responses_changes(load_responses(), new_data)
+        if not changes:
+            await interaction.followup.send("No differences from the current data; nothing to import.", ephemeral=True)
+            return
+
+        if not apply:
+            await _send_long_followup(
+                interaction,
+                "🔍 **Preview only, nothing changed.** Run again with `apply: True` to apply:\n" + "\n".join(changes),
+                "import_preview",
+            )
+            return
+
+        previous = export_responses_json()
+        backup_path = replace_responses(new_data)
+        for event_name in changed_events:
+            with contextlib.suppress(EventNotFoundError):
+                await update_event_message(self.bot, get_event(event_name))
+        await _send_long_followup(
+            interaction,
+            "✅ **Imported.** The waitlist is not rebalanced automatically; use `/promote` if spots opened up.\n"
+            + "\n".join(changes),
+            "import_result",
+            extra_files=[_responses_file(previous, "responses_before_import")],
+        )
+        _log.warning(
+            "User %s imported responses data; changed events: %s; backup at %s",
+            interaction.user.id,
+            sorted(changed_events),
+            backup_path,
+        )
 
     @app_commands.command(
         name="migrate_rank",

@@ -320,6 +320,14 @@ class BroadcastSendError(BotCommandError):
 # ... and so on
 
 
+class ResponsesImportError(BotCommandError):
+    """Raised when an uploaded responses file is rejected."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(f"❌ Import rejected, nothing was changed. {reason}")
+
+
 class RegistrationChangedError(BotCommandError):
     """An admin action targeted a registration that has since changed."""
 

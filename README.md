@@ -382,6 +382,12 @@ uv run ty check
 - `/waitlist` - View waitlisted users
   - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False; includes `@username` for disambiguation)
 
+- `/export_responses` - DM yourself the raw responses data (all events) as JSON
+
+- `/import_responses` - Replace the responses data with an edited export
+  - Parameters: file, apply (optional, default: False; without it the command only previews the changes)
+  - Uploads are validated strictly; any error rejects the whole file. Registrations missing from the file (e.g. sign-ups after the export) are flagged in the preview. On apply, the previous data is attached to the reply and also backed up on disk. The waitlist is not rebalanced automatically.
+
 ### Communication
 
 - `/broadcast` - Send message to all attendees
