@@ -22,6 +22,36 @@ from offkai_bot.errors import (
 )
 
 _log = logging.getLogger(__name__)
+
+
+async def send_interaction_error(
+    interaction: discord.Interaction,
+    message: str,
+    *,
+    user_info: str = "",
+    dm_fallback: bool = False,
+    logger: logging.Logger | None = None,
+) -> None:
+    """Deliver an error safely, with an optional ordinary-DM fallback for DM forms."""
+    logger = logger or _log
+    user_info = user_info or f"User: {interaction.user.id}"
+    try:
+        send = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+        try:
+            if dm_fallback:
+                await send(message)
+            else:
+                await send(message, ephemeral=True)
+        except (discord.HTTPException, discord.InteractionResponded):
+            if not dm_fallback:
+                raise
+            await interaction.user.send(message)
+    except discord.HTTPException as error:
+        logger.error("%s - Failed to send error response message: %s", user_info, error)
+    except Exception as error:
+        logger.error("%s - Exception sending error response message: %s", user_info, error, exc_info=error)
+
+
 # --- Define JST using zoneinfo (preferred) ---
 
 JST = ZoneInfo("Asia/Tokyo")
