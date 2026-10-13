@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+
 from offkai_bot.cogs.events import EventsCog
 from offkai_bot.data import response as data
 from offkai_bot.data.encoders import DataclassJSONEncoder

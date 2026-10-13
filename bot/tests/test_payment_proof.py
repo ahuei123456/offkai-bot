@@ -5,6 +5,7 @@ import discord
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+
 from offkai_bot import payment_proof
 from offkai_bot.data.event import Event
 from offkai_bot.data.response import Response, WaitlistEntry

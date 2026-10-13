@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import discord
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+
 from offkai_bot import admin_api
 from offkai_bot.data.event import Event
 from offkai_bot.data.response import (

@@ -15,11 +15,11 @@ uv run pytest bot/tests/data/test_event.py              # single file
 uv run pytest bot/tests/data/test_event.py::test_name   # single test
 
 # Bot - Lint and format
-uvx ruff check --fix .
-uvx ruff format .
+uv run ruff check --fix .
+uv run ruff format .
 
 # Bot - Type check
-uvx ty check
+uv run ty check
 
 # Frontend - Local dev
 npm run dev --prefix frontend
@@ -104,8 +104,8 @@ npm run lint --prefix frontend
 
 All tasks must pass these gates before completion:
 
-1. **Bot Linting**: `uvx ruff check --fix .` — no remaining lint errors.
-2. **Bot Type Checking**: `uvx ty check` — must be clean. No `type: ignore` unless absolutely necessary and justified.
+1. **Bot Linting**: `uv run ruff check --fix .` — no remaining lint errors.
+2. **Bot Type Checking**: `uv run ty check` — must be clean. No `type: ignore` unless absolutely necessary and justified.
 3. **Bot Testing**: `uv run pytest bot/tests` — all tests must pass. New features must have associated tests.
 4. **Frontend Linting/Build**: `npm run lint --prefix frontend` and `npm run build --prefix frontend` must compile without errors.
 

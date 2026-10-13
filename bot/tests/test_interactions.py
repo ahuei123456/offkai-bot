@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
 from offkai_bot.data.event import Event
 from offkai_bot.interactions import (
     MODAL_TITLE_MAX_LENGTH,
