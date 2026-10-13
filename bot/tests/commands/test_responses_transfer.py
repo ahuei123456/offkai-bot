@@ -13,6 +13,7 @@ from offkai_bot.data.response import EventData, Response, WaitlistEntry, get_res
 from offkai_bot.data.responses_transfer import (
     describe_responses_changes,
     export_responses_json,
+    merge_responses_import,
     parse_responses_import,
     replace_responses,
 )
@@ -76,20 +77,37 @@ def exported_dict() -> dict:
     return json.loads(export_responses_json())
 
 
+def merged_upload(current, data: dict) -> dict[str, EventData]:
+    return merge_responses_import(current, parse_responses_import(json.dumps(data).encode()))
+
+
+def make_waitlisted(user_id, username, event_name="Summer Bash"):
+    return WaitlistEntry(
+        user_id=user_id,
+        username=username,
+        extra_people=0,
+        behavior_confirmed=True,
+        arrival_confirmed=True,
+        event_name=event_name,
+        timestamp=TS,
+    )
+
+
 # --- Data layer ---
 
 
 def test_export_then_import_round_trips_unchanged(current_data):
-    parsed = parse_responses_import(export_responses_json())
-    assert parsed == current_data
-    lines, changed = describe_responses_changes(current_data, parsed)
+    upload = parse_responses_import(export_responses_json())
+    assert upload.events == current_data
+    merged = merge_responses_import(current_data, upload)
+    lines, changed = describe_responses_changes(current_data, merged)
     assert lines == [] and changed == set()
 
 
 def test_import_applies_an_edited_name(current_data):
     data = exported_dict()
     data["Summer Bash"]["attendees"][0].update(display_name="Alice", extra_people=0, extras_names=[])
-    parsed = parse_responses_import(json.dumps(data).encode())
+    parsed = merged_upload(current_data, data)
 
     lines, changed = describe_responses_changes(current_data, parsed)
     assert changed == {"Summer Bash"}
@@ -108,8 +126,57 @@ def test_import_applies_an_edited_name(current_data):
 def test_registrations_missing_from_upload_are_flagged(current_data):
     data = exported_dict()
     data["Summer Bash"]["waitlist"] = []
-    lines, _ = describe_responses_changes(current_data, parse_responses_import(json.dumps(data).encode()))
+    lines, _ = describe_responses_changes(current_data, merged_upload(current_data, data))
     assert any("REMOVED" in line and "carol" in line for line in lines)
+
+
+def test_signup_after_export_in_an_unedited_event_is_kept(current_data):
+    data = exported_dict()
+    data["Summer Bash"]["attendees"][0]["display_name"] = "Alice"
+    # Someone signs up for another event between the export and the import.
+    current_data["Winter Meetup"] = EventData(attendees=[], waitlist=[make_waitlisted(9, "dave", "Winter Meetup")])
+
+    merged = merged_upload(current_data, data)
+    assert merged["Summer Bash"]["attendees"][0].display_name == "Alice"
+    assert [e.username for e in merged["Winter Meetup"]["waitlist"]] == ["dave"]
+    lines, changed = describe_responses_changes(current_data, merged)
+    assert changed == {"Summer Bash"}
+
+
+def test_unedited_event_keeps_changes_made_after_export(current_data):
+    data = exported_dict()
+    data["Other Event"] = {"attendees": [], "waitlist": []}  # Harmless no-op addition.
+    current_data["Summer Bash"]["waitlist"].append(make_waitlisted(9, "dave"))
+
+    merged = merged_upload(current_data, data)
+    assert [e.username for e in merged["Summer Bash"]["waitlist"]] == ["carol", "dave"]
+
+
+def test_edit_to_an_event_that_changed_after_export_is_rejected(current_data):
+    data = exported_dict()
+    data["Summer Bash"]["attendees"][0]["display_name"] = "Alice"
+    current_data["Summer Bash"]["waitlist"].append(make_waitlisted(9, "dave"))
+
+    with pytest.raises(ResponsesImportError, match="changed in the bot after your export for: Summer Bash"):
+        merged_upload(current_data, data)
+
+
+def test_upload_without_export_metadata_is_rejected(current_data):
+    data = exported_dict()
+    del data["_export"]
+    with pytest.raises(ResponsesImportError, match="no valid '_export' section"):
+        parse_responses_import(json.dumps(data).encode())
+
+
+def test_rollback_file_undoes_an_import(current_data):
+    data = exported_dict()
+    data["Summer Bash"]["attendees"][0]["display_name"] = "Alice"
+    merged = merged_upload(current_data, data)
+    rollback = export_responses_json(data=current_data, baseline=merged)
+    replace_responses(merged)
+
+    restored = merge_responses_import(merged, parse_responses_import(rollback))
+    assert restored["Summer Bash"]["attendees"][0].display_name == "Bob"
 
 
 @pytest.mark.parametrize(
@@ -121,6 +188,7 @@ def test_registrations_missing_from_upload_are_flagged(current_data):
         (lambda d: d["Summer Bash"]["attendees"][0].update(extra_people=6), "must be 0-5"),
         (lambda d: d["Summer Bash"]["attendees"][0].update(extra_people=2), "exactly 2 extras_names"),
         (lambda d: d["Summer Bash"]["waitlist"][0].update(user_id=1), "more than once"),
+        (lambda d: d["Summer Bash"]["attendees"][0].update(event_name="Winter Meetup"), "must be 'Summer Bash'"),
     ],
 )
 def test_invalid_uploads_are_rejected(current_data, mutate, message):
@@ -166,7 +234,10 @@ def attachment(payload: bytes) -> MagicMock:
 async def test_export_command_dms_the_file(cog, interaction, current_data):
     await EventsCog.export_responses.callback(cog, interaction)
     sent = interaction.user.send.call_args.kwargs["file"]
-    assert json.loads(sent.fp.read()) == exported_dict()
+    sent_data, expected = json.loads(sent.fp.read()), exported_dict()
+    for data in (sent_data, expected):
+        del data["_export"]["exported_at"]
+    assert sent_data == expected
     interaction.followup.send.assert_awaited_once()
 
 
@@ -190,7 +261,12 @@ async def test_import_command_applies_and_returns_previous_data(
     update_message.assert_awaited_once()
     kwargs = interaction.followup.send.call_args.kwargs
     assert "Imported" in interaction.followup.send.call_args.args[0]
-    assert json.loads(kwargs["files"][0].fp.read()) == previous
+    rollback = json.loads(kwargs["files"][0].fp.read())
+    # Same registrations as before the import, fingerprinted against the imported data so it can be re-imported.
+    assert {k: v for k, v in rollback.items() if k != "_export"} == {
+        k: v for k, v in previous.items() if k != "_export"
+    }
+    assert rollback["_export"]["event_fingerprints"] != previous["_export"]["event_fingerprints"]
 
 
 async def test_import_command_reports_no_differences(cog, interaction, current_data):

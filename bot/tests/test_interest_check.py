@@ -12,6 +12,7 @@ from offkai_bot.data.response import Response
 from offkai_bot.errors import DuplicateResponseError, ResponseNotFoundError
 from offkai_bot.event_actions import build_interest_check_tally, get_event_view, perform_close_event
 from offkai_bot.interactions import (
+    SIGNUP_MODAL_TIMEOUT_SECONDS,
     ClosedEvent,
     InterestCheckClosedEvent,
     InterestCheckEvent,
@@ -109,6 +110,10 @@ def test_validate_extra_people_input_rejects_invalid(bad_input):
 async def test_interest_modal_custom_id_is_unique_per_instance():
     event = make_interest_event()
     assert InterestCheckModal(event=event).custom_id != InterestCheckModal(event=event).custom_id
+
+
+async def test_interest_modal_times_out_so_dismissed_modals_are_released():
+    assert InterestCheckModal(event=make_interest_event()).timeout == SIGNUP_MODAL_TIMEOUT_SECONDS
 
 
 async def test_interest_modal_custom_id_fits_discord_limit_for_max_length_name():

@@ -6,6 +6,7 @@ import pytest
 from offkai_bot.data.event import Event
 from offkai_bot.interactions import (
     MODAL_TITLE_MAX_LENGTH,
+    SIGNUP_MODAL_TIMEOUT_SECONDS,
     GatheringModal,
     ValidationError,
     resolve_submitted_display_name,
@@ -52,6 +53,12 @@ async def test_gathering_modal_custom_id_is_unique_per_instance():
     first, second = GatheringModal(event=event), GatheringModal(event=event)
     assert first.custom_id != second.custom_id
     assert len(first.custom_id) <= 100
+
+
+async def test_gathering_modal_times_out_so_dismissed_modals_are_released():
+    """With unique custom_ids, only a timeout removes a modal the user closed without submitting."""
+    modal = GatheringModal(event=_make_event("Shared Event"))
+    assert modal.timeout == SIGNUP_MODAL_TIMEOUT_SECONDS
 
 
 async def test_gathering_modal_title_unchanged_for_short_event_name():
