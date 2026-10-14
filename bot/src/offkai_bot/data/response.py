@@ -3,8 +3,8 @@ import json
 import logging
 import os
 from collections import Counter
-from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
 # Use relative imports for sibling modules within the package
@@ -41,6 +41,7 @@ class Response:
     display_name: str | None = None
     attendee_number: int | None = None
     extras_attendee_numbers: list[int] = field(default_factory=list)
+    payment_selection_expires_at: datetime | None = None
 
 
 # --- Waitlist Entry Dataclass ---
@@ -214,6 +215,17 @@ def _migrate_old_format_to_new(
     return new_data
 
 
+def _parse_payment_selection_expiry(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        expiry = datetime.fromisoformat(value)
+        return expiry if expiry.tzinfo else expiry.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        _log.warning("Invalid payment selection expiry; leaving the registration intact with an expired choice.")
+        return datetime.min.replace(tzinfo=UTC)
+
+
 def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | None:
     """Parse a Response object from a dictionary."""
     try:
@@ -256,6 +268,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             no_show_agreed=resp_dict.get("no_show_agreed", False),
             attendee_number=attendee_number,
             extras_attendee_numbers=extras_attendee_numbers,
+            payment_selection_expires_at=_parse_payment_selection_expiry(resp_dict.get("payment_selection_expires_at")),
         )
     except (TypeError, ValueError) as e:
         _log.error("Error creating Response object for event %s from dict %s: %s", event_name, resp_dict, e)
@@ -733,6 +746,10 @@ def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Res
     if any(response.user_id == entry.user_id for response in event_data["attendees"]):
         raise DuplicateResponseError(event.event_name, entry.user_id)
     response = Response(**asdict(entry))
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    if methods and response.payment_method not in methods:
+        response.payment_method = None
+        response.payment_selection_expires_at = datetime.now(UTC) + timedelta(hours=72)
     assigned_max_number = None
     if not event.open or _event_has_attendee_numbers(event_data):
         start_number = _next_attendee_number(event_data)
@@ -762,6 +779,36 @@ def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Res
         event.max_attendee_number = assigned_max_number
         save_event_data()
     return response
+
+
+def complete_payment_selection(
+    event_name: str, user_id: int, timestamp: datetime, expires_at: datetime, method: str
+) -> Response:
+    """Save a promoted attendee's choice atomically; reject expired or replaced registrations."""
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    response = next((r for r in event_data["attendees"] if r.user_id == user_id), None)
+    if (
+        response is None
+        or response.timestamp != timestamp
+        or response.payment_selection_expires_at != expires_at
+        or datetime.now(UTC) >= expires_at
+    ):
+        raise ValueError("This payment choice has expired, been completed, or belongs to an old registration.")
+    updated = replace(response, payment_method=method, payment_selection_expires_at=None)
+    staged = EventData(
+        attendees=[updated if r is response else r for r in event_data["attendees"]],
+        waitlist=event_data["waitlist"],
+    )
+    atomic_write_json(
+        get_config()["RESPONSES_FILE"],
+        {**all_data, event_name: staged},
+        indent=4,
+        cls=DataclassJSONEncoder,
+        ensure_ascii=False,
+    )
+    all_data[event_name] = staged
+    return updated
 
 
 def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:

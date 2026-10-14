@@ -142,24 +142,31 @@ async def test_custom_signup_all_outcomes_reply_in_dm(custom_event, outcome):
         if outcome == "confirmed"
         else responses.get_waitlist(custom_event.event_name)
     )[0]
-    assert entry.payment_method == "PayNow"
+    assert entry.payment_method == ("PayNow" if outcome == "confirmed" else None)
     assert entry.no_show_agreed is True
     payload = source.payment_target.response.send_message.call_args.args[0]
-    assert "Synthetic organizer instructions" in payload
+    assert ("Synthetic organizer instructions" in payload) == (outcome == "confirmed")
     assert link in payload
     assert "Recorded Name" in payload and "Guest" in payload
     assert "no-refund" in payload
     assert "Drinks:" not in payload and "飲み物:" not in payload
     assert (
-        f'📎 **Please provide proof of payment by replying with "I paid {custom_event.event_name}" '
-        "and a screenshot in the same message, or upload it to the RSVP page.**\n"
-        f"🔗 RSVP Page / QR Code: {link}"
-    ) in payload
+        (
+            f'📎 **Please provide proof of payment by replying with "I paid {custom_event.event_name}" '
+            "and a screenshot in the same message, or upload it to the RSVP page.**\n"
+            f"🔗 RSVP Page / QR Code: {link}"
+        )
+        in payload
+    ) == (outcome == "confirmed")
     assert (
-        f"📎 **「I paid {custom_event.event_name}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
-        f"RSVPページにアップロードしてください。**\n🔗 RSVPページ / QRコード: {link}"
-    ) in payload
-    assert payload.count(link) == 2 and payload.count("Synthetic organizer instructions") == 1
+        (
+            f"📎 **「I paid {custom_event.event_name}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
+            f"RSVPページにアップロードしてください。**\n🔗 RSVPページ / QRコード: {link}"
+        )
+        in payload
+    ) == (outcome == "confirmed")
+    assert payload.count(link) == 2
+    assert payload.count("Synthetic organizer instructions") == (1 if outcome == "confirmed" else 0)
     assert ("✅ 参加確定" in payload) == (outcome == "confirmed")
     assert ("Attendance confirmed" in payload) == (outcome == "confirmed")
     # Persisted answers survive a real cache reload.
@@ -169,7 +176,8 @@ async def test_custom_signup_all_outcomes_reply_in_dm(custom_event, outcome):
         if outcome == "confirmed"
         else responses.get_waitlist(custom_event.event_name)
     )[0]
-    assert reloaded.payment_method == "PayNow" and reloaded.no_show_agreed
+    assert reloaded.payment_method == ("PayNow" if outcome == "confirmed" else None)
+    assert reloaded.no_show_agreed
 
 
 async def test_field_selection_payment_entry_and_yes_validation(custom_event):
@@ -223,30 +231,43 @@ async def test_two_modal_dispatch_persists_only_after_payment_and_policy(custom_
         update_rank.assert_not_called()
         source.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
         source.user.send.assert_awaited_once()
-        assert source.user.send.call_args.args[0] == (
-            f"**{custom_event.event_name}**\n\n"
-            "Please choose a payment method to complete your registration. "
-            "I'll send you the payment instructions after you choose.\n\n"
-            "This button expires in 5 minutes. If it no longer works, restart registration "
-            "using the event's signup button."
-        )
-        source.followup.send.assert_awaited_once_with(
-            "Check your DMs now. Choose a payment method there to complete your registration.", ephemeral=True
-        )
-        assert signup_continuation(source).children[0].label == "Choose Payment Method"
+        if open_event:
+            assert source.user.send.call_args.args[0] == (
+                f"**{custom_event.event_name}**\n\n"
+                "Please choose a payment method to complete your registration. "
+                "I'll send you the payment instructions after you choose.\n\n"
+                "This button expires in 5 minutes. If it no longer works, restart registration "
+                "using the event's signup button."
+            )
+            source.followup.send.assert_awaited_once_with(
+                "Check your DMs now. Choose a payment method there to complete your registration.", ephemeral=True
+            )
+            assert signup_continuation(source).children[0].label == "Choose Payment Method"
+        else:
+            assert (
+                "do not need to choose a payment method or pay while waitlisted" in source.user.send.call_args.args[0]
+            )
+            assert signup_continuation(source).children[0].label == "Confirm agreement"
         payment_modal = await submit_payment(source)
-    payment, policy = payment_modal.to_dict()["components"]
-    assert payment["type"] == 18 and payment["label"] == "Payment method"
-    assert payment["component"]["type"] == 3 and payment["component"]["required"] is True
-    assert [option["value"] for option in payment["component"]["options"]] == ["PayNow"]
+    components = payment_modal.to_dict()["components"]
+    if open_event:
+        payment, policy = components
+        assert payment["type"] == 18 and payment["label"] == "Payment method"
+        assert payment["component"]["type"] == 3 and payment["component"]["required"] is True
+        assert [option["value"] for option in payment["component"]["options"]] == ["PayNow"]
+    else:
+        assert len(components) == 1
+        policy = components[0]
+        assert payment_modal.payment_method_input is None
     assert policy["components"][0]["custom_id"] == "no_show_agreement"
     assert policy["components"][0]["required"] is True
     saved = (responses.get_responses if open_event else responses.get_waitlist)(custom_event.event_name)[0]
-    assert saved.payment_method == "PayNow"
+    assert saved.payment_method == ("PayNow" if open_event else None)
     assert saved.display_name == "Recorded Name" and saved.extra_people == 1 and saved.extras_names == ["Guest"]
     assert saved.no_show_agreed
     reply = source.payment_target.response.send_message.call_args.args[0]
-    assert "Synthetic organizer instructions" in reply and "https://synthetic.invalid/pass" in reply
+    assert ("Synthetic organizer instructions" in reply) == open_event
+    assert "https://synthetic.invalid/pass" in reply
 
 
 async def test_overlapping_signups_keep_each_users_answers(custom_event):
@@ -716,7 +737,8 @@ async def test_synthetic_cross_stack_fixture(custom_event, tmp_path):
         with patch("offkai_bot.interactions.build_checkin_url", return_value=url):
             await complete_signup(modal, source)
         reply = source.payment_target.response.send_message.call_args.args[0]
-        assert "Synthetic organizer instructions" in reply and token in reply
+        assert ("Synthetic organizer instructions" in reply) == (index == 0)
+        assert token in reply
         replies[name] = {"token": token, "reply": reply}
     for filename, value in [
         ("events.json", events.EVENT_DATA_CACHE),
@@ -758,14 +780,22 @@ async def test_long_custom_reply_has_complete_language_embeds(custom_event, outc
     target.followup.send.assert_not_awaited()
     assert source.user.send.await_count == 1  # Only the retained payment prompt is a new DM.
     delivery = target.response.send_message
-    embeds = delivery.call_args.kwargs["embeds"]
-    assert len(embeds) == 2
-    descriptions = [embed.description for embed in embeds]
+    embeds = delivery.call_args.kwargs.get("embeds")
+    if embeds:
+        assert len(embeds) == 2
+        descriptions = [embed.description for embed in embeds]
+    else:
+        assert outcome != "confirmed"
+        descriptions = render_custom_reply_sections(
+            custom_event, entries[0], "Waitlisted — attendance is not confirmed"
+        )
+        assert delivery.call_args.args[0] == "\n\n".join(descriptions)
     assert all(len(text.encode("utf-16-le")) // 2 <= 4096 for text in descriptions)
     assert sum(len(text.encode("utf-16-le")) // 2 for text in descriptions) <= 6000
     assert all(link in text for text in descriptions)
-    assert "Instructions" in descriptions[0] and "案内" not in descriptions[0]
-    assert "案内" in descriptions[1] and "Instructions" not in descriptions[1]
+    assert ("Instructions" in descriptions[0]) == (outcome == "confirmed")
+    assert ("案内" in descriptions[1]) == (outcome == "confirmed")
+    assert "案内" not in descriptions[0] and "Instructions" not in descriptions[1]
 
 
 async def test_custom_command_stays_draft_until_create(custom_event):
@@ -1076,13 +1106,14 @@ async def test_payment_dm_keeps_original_server_context_and_replies_directly(cus
         )
         assert len(recorded) == 1
         assert recorded[0].display_name == "Original server nickname"
-        assert recorded[0].payment_method == "PayNow" and recorded[0].no_show_agreed
+        assert recorded[0].payment_method == ("PayNow" if outcome == "confirmed" else None)
+        assert recorded[0].no_show_agreed
         source.channel.add_user.assert_awaited_once_with(source.user)
         target.user.send.assert_not_awaited()
         target.channel.send.assert_not_awaited()
         target.response.send_message.assert_awaited_once()
         reply = target.response.send_message.call_args.args[0]
-        assert "Synthetic organizer instructions" in reply
+        assert ("Synthetic organizer instructions" in reply) == (outcome == "confirmed")
         assert "I've sent you a DM" not in reply
         if outcome == "confirmed":
             role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id)
@@ -1208,7 +1239,8 @@ async def test_saved_payment_dm_reply_failure_keeps_bookkeeping(custom_event, ou
             *responses.get_waitlist(custom_event.event_name),
         ]
         assert len(all_entries) == 1
-        assert all_entries[0].payment_method == "PayNow" and all_entries[0].no_show_agreed
+        assert all_entries[0].payment_method == ("PayNow" if outcome == "confirmed" else None)
+        assert all_entries[0].no_show_agreed
         assert view.finished and view.is_finished()
         assert view.continue_signup.disabled and view.continue_signup.label == "Completed"
         view.message.edit.assert_awaited_once_with(view=view)
@@ -1403,10 +1435,14 @@ async def test_final_payment_reply_falls_back_to_ordinary_dm(custom_event, outco
     send.assert_awaited_once()
     target.user.send.assert_awaited_once()
     assert target.user.send.call_args == send.call_args
-    embeds = target.user.send.call_args.kwargs["embeds"]
-    assert len(embeds) == 2
-    assert "Instructions" in embeds[0].description and "案内" in embeds[1].description
-    assert "confirmed" in embeds[0].description.lower()
+    embeds = target.user.send.call_args.kwargs.get("embeds")
+    if outcome == "confirmed":
+        assert len(embeds) == 2
+        assert "Instructions" in embeds[0].description and "案内" in embeds[1].description
+        assert "confirmed" in embeds[0].description.lower()
+    else:
+        text = "\n".join(embed.description for embed in embeds) if embeds else target.user.send.call_args.args[0]
+        assert "Instructions" not in text and "案内" not in text
     assert signup_continuation(source).finished
     assert (
         len([*responses.get_responses(custom_event.event_name), *responses.get_waitlist(custom_event.event_name)]) == 1

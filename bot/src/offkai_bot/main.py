@@ -27,6 +27,7 @@ from offkai_bot.event_actions import (
     fetch_thread_for_event,
     update_event_message,
 )
+from offkai_bot.interactions import restore_payment_selections
 from offkai_bot.payment_proof import handle_payment_proof
 from offkai_bot.util import send_interaction_error
 
@@ -97,6 +98,7 @@ class OffkaiClient(commands.Bot):
         load_event_data()
         load_responses()  # Loads both attendees and waitlist
         load_rankings()
+        restore_payment_selections(self)
         _log.info("Initial data loaded into cache.")
 
         if not get_config().get("FRONTEND_URL"):

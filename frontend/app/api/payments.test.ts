@@ -110,7 +110,7 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       const replies = JSON.parse(fs.readFileSync(path.join(process.env.OFFKAI_SYNTHETIC_OUTPUT, 'replies.json'), 'utf8'))
       for (const name of eventNames) {
         assert.equal(replies[name].token, signedToken(uid, name))
-        assert.ok(replies[name].reply.includes('Synthetic organizer instructions'))
+        assert.equal(replies[name].reply.includes('Synthetic organizer instructions'), name === eventNames[0])
         assert.ok(replies[name].reply.includes(signedToken(uid, name)))
       }
     }
@@ -176,11 +176,16 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       assert.equal(adminRead.status, 200)
       const pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
       assert.equal(pass.attendee.status, i === 0 ? 'attending' : 'waitlist')
-      assert.equal(pass.attendee.payment_instructions, 'Synthetic organizer instructions')
+      assert.equal(pass.attendee.payment_instructions, i === 0 ? 'Synthetic organizer instructions' : null)
       assert.equal(pass.attendee.payment_instructions_jp, i === 0 ? '主催者の支払い案内' : null)
-      assert.equal(pass.attendee.payment_method, 'PayNow')
+      assert.equal(pass.attendee.payment_method, i === 0 ? 'PayNow' : null)
       assert.equal(pass.attendee.no_show_agreed, true)
-      assert.equal(pass.attendee.payment.paid, true)
+      assert.equal(pass.attendee.payment_enabled, i === 0)
+      if (i === 0) assert.equal(pass.attendee.payment.paid, true)
+      else {
+        assert.equal(pass.attendee.payment, null)
+        assert.equal(pass.attendee.proof_upload_available, false)
+      }
       paid = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: false }))
       assert.equal((await paid.json()).payment.paid, false)
       // Replacing a proof preserves unpaid status and removes the old image.

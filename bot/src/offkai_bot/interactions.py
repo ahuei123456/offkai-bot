@@ -1,8 +1,9 @@
+import hashlib
 import logging
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import discord
@@ -15,6 +16,7 @@ from offkai_bot.data.response import (
     WaitlistEntry,
     add_response,
     add_to_waitlist,
+    complete_payment_selection,
     get_effective_display_name,
     get_responses,
     get_waitlist,
@@ -447,6 +449,7 @@ class GatheringModal(ui.Modal):
         self.no_show_agreed = False
         self._submitted_answers: tuple[str, str, str, str, str] | None = None
         self.origin_context: SignupContext | None = None
+        self.payment_deferred = False
         self.reply_in_dm = False
         self.fields = event.signup_form.get("fields", []) if event.signup_form else None
 
@@ -805,21 +808,35 @@ class GatheringModal(ui.Modal):
             ):
                 raise DuplicateResponseError(self.event.event_name, interaction.user.id)
 
-            if methods or (self.fields and "no_show" in self.fields):
+            will_waitlist = (
+                self.event.is_past_deadline
+                or not self.event.open
+                or would_exceed_capacity(self.event, 1 + num_extra_people)
+            )
+            if not final:
+                self.payment_deferred = will_waitlist
+            selection_methods = {} if self.payment_deferred or will_waitlist else methods
+
+            if selection_methods or (self.fields and "no_show" in self.fields):
                 if not final:
                     self._submitted_answers = answers
-                    prompt = (
-                        "Please choose a payment method to complete your registration. "
-                        "Offkai Bot will send you the instructions on completing payment"
-                    )
+                    prompt = "Please confirm the no-show / no-refund agreement to complete your registration."
+                    self.origin_context = SignupContext.from_interaction(interaction)
                     view = SignupContinuation(self, interaction.user.id)
                     if methods:
-                        prompt = (
-                            "Please choose a payment method to complete your registration. "
-                            "I'll send you the payment instructions after you choose.\n\n"
-                            "This button expires in 5 minutes. If it no longer works, restart registration "
-                            "using the event's signup button."
-                        )
+                        if selection_methods:
+                            prompt = (
+                                "Please choose a payment method to complete your registration. "
+                                "I'll send you the payment instructions after you choose.\n\n"
+                                "This button expires in 5 minutes. If it no longer works, restart registration "
+                                "using the event's signup button."
+                            )
+                        else:
+                            prompt = (
+                                "Please confirm the no-show / no-refund agreement to join the waitlist. "
+                                "You do not need to choose a payment method or pay while waitlisted. "
+                                "If promoted, you will get 72 hours to choose a payment method."
+                            )
                         self.origin_context = SignupContext.from_interaction(interaction)
                         self.reply_in_dm = True
                         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -840,7 +857,12 @@ class GatheringModal(ui.Modal):
                             notice = (
                                 "This payment prompt is closed. Check your DMs for your registration status."
                                 if view.finished
-                                else "Check your DMs now. Choose a payment method there to complete your registration."
+                                else (
+                                    "Check your DMs now. Confirm the agreement there to join the waitlist."
+                                    if self.payment_deferred
+                                    else "Check your DMs now. Choose a payment method there "
+                                    "to complete your registration."
+                                )
                             )
                             try:
                                 await interaction.followup.send(notice, ephemeral=True)
@@ -851,7 +873,7 @@ class GatheringModal(ui.Modal):
                     else:
                         await interaction.response.send_message(prompt, view=view, ephemeral=True)
                     return
-                if methods and self.payment_method not in methods:
+                if selection_methods and self.payment_method not in methods:
                     raise ValidationError("Please choose an enabled payment method before signing up.")
                 if self.fields and "no_show" in self.fields and not self.no_show_agreed:
                     raise ValidationError("Please agree to the no-show / no-refund policy by typing 'Yes'.")
@@ -886,7 +908,7 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
-                    payment_method=self.payment_method,
+                    payment_method=None,
                     no_show_agreed=self.no_show_agreed,
                 )
 
@@ -913,7 +935,7 @@ class GatheringModal(ui.Modal):
                     drinks=selected_drinks,
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
-                    payment_method=self.payment_method,
+                    payment_method=None,
                     no_show_agreed=self.no_show_agreed,
                 )
 
@@ -937,6 +959,9 @@ class GatheringModal(ui.Modal):
                     extras_names=extra_people_names,
                     display_name=resolved_display_name,
                     payment_method=self.payment_method,
+                    payment_selection_expires_at=(
+                        datetime.now(UTC) + timedelta(hours=72) if methods and self.payment_deferred else None
+                    ),
                     no_show_agreed=self.no_show_agreed,
                 )
 
@@ -1602,7 +1627,8 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
     methods = (event.signup_form or {}).get("payment_methods", {})
     instruction = methods.get(entry.payment_method, "")
     jp_instruction = (event.signup_form or {}).get("payment_instructions_jp", {}).get(entry.payment_method, "")
-    confirmed = status == "Attendance confirmed"
+    confirmed = isinstance(entry, Response) and status == "Attendance confirmed"
+    has_payment = confirmed and entry.payment_method in methods
     name = get_effective_display_name(entry)
     guests = ", ".join(entry.extras_names)
     drinks = entry.drinks if "drinks" in (event.signup_form or {}).get("fields", []) else []
@@ -1616,14 +1642,16 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
     ]
     if drinks:
         lines.append(f"🍺 Drinks: {', '.join(drinks)}")
-    if entry.payment_method:
+    if has_payment:
         lines.extend([f"💳 Payment method: {entry.payment_method}", f"Payment instructions: {instruction}"])
+    elif not confirmed and methods:
+        lines.append("Do not pay while waitlisted. If promoted, you will get 72 hours to choose a payment method.")
     if entry.no_show_agreed:
         lines.append("✔ No-show / no-refund policy agreed: payments for no-shows are not refunded.")
     url = build_checkin_url(entry.user_id, event.event_name)
     proof_command = discord.utils.escape_markdown(f"I paid {event.event_name}")
     if url:
-        if methods:
+        if has_payment:
             lines.append(
                 f'📎 **Please provide proof of payment by replying with "{proof_command}" '
                 "and a screenshot in the same message, or upload it to the RSVP page.**"
@@ -1647,14 +1675,16 @@ def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, 
     ]
     if drinks:
         jp_lines.append(f"🍺 飲み物: {', '.join(drinks)}")
-    if entry.payment_method:
+    if has_payment:
         jp_lines.append(f"💳 支払い方法: {entry.payment_method}")
-    if jp_instruction:
+    if has_payment and jp_instruction:
         jp_lines.append(f"支払い案内: {jp_instruction}")
+    if not confirmed and methods:
+        jp_lines.append("ウェイトリスト中は支払わないでください。参加確定後、72時間以内に支払い方法を選択できます。")
     if entry.no_show_agreed:
         jp_lines.append("✔ 不参加時の返金不可に同意済み")
     if url:
-        if methods:
+        if has_payment:
             jp_lines.append(
                 f"📎 **「{proof_command}」と支払い証明のスクリーンショットを同じメッセージで返信するか、"
                 "RSVPページにアップロードしてください。**"
@@ -1702,6 +1732,20 @@ async def send_signup_reply(
     elif notice:
         default_message = f"{notice[0]}\n{notice[1]}\n\n{default_message}"
     message = "\n\n".join(sections) if sections else default_message
+    if isinstance(entry, Response) and entry.payment_selection_expires_at and not entry.payment_method:
+        expiry = entry.payment_selection_expires_at
+        if datetime.now(UTC) < expiry and not event.archived and _payment_methods(event):
+            kwargs["view"] = PromotedPaymentSelection(event, entry)
+            choice_notice = (
+                f"Choose your payment method within 72 hours of confirmation (by <t:{int(expiry.timestamp())}:F>). "
+                "Payment instructions will be sent after you choose.\n"
+                "参加確定から72時間以内に支払い方法を選択してください。選択後に支払い案内をお送りします。"
+            )
+            # Keep long existing language embeds within Discord's content cap.
+            if sections:
+                kwargs["embeds"] = [discord.Embed(description=section) for section in sections]
+            await send(choice_notice if sections else f"{message}\n\n{choice_notice}", **kwargs)
+            return
     if sections and len(message) > 2000:
         await send(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
     else:
@@ -1710,6 +1754,125 @@ async def send_signup_reply(
 
 async def start_signup(interaction: discord.Interaction, event: Event):
     await interaction.response.send_modal(GatheringModal(event=event))
+
+
+class PromotedPaymentSelection(ui.View):
+    """Persistent choice bound to one confirmed registration and its original 72-hour deadline."""
+
+    def __init__(self, event: Event, entry: Response):
+        super().__init__(timeout=None)
+        self.event = event
+        self.owner_id = entry.user_id
+        self.timestamp = entry.timestamp
+        self.expires_at = entry.payment_selection_expires_at
+        self.message: discord.Message | None = None
+        identity = f"{event.event_name}:{entry.user_id}:{entry.timestamp.isoformat()}:{self.expires_at}"
+        self.choose_payment.custom_id = f"offkai-payment:{hashlib.sha256(identity.encode()).hexdigest()[:40]}"
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        entry = next((r for r in get_responses(self.event.event_name) if r.user_id == self.owner_id), None)
+        if (
+            interaction.user.id != self.owner_id
+            or self.event.archived
+            or not _payment_methods(self.event)
+            or self.expires_at is None
+            or datetime.now(UTC) >= self.expires_at
+            or entry is None
+            or entry.timestamp != self.timestamp
+            or entry.payment_selection_expires_at != self.expires_at
+            or entry.payment_method is not None
+        ):
+            await error_message(
+                interaction,
+                "This payment choice has expired, been completed, or belongs to another registration. "
+                "Your attendance is unchanged; contact the organizer if you still need to choose.",
+            )
+            return False
+        return True
+
+    @ui.button(label="Choose Payment Method", style=discord.ButtonStyle.primary, custom_id="offkai-payment")
+    async def choose_payment(self, interaction: discord.Interaction, button: ui.Button):
+        if await self.interaction_check(interaction):
+            if isinstance(interaction.message, discord.Message):
+                self.message = interaction.message
+            await interaction.response.send_modal(PromotedPaymentModal(self))
+
+
+class PromotedPaymentModal(ui.Modal):
+    def __init__(self, selection: PromotedPaymentSelection):
+        # Reopening this modal does not reset the persisted promotion deadline.
+        super().__init__(title="Choose payment method", timeout=72 * 60 * 60)
+        self.selection = selection
+        self.payment_method_input = ui.Select(
+            placeholder="Choose your payment method",
+            custom_id="payment_method",
+            required=True,
+            options=[discord.SelectOption(label=name) for name in _payment_methods(selection.event)],
+        )
+        self.add_item(ui.Label(text="Payment method", component=self.payment_method_input))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        selection = self.selection
+        if not await selection.interaction_check(interaction):
+            return
+        selected = self.payment_method_input.values
+        if len(selected) != 1 or selected[0] not in _payment_methods(selection.event):
+            await error_message(interaction, "Please choose an enabled payment method.")
+            return
+        assert selection.expires_at is not None
+        try:
+            entry = complete_payment_selection(
+                selection.event.event_name, selection.owner_id, selection.timestamp, selection.expires_at, selected[0]
+            )
+        except (ValueError, OSError) as error:
+            _log.warning("Could not save promoted payment choice: %s", error)
+            await error_message(interaction, "Your choice could not be saved. Please retry or contact the organizer.")
+            return
+        selection.choose_payment.disabled = True
+        selection.choose_payment.label = "Payment method chosen"
+        selection.stop()
+        # The choice is saved even if Discord cannot deliver the instructions.
+        try:
+            await send_signup_reply(
+                interaction.response.send_message,
+                selection.event,
+                entry,
+                "Attendance confirmed",
+                build_confirmation_message(selection.event, entry),
+            )
+        except (discord.HTTPException, discord.InteractionResponded):
+            try:
+                await send_signup_reply(
+                    interaction.user.send,
+                    selection.event,
+                    entry,
+                    "Attendance confirmed",
+                    build_confirmation_message(selection.event, entry),
+                )
+            except discord.HTTPException:
+                _log.warning("Payment method saved but instructions undeliverable for user %s", entry.user_id)
+        if selection.message is not None:
+            try:
+                await selection.message.edit(view=selection)
+            except discord.HTTPException:
+                _log.warning("Could not close promoted payment prompt for user %s", entry.user_id)
+
+
+def restore_payment_selections(client: discord.Client) -> None:
+    """Register existing DM buttons after restart without resending or extending deadlines."""
+    from offkai_bot.data.event import load_event_data
+
+    now = datetime.now(UTC)
+    for event in load_event_data():
+        if event.archived or not _payment_methods(event):
+            continue
+        for entry in get_responses(event.event_name):
+            if (
+                entry.payment_selection_expires_at
+                and not entry.payment_method
+                and entry.payment_selection_expires_at > now
+            ):
+                client.add_view(PromotedPaymentSelection(event, entry))
 
 
 class SignupContinuation(ui.View):
@@ -1721,6 +1884,8 @@ class SignupContinuation(ui.View):
         self.owner_id = owner_id
         self.finished = False
         self.message: discord.Message | None = None
+        if signup.payment_deferred:
+            self.continue_signup.label = "Confirm agreement"
 
     @property
     def key(self) -> tuple[str, int]:
@@ -1782,7 +1947,7 @@ class PaymentModal(ui.Modal):
         super().__init__(title="Payment and agreement", timeout=300)
         self.continuation = continuation
         signup = continuation.signup
-        methods = _payment_methods(signup.event)
+        methods = {} if signup.payment_deferred else _payment_methods(signup.event)
         self.payment_method_input: ui.Select | None = None
         if methods:
             self.payment_method_input = ui.Select(
