@@ -11,7 +11,7 @@ import pytest
 from offkai_bot.data import event as events
 from offkai_bot.data import response as responses
 from offkai_bot.data.event import Event
-from offkai_bot.interactions import send_signup_reply
+from offkai_bot.interactions import promote_waitlist_batch, send_signup_reply
 from offkai_bot.role_management import assign_event_role, remove_event_role
 
 
@@ -227,3 +227,135 @@ async def test_overlapping_sweeps_and_manual_repromotion_do_not_send_stale_expir
     user.send.assert_not_awaited()
     assert responses.get_responses(event.event_name) == [promoted]
     assert promoted.payment_selection_expires_at == deadline
+
+
+async def test_older_batch_cannot_promote_a_group_demoted_while_its_dm_is_pending(expired_registration):
+    event, entry, waiting, now = expired_registration
+    entry.extra_people = 0
+    entry.attendee_number = None
+    entry.extras_attendee_numbers = []
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def fetch_user(user_id):
+        if user_id == waiting.user_id:
+            entered.set()
+            await release.wait()
+        return MagicMock(spec=discord.User, send=AsyncMock())
+
+    client = MagicMock(spec=discord.Client, fetch_user=AsyncMock(side_effect=fetch_user))
+    old_batch = asyncio.create_task(promote_waitlist_batch(event, client))
+    await asyncio.wait_for(entered.wait(), 3)
+    responses.expire_payment_selections(event, now)
+    release.set()
+    assert await old_batch == [waiting.user_id]
+    assert [r.user_id for r in responses.get_responses(event.event_name)] == [waiting.user_id]
+    assert [w.user_id for w in responses.get_waitlist(event.event_name)] == [entry.user_id]
+
+
+async def test_failed_backfill_retries_after_restart_without_another_expiry(expired_registration):
+    from offkai_bot.payment_selection import expire_pending_payments
+
+    event, entry, waiting, _ = expired_registration
+    client = MagicMock(spec=discord.Client)
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+    client.get_user.return_value = user
+    client.fetch_user = AsyncMock(return_value=user)
+    write = responses.atomic_write_json
+    writes = 0
+
+    def fail_promotion(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if writes == 2:
+            raise OSError("Synthetic backfill write failure")
+        return write(*args, **kwargs)
+
+    with patch("offkai_bot.payment_selection.update_event_message", new=AsyncMock()):
+        with patch("offkai_bot.data.response.atomic_write_json", side_effect=fail_promotion):
+            await expire_pending_payments(client)
+        assert responses.get_responses(event.event_name) == []
+        responses.RESPONSE_DATA_CACHE = None
+        await expire_pending_payments(client)
+        assert [r.user_id for r in responses.get_responses(event.event_name)] == [waiting.user_id]
+        assert [w.user_id for w in responses.get_waitlist(event.event_name)] == [entry.user_id]
+        sends = user.send.await_count
+        await expire_pending_payments(client)
+        assert user.send.await_count == sends
+
+
+async def test_partial_unlimited_backfill_retry_keeps_original_target(expired_registration):
+    from offkai_bot.payment_selection import expire_pending_payments
+
+    event, expired, waiting, _ = expired_registration
+    event.max_capacity = None
+    for user_id in [789, 999, 1000]:
+        responses.add_to_waitlist(event.event_name, replace(waiting, user_id=user_id))
+    client = MagicMock(spec=discord.Client)
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+    client.get_user.return_value = user
+    client.fetch_user = AsyncMock(return_value=user)
+    write = responses.atomic_write_json
+    writes = 0
+
+    def fail_second_group(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if writes == 3:
+            raise OSError("Second promotion failed after the first was saved")
+        return write(*args, **kwargs)
+
+    with patch("offkai_bot.payment_selection.update_event_message", new=AsyncMock()):
+        with patch("offkai_bot.data.response.atomic_write_json", side_effect=fail_second_group):
+            await expire_pending_payments(client)
+        assert [r.user_id for r in responses.get_responses(event.event_name)] == [waiting.user_id]
+        pending = responses.get_payment_expiry_backfill(event.event_name)
+        assert pending["target_count"] == 1 + expired.extra_people
+        # Roster changes during the pending request must retain its durable metadata.
+        responses.add_to_waitlist(event.event_name, replace(waiting, user_id=2000))
+        responses.RESPONSE_DATA_CACHE = None
+        await expire_pending_payments(client)
+        assert [r.user_id for r in responses.get_responses(event.event_name)] == [456, 789, 999]
+        assert [w.user_id for w in responses.get_waitlist(event.event_name)] == [1000, 123, 2000]
+        assert responses.get_payment_expiry_backfill(event.event_name) is None
+
+
+async def test_failed_backfill_clear_does_not_duplicate_saved_promotions(expired_registration):
+    from offkai_bot.payment_selection import expire_pending_payments
+
+    event, _, waiting, _ = expired_registration
+    client = MagicMock(spec=discord.Client)
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+    client.get_user.return_value = user
+    client.fetch_user = AsyncMock(return_value=user)
+    with patch("offkai_bot.payment_selection.update_event_message", new=AsyncMock()):
+        with patch("offkai_bot.payment_selection.clear_payment_expiry_backfill", side_effect=OSError("Disk full")):
+            await expire_pending_payments(client)
+        assert [r.user_id for r in responses.get_responses(event.event_name)] == [waiting.user_id]
+        sends = user.send.await_count
+        responses.RESPONSE_DATA_CACHE = None
+        await expire_pending_payments(client)
+        assert user.send.await_count == sends
+        assert responses.get_payment_expiry_backfill(event.event_name) is None
+
+
+def test_old_backfill_completion_cannot_clear_a_new_expiry_request(expired_registration):
+    event, entry, _, now = expired_registration
+    responses.expire_payment_selections(event, now)
+    old = responses.get_payment_expiry_backfill(event.event_name)
+    responses.promote_waitlist_response(event, entry.user_id)
+    expiry = responses.get_responses(event.event_name)[0].payment_selection_expires_at
+    responses.expire_payment_selections(event, expiry)
+    current = responses.get_payment_expiry_backfill(event.event_name)
+    assert current is not old
+    responses.clear_payment_expiry_backfill(event.event_name, old)
+    assert responses.get_payment_expiry_backfill(event.event_name) is current
+
+
+def test_corrupt_backfill_metadata_does_not_drop_the_roster(expired_registration):
+    event, entry, waiting, _ = expired_registration
+    responses.RESPONSE_DATA_CACHE[event.event_name]["payment_expiry_backfill"] = {"target_count": "bad"}
+    responses.save_responses()
+    responses.RESPONSE_DATA_CACHE = None
+    assert responses.get_responses(event.event_name)[0].user_id == entry.user_id
+    assert responses.get_waitlist(event.event_name)[0].user_id == waiting.user_id
+    assert responses.get_payment_expiry_backfill(event.event_name) is None

@@ -540,6 +540,10 @@ again. Their answers and payment history are retained; this is not a voluntary w
 The organizer can use the arrow or `/promote` to grant another fresh 72-hour choice. Archived events, interest checks,
 and events with no configured payment methods are excluded from expiry processing.
 
+Automatic batches only consider the queue entries present when they started. Expiry backfill is saved with the
+demotion and retried after failures or restart, using the original attendance target and eligible registrations.
+Retries do not extend payment-choice deadlines or send duplicate promotion confirmations for already-saved moves.
+
 A helper deployment script `deploy.sh` is provided in the root directory to automate deploying updates on your production host (e.g. Raspberry Pi):
 
 1. **Host Setup:**

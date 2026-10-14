@@ -5,7 +5,7 @@ import os
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
@@ -94,9 +94,41 @@ class AttendeeReportRow:
 
 
 # --- Type Definitions ---
+class PaymentExpiryBackfill(TypedDict):
+    target_count: int
+    eligible_registrations: list[str]
+    excluded_user_ids: list[int]
+
+
 class EventData(TypedDict):
     attendees: list[Response]
     waitlist: list[WaitlistEntry]
+    payment_expiry_backfill: NotRequired[PaymentExpiryBackfill | None]
+
+
+def registration_key(entry: Response | WaitlistEntry) -> str:
+    return f"{entry.user_id}:{entry.timestamp.isoformat()}"
+
+
+def _parse_payment_expiry_backfill(value: Any) -> PaymentExpiryBackfill | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, dict)
+        or type(value.get("target_count")) is not int
+        or value["target_count"] < 0
+        or not isinstance(value.get("eligible_registrations"), list)
+        or not all(isinstance(key, str) for key in value["eligible_registrations"])
+        or not isinstance(value.get("excluded_user_ids"), list)
+        or not all(type(user_id) is int for user_id in value["excluded_user_ids"])
+    ):
+        _log.warning("Invalid payment expiry backfill metadata; preserving the roster without this request")
+        return None
+    return PaymentExpiryBackfill(
+        target_count=value["target_count"],
+        eligible_registrations=value["eligible_registrations"],
+        excluded_user_ids=value["excluded_user_ids"],
+    )
 
 
 class NumberedAttendeeName(str):
@@ -394,6 +426,9 @@ def _load_responses() -> dict[str, EventData]:
                             waitlist_list.append(entry)
 
                 responses_dict[event_name] = EventData(attendees=attendees_list, waitlist=waitlist_list)
+                pending = _parse_payment_expiry_backfill(event_data.get("payment_expiry_backfill"))
+                if pending is not None:
+                    responses_dict[event_name]["payment_expiry_backfill"] = pending
 
         else:
             # Old format: {"event_name": [Response, ...]}
@@ -732,6 +767,10 @@ def _commit_event_data(event_name: str, staged: EventData, all_data: dict[str, E
     """Publish the cache change only after the shared JSON transaction succeeds."""
     if all_data is None:
         all_data = load_responses()
+    if "payment_expiry_backfill" not in staged:
+        pending = all_data.get(event_name, {}).get("payment_expiry_backfill")
+        if pending is not None:
+            staged = {**staged, "payment_expiry_backfill": pending}
     atomic_write_json(
         get_config()["RESPONSES_FILE"],
         {**all_data, event_name: staged},
@@ -825,14 +864,39 @@ def expire_payment_selections(event: "Event", now: datetime) -> list[Response]:
     queued = [
         WaitlistEntry(**{key: value for key, value in asdict(entry).items() if key in fields}) for entry in expired
     ]
+    previous = data.get("payment_expiry_backfill")
+    excluded = expired_ids | (set(previous["excluded_user_ids"]) if previous else set())
+    eligible = set(previous["eligible_registrations"]) if previous else set()
+    eligible.update(registration_key(entry) for entry in data["waitlist"] if entry.user_id not in excluded)
+    pending = PaymentExpiryBackfill(
+        # Absolute target prevents retries from counting already-filled places twice, including unlimited events.
+        target_count=max(
+            sum(1 + entry.extra_people for entry in data["attendees"]),
+            previous["target_count"] if previous else 0,
+        ),
+        eligible_registrations=sorted(eligible),
+        excluded_user_ids=sorted(excluded),
+    )
     _commit_event_data(
         event.event_name,
         EventData(
             attendees=[entry for entry in data["attendees"] if entry.user_id not in expired_ids],
             waitlist=[*data["waitlist"], *queued],
+            payment_expiry_backfill=pending,
         ),
     )
     return expired
+
+
+def get_payment_expiry_backfill(event_name: str) -> PaymentExpiryBackfill | None:
+    return load_responses().get(event_name, {}).get("payment_expiry_backfill")
+
+
+def clear_payment_expiry_backfill(event_name: str, expected: PaymentExpiryBackfill) -> None:
+    data = load_responses().get(event_name)
+    if data is not None and data.get("payment_expiry_backfill") is expected:
+        # A newer expiry may replace this request while its promotion DMs are pending.
+        _commit_event_data(event_name, {**data, "payment_expiry_backfill": None})
 
 
 def complete_payment_selection(

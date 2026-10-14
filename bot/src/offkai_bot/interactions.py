@@ -25,6 +25,7 @@ from offkai_bot.data.response import (
     get_waitlist,
     prepare_payment_selection,
     promote_waitlist_response,
+    registration_key,
     remove_from_waitlist,
     remove_response,
 )
@@ -374,7 +375,13 @@ async def resend_registration_details(
 
 
 async def promote_waitlist_batch(
-    event: Event, client: discord.Client, freed_spots: int | None = None, *, excluded_user_ids: set[int] | None = None
+    event: Event,
+    client: discord.Client,
+    freed_spots: int | None = None,
+    *,
+    excluded_user_ids: set[int] | None = None,
+    eligible_registrations: set[str] | None = None,
+    target_attendance: int | None = None,
 ) -> list[int]:
     """
     Promote users from waitlist to fill available capacity.
@@ -387,6 +394,8 @@ async def promote_waitlist_batch(
     Returns list of promoted user IDs.
     """
     promoted_user_ids: list[int] = []
+    # Freeze queue entry objects before any await. Expiry creates new entries, even if timestamps are retained.
+    eligible_entries = tuple(get_waitlist(event.event_name))
 
     # Resolve guild for role assignment
     guild: discord.Guild | None = None
@@ -409,6 +418,8 @@ async def promote_waitlist_batch(
         # Event is still open or was never closed, use max_capacity
         target_capacity = event.max_capacity
 
+    if target_attendance is not None:
+        target_capacity = target_attendance if target_capacity is None else min(target_capacity, target_attendance)
     if target_capacity is None and freed_spots is not None:
         # Unlimited capacity, but a withdrawal freed a specific headcount:
         # backfill exactly that many spots so the confirmed total stays stable.
@@ -417,6 +428,10 @@ async def promote_waitlist_batch(
     while True:
         waitlist = get_waitlist(event.event_name)
         if event.archived or not waitlist or (excluded_user_ids and waitlist[0].user_id in excluded_user_ids):
+            break
+        if not any(waitlist[0] is entry for entry in eligible_entries):
+            break  # A suspended older batch cannot consume a newly demoted or rejoined registration.
+        if eligible_registrations is not None and registration_key(waitlist[0]) not in eligible_registrations:
             break
         # Check if we should continue promoting
         # (if target_capacity is None there is no constraint: drain the whole waitlist)
