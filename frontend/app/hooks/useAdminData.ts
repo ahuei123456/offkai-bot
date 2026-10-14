@@ -181,6 +181,29 @@ export function useAdminData() {
     return response.ok && result.removed === true
   }, [key, selectedEvent, eventName, loadAttendees])
 
+  const promoteRegistration = useCallback(async (userId: string, timestamp: string) => {
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
+    const generation = eventGeneration.current
+    let response: Response | undefined
+    let result: { warnings?: string[]; promoted?: boolean } = {}
+    try {
+      response = await fetch('/api/registration/promote?key=' + encodeURIComponent(key), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, event_name: eventName, registration_timestamp: timestamp }),
+      })
+      result = await response.json().catch(() => ({}))
+    } finally {
+      // A timeout can follow a committed promotion. Refresh; never retry it automatically.
+      await loadAttendees(key, eventName).catch(() => false)
+    }
+    if (generation === eventGeneration.current && selectedEventRef.current === eventName) {
+      setActionWarnings(response?.ok ? result.warnings ?? [] : [])
+    }
+    if (response?.status === 409) throw new Error('registration_changed')
+    if (!response?.ok && result.promoted === false) throw new Error('not_promoted')
+    return response?.ok === true && result.promoted === true
+  }, [key, selectedEvent, eventName, loadAttendees])
+
   // Record a successful camera scan into the check-in map (no sticky — scans
   // aren't undo-in-place like the manual buttons).
   const applyScanCheckin = useCallback((record: CheckinRecord) => {
@@ -217,7 +240,7 @@ export function useAdminData() {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
     updatePayment, attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
-    removeRegistration, actionWarnings,
+    removeRegistration, promoteRegistration, actionWarnings,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,
     waitlistCount: waitlist.length,

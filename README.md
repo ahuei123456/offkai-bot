@@ -521,6 +521,16 @@ uv run prek run --all-files
 
 ## Deployment
 
+After upgrading payment eligibility checks, confirmed registrations with a missing or no-longer-configured payment
+method cannot submit proof through the RSVP page or the bot's `I paid` handler. An organizer can run
+`/resend_confirmation` for each affected member on a live event to offer a payment choice. Existing choice deadlines
+are preserved; resending does not extend them. Historical payment records are retained. Review affected registrations
+before a bulk resend, since it sends DMs to registrants, including the waitlist.
+
+The organizer admin page has an up-arrow beside each waitlisted registration. Confirming it promotes that attendee
+and their guests even when the event is full. Events with configured payment methods send a fresh 72-hour
+payment-choice window. If delivery fails, the promotion remains saved and the organizer can resend the confirmation.
+
 A helper deployment script `deploy.sh` is provided in the root directory to automate deploying updates on your production host (e.g. Raspberry Pi):
 
 1. **Host Setup:**

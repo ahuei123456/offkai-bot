@@ -21,14 +21,17 @@ IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 PROOF_COMMAND = re.compile(r"^(?:payment\s+proof|proof\s+payment(?:\s+proof)?|i\s+paid)\b\s*(.*)$", re.I | re.S)
 
 
+def payment_event_enabled(event: Event) -> bool:
+    """Event-level payment availability; does not grant registration or organizer access."""
+    return not event.archived and not event.interest_check and bool((event.signup_form or {}).get("payment_methods"))
+
+
 def registered_payment_events(user_id: int) -> list[Event]:
     return [
         event
         for event in load_event_data()
-        if not event.archived
-        and not event.interest_check
+        if payment_event_enabled(event)
         and event.signup_form
-        and event.signup_form.get("payment_methods")
         and any(
             entry.user_id == user_id and entry.payment_method in event.signup_form["payment_methods"]
             for entry in get_responses(event.event_name)

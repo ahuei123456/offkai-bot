@@ -362,14 +362,14 @@ async def resend_registration_details(
         if user_ids is not None and entry.user_id not in user_ids:
             continue
         try:
+            if isinstance(entry, Response) and entry.payment_method not in _payment_methods(event):
+                entry = prepare_payment_selection(event, entry)
             user = await client.fetch_user(entry.user_id)
             await send_signup_reply(user.send, event, entry, status, message, notice=(notice[0], notice[1]))
             sent.append(entry.username)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound, OSError) as e:
             _log.warning("Could not resend details to user %s for '%s': %s", entry.user_id, event.event_name, e)
             failed.append(entry.username)
-            if isinstance(e, discord.HTTPException):
-                await notify_dm_failure(client, event, entry.user_id)
     return sent, failed
 
 
@@ -1791,8 +1791,6 @@ async def send_signup_reply(
     **kwargs: Any,
 ) -> None:
     """`notice` is an (English, Japanese) pair shown above the reply."""
-    if isinstance(entry, Response) and entry.payment_method not in _payment_methods(event):
-        entry = prepare_payment_selection(event, entry)
     sections = render_custom_reply_sections(event, entry, status) if event.signup_form else []
     if sections and promotion:
         sections[0] = (

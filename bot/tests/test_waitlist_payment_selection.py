@@ -308,6 +308,30 @@ async def test_resend_does_not_extend_promotion_deadline_or_reveal_waitlist_paym
     assert "Synthetic organizer instructions" not in user.send.call_args.args[0]
 
 
+async def test_sending_legacy_confirmation_does_not_repair_registration(custom_event, queued_entry):
+    queued_entry.payment_method = "PayNow"
+    entry = responses.promote_waitlist_response(custom_event)
+    entry.payment_method = None
+    send = AsyncMock()
+    with patch("offkai_bot.data.response.atomic_write_json") as write:
+        await send_signup_reply(send, custom_event, entry, "Attendance confirmed", "Confirmed")
+    write.assert_not_called()
+    assert responses.get_responses(custom_event.event_name)[0] is entry
+    assert entry.payment_selection_expires_at is None
+    send.assert_awaited_once()
+
+
+async def test_organizer_resend_reports_dm_failure_without_thread_ping(custom_event, queued_entry):
+    entry = responses.promote_waitlist_response(custom_event)
+    user = interaction(entry.user_id).user
+    user.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "DM blocked")
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(return_value=user))
+    with patch("offkai_bot.interactions.notify_dm_failure", new_callable=AsyncMock) as notice:
+        sent, failed = await resend_registration_details(custom_event, bot)
+    assert sent == [] and failed == [entry.username]
+    notice.assert_not_awaited()
+
+
 async def test_expired_choice_is_not_restored_or_extended(custom_event, queued_entry):
     entry = responses.promote_waitlist_response(custom_event)
     entry.payment_selection_expires_at = datetime.now(UTC) - timedelta(seconds=1)
@@ -338,15 +362,17 @@ async def test_renamed_method_offers_new_choice_and_resend_does_not_extend_it(cu
         custom_event.event_name, entry.user_id, entry.timestamp, entry.payment_selection_expires_at, "PayNow"
     )
     custom_event.signup_form["payment_methods"] = {"PayNow (SG)": "Updated organizer instructions"}
-    send = AsyncMock()
-    await send_signup_reply(send, custom_event, selected, "Attendance confirmed", "Confirmed")
+    user = interaction(selected.user_id).user
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(return_value=user))
+    send = user.send
+    await resend_registration_details(custom_event, bot)
     current = responses.get_responses(custom_event.event_name)[0]
     assert current.payment_method is None
     assert current.timestamp == queued_entry.timestamp and current.extras_names == queued_entry.extras_names
     view = send.call_args.kwargs["view"]
     assert view.expires_at == current.payment_selection_expires_at
     deadline = current.payment_selection_expires_at
-    await send_signup_reply(send, custom_event, selected, "Attendance confirmed", "Confirmed")
+    await resend_registration_details(custom_event, bot)
     assert responses.get_responses(custom_event.event_name)[0].payment_selection_expires_at == deadline
     source = interaction(entry.user_id)
     modal = PromotedPaymentModal(view)
@@ -362,15 +388,15 @@ async def test_renamed_method_write_failure_preserves_selected_registration(cust
         custom_event.event_name, entry.user_id, entry.timestamp, entry.payment_selection_expires_at, "PayNow"
     )
     custom_event.signup_form["payment_methods"] = {"Replacement": "New instructions"}
-    send = AsyncMock()
-    with (
-        patch("offkai_bot.data.response.atomic_write_json", side_effect=OSError("Synthetic failure")),
-        pytest.raises(OSError),
-    ):
-        await send_signup_reply(send, custom_event, selected, "Attendance confirmed", "Confirmed")
+    user = interaction(selected.user_id).user
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(return_value=user))
+    with patch("offkai_bot.data.response.atomic_write_json", side_effect=OSError("Synthetic failure")):
+        sent, failed = await resend_registration_details(custom_event, bot)
+    assert sent == [] and failed == [selected.username]
     assert responses.get_responses(custom_event.event_name)[0] is selected
     assert selected.payment_method == "PayNow" and selected.payment_selection_expires_at is None
-    send.assert_not_awaited()
+    user.send.assert_not_awaited()
+    bot.fetch_user.assert_not_awaited()
 
 
 async def test_legacy_confirmed_missing_method_can_choose_before_upload(custom_event, queued_entry):
@@ -379,8 +405,10 @@ async def test_legacy_confirmed_missing_method_can_choose_before_upload(custom_e
     entry.payment_method = None
     assert entry.payment_selection_expires_at is None
     responses.save_responses()
-    send = AsyncMock()
-    await send_signup_reply(send, custom_event, entry, "Attendance confirmed", "Confirmed")
+    user = interaction(entry.user_id).user
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(return_value=user))
+    send = user.send
+    await resend_registration_details(custom_event, bot)
     current = responses.get_responses(custom_event.event_name)[0]
     assert current.payment_selection_expires_at > datetime.now(UTC)
     assert send.call_args.kwargs["view"].expires_at == current.payment_selection_expires_at
@@ -438,6 +466,10 @@ async def test_failed_payment_dm_reuses_enable_dms_notice(custom_event, queued_e
         else:
             responses.promote_waitlist_response(custom_event)
             await resend_registration_details(custom_event, bot)
+    if path == "resend":
+        thread.send.assert_not_awaited()
+        assert responses.get_responses(custom_event.event_name)[0].payment_selection_expires_at is not None
+        return
     thread.send.assert_awaited_once()
     text = thread.send.call_args.args[0]
     assert f"<@{user.id}>" in text

@@ -15,6 +15,7 @@ from offkai_bot.errors import (
     DuplicateResponseError,
     NoResponsesFoundError,
     NoWaitlistEntriesFoundError,
+    RegistrationChangedError,
     ResponseNotFoundError,
 )
 
@@ -741,7 +742,13 @@ def _commit_event_data(event_name: str, staged: EventData, all_data: dict[str, E
     all_data[event_name] = staged
 
 
-def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Response | None:
+def promote_waitlist_response(
+    event: "Event",
+    user_id: int | None = None,
+    *,
+    expected_timestamp: datetime | None = None,
+    reset_payment_choice: bool = False,
+) -> Response | None:
     """Persist a FIFO or selected promotion without an unregistered snapshot.
 
     Stage the move so failed response writes leave the cache and queue unchanged.
@@ -760,11 +767,17 @@ def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Res
         if index is None:
             raise ResponseNotFoundError(event.event_name, user_id)
     entry = event_data["waitlist"][index]
+    if expected_timestamp is not None:
+        # Match the registration displayed by the frontend at millisecond precision.
+        current = entry.timestamp.replace(tzinfo=UTC) if entry.timestamp.tzinfo is None else entry.timestamp
+        current = current.astimezone(UTC)
+        if current.replace(microsecond=current.microsecond // 1000 * 1000) != expected_timestamp.astimezone(UTC):
+            raise RegistrationChangedError()
     if any(response.user_id == entry.user_id for response in event_data["attendees"]):
         raise DuplicateResponseError(event.event_name, entry.user_id)
     response = Response(**asdict(entry))
     methods = (event.signup_form or {}).get("payment_methods", {})
-    if methods and response.payment_method not in methods:
+    if methods and (reset_payment_choice or response.payment_method not in methods):
         response.payment_method = None
         response.payment_selection_expires_at = datetime.now(UTC) + timedelta(hours=72)
     assigned_max_number = None
@@ -824,7 +837,7 @@ def prepare_payment_selection(event: "Event", entry: Response) -> Response:
     if current is None or not methods or current.payment_method in methods:
         return current or entry
     if current.payment_method is None and current.payment_selection_expires_at is not None:
-        return current or entry
+        return current
     updated = replace(
         current,
         payment_method=None,
