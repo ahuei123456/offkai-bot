@@ -170,9 +170,7 @@ def create_admin_app(client: discord.Client) -> web.Application:
         if event.archived or event.interest_check:
             return web.json_response({"error": "event_unavailable", "promoted": False}, status=400)
         try:
-            entry = promote_waitlist_response(
-                event, int(user_id), expected_timestamp=expected_timestamp, reset_payment_choice=True
-            )
+            entry = promote_waitlist_response(event, int(user_id), expected_timestamp=expected_timestamp)
             assert entry is not None
         except (RegistrationChangedError, ResponseNotFoundError):
             return web.json_response({"error": "registration_changed", "promoted": False}, status=409)

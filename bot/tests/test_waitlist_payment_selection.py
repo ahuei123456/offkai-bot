@@ -1,5 +1,6 @@
 """Waitlist privacy and promoted-attendee payment selection regressions."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -167,9 +168,11 @@ def queued_entry(custom_event):
 
 
 @pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize("saved_method", [None, "PayNow"])
 async def test_promotion_sends_persistent_72_hour_choice_without_payment_instructions(
-    custom_event, queued_entry, automatic
+    custom_event, queued_entry, automatic, saved_method
 ):
+    queued_entry.payment_method = saved_method
     user = interaction(queued_entry.user_id).user
     bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(return_value=user))
     before = datetime.now(UTC)
@@ -312,6 +315,7 @@ async def test_sending_legacy_confirmation_does_not_repair_registration(custom_e
     queued_entry.payment_method = "PayNow"
     entry = responses.promote_waitlist_response(custom_event)
     entry.payment_method = None
+    entry.payment_selection_expires_at = None  # Simulate a legacy confirmed record.
     send = AsyncMock()
     with patch("offkai_bot.data.response.atomic_write_json") as write:
         await send_signup_reply(send, custom_event, entry, "Attendance confirmed", "Confirmed")
@@ -344,16 +348,97 @@ async def test_expired_choice_is_not_restored_or_extended(custom_event, queued_e
     assert entry.payment_method is None
 
 
-async def test_legacy_selected_waitlist_method_is_only_disclosed_after_promotion(custom_event, queued_entry):
+async def test_legacy_selected_waitlist_method_requires_fresh_choice_after_promotion(custom_event, queued_entry):
     queued_entry.payment_method = "PayNow"
     send = AsyncMock()
     await send_signup_reply(send, custom_event, queued_entry, "Waitlisted — attendance is not confirmed", "Waitlisted")
     assert "Synthetic organizer instructions" not in send.call_args.args[0]
     entry = responses.promote_waitlist_response(custom_event)
     await send_signup_reply(send, custom_event, entry, "Attendance confirmed", "Confirmed", promotion=True)
-    assert entry.payment_method == "PayNow" and entry.payment_selection_expires_at is None
-    assert "Synthetic organizer instructions" in send.call_args.args[0]
-    assert "view" not in send.call_args.kwargs
+    assert entry.payment_method is None and entry.payment_selection_expires_at is not None
+    assert "Synthetic organizer instructions" not in send.call_args.args[0]
+    assert isinstance(send.call_args.kwargs["view"], PromotedPaymentSelection)
+
+
+async def test_concurrent_popups_commit_only_one_choice(custom_event, queued_entry):
+    entry = responses.promote_waitlist_response(custom_event)
+    custom_event.signup_form["payment_methods"]["Cash"] = "Cash instructions"
+    sources = [interaction(entry.user_id), interaction(entry.user_id)]
+    modals = [PromotedPaymentModal(PromotedPaymentSelection(custom_event, entry)) for _ in sources]
+    for modal, method in zip(modals, ["PayNow", "Cash"], strict=True):
+        modal.payment_method_input._values = [method]
+    await asyncio.gather(*(modal.on_submit(source) for modal, source in zip(modals, sources, strict=True)))
+    saved = responses.get_responses(custom_event.event_name)[0]
+    assert saved.payment_method == "PayNow"
+    assert saved.payment_selection_expires_at is None
+    assert "expired" in sources[1].response.send_message.call_args.args[0]
+
+
+async def test_concurrent_manual_and_automatic_promotion_do_not_reset_choice(custom_event, queued_entry):
+    user = interaction(queued_entry.user_id).user
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fetch_user(user_id):
+        entered.set()
+        await release.wait()
+        return user
+
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(side_effect=fetch_user))
+    with patch("offkai_bot.cogs.events.update_event_message", new=AsyncMock()):
+        manual = asyncio.create_task(
+            EventsCog.promote.callback(
+                EventsCog(bot), interaction(), custom_event.event_name, str(queued_entry.user_id)
+            )
+        )
+        await entered.wait()
+        saved = responses.get_responses(custom_event.event_name)[0]
+        expiry = saved.payment_selection_expires_at
+        assert await promote_waitlist_batch(custom_event, bot) == []
+        release.set()
+        await manual
+    assert responses.get_responses(custom_event.event_name) == [saved]
+    assert saved.payment_selection_expires_at == expiry
+    user.send.assert_awaited_once()
+
+
+async def test_concurrent_automatic_batches_respect_group_capacity(custom_event, queued_entry):
+    from dataclasses import replace
+
+    custom_event.max_capacity = 3
+    responses.add_to_waitlist(custom_event.event_name, replace(queued_entry, user_id=456))
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fetch_user(user_id):
+        entered.set()
+        await release.wait()
+        return interaction(user_id).user
+
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(side_effect=fetch_user))
+    first = asyncio.create_task(promote_waitlist_batch(custom_event, bot))
+    await entered.wait()  # First group is committed, but its DM is still pending.
+    assert await promote_waitlist_batch(custom_event, bot) == []
+    release.set()
+    assert await first == [queued_entry.user_id]
+    assert sum(1 + entry.extra_people for entry in responses.get_responses(custom_event.event_name)) == 2
+    assert [entry.user_id for entry in responses.get_waitlist(custom_event.event_name)] == [456]
+
+
+async def test_old_popup_cannot_complete_a_new_promotion_window(custom_event, queued_entry):
+    old = responses.promote_waitlist_response(custom_event)
+    modal = PromotedPaymentModal(PromotedPaymentSelection(custom_event, old))
+    modal.payment_method_input._values = ["PayNow"]
+    responses.remove_response(custom_event.event_name, old.user_id)
+    responses.add_to_waitlist(custom_event.event_name, queued_entry)
+    current = responses.promote_waitlist_response(custom_event)
+    assert current.timestamp == old.timestamp
+    assert current.payment_selection_expires_at != old.payment_selection_expires_at
+    source = interaction(old.user_id)
+    await modal.on_submit(source)
+    assert "expired" in source.response.send_message.call_args.args[0]
+    assert responses.get_responses(custom_event.event_name)[0] is current
+    assert current.payment_method is None
 
 
 async def test_renamed_method_offers_new_choice_and_resend_does_not_extend_it(custom_event, queued_entry):
@@ -403,6 +488,7 @@ async def test_legacy_confirmed_missing_method_can_choose_before_upload(custom_e
     queued_entry.payment_method = "PayNow"
     entry = responses.promote_waitlist_response(custom_event)
     entry.payment_method = None
+    entry.payment_selection_expires_at = None  # Simulate a legacy confirmed record.
     assert entry.payment_selection_expires_at is None
     responses.save_responses()
     user = interaction(entry.user_id).user

@@ -529,7 +529,9 @@ before a bulk resend, since it sends DMs to registrants, including the waitlist.
 
 The organizer admin page has an up-arrow beside each waitlisted registration. Confirming it promotes that attendee
 and their guests even when the event is full. Events with configured payment methods send a fresh 72-hour
-payment-choice window. If delivery fails, the promotion remains saved and the organizer can resend the confirmation.
+payment-choice window, as do `/promote` and automatic waitlist promotion, including registrations with a legacy
+saved method. Automatic promotion respects capacity; the arrow and `/promote` bypass it. If delivery fails,
+the promotion remains saved and the organizer can resend the confirmation without extending its deadline.
 
 A helper deployment script `deploy.sh` is provided in the root directory to automate deploying updates on your production host (e.g. Raspberry Pi):
 

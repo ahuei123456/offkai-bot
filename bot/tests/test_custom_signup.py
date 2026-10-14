@@ -681,7 +681,8 @@ async def test_automatic_and_manual_promotions_preserve_custom_answers(custom_ev
             with patch("offkai_bot.cogs.events.update_event_message", new=AsyncMock()):
                 await EventsCog.promote.callback(EventsCog(bot), interaction(), custom_event.event_name, "123")
         saved = responses.get_responses(custom_event.event_name)[0]
-        assert saved.payment_method == "PayNow" and saved.no_show_agreed
+        assert saved.payment_method is None and saved.no_show_agreed
+        assert saved.payment_selection_expires_at is not None
 
 
 def test_legacy_defaults_and_custom_announcement(custom_event):
@@ -943,23 +944,18 @@ async def test_promotions_send_identical_confirmed_signup_instructions(
     saved = responses.get_responses(custom_event.event_name)[0]
     assert saved.timestamp == entry.timestamp
     expected = render_custom_reply(custom_event, saved, "Attendance confirmed")
-    if long_reply:
-        sections = [embed.description for embed in user.send.call_args.kwargs["embeds"]]
-        assert all(
-            actual.endswith(original)
-            for actual, original in zip(
-                sections, render_custom_reply_sections(custom_event, saved, "Attendance confirmed"), strict=True
-            )
+    sections = [embed.description for embed in user.send.call_args.kwargs["embeds"]]
+    assert all(
+        actual.endswith(original)
+        for actual, original in zip(
+            sections, render_custom_reply_sections(custom_event, saved, "Attendance confirmed"), strict=True
         )
-        assert "A spot has opened up" in sections[0] and "空きが出た" in sections[1]
-    else:
-        actual = user.send.call_args.args[0]
-        assert "A spot has opened up" in actual and "空きが出た" in actual
-        assert all(
-            section in actual for section in render_custom_reply_sections(custom_event, saved, "Attendance confirmed")
-        )
-    assert "Synthetic organizer instructions" in expected or "Instructions" in expected
-    assert "支払い証明" in expected
+    )
+    assert "A spot has opened up" in sections[0] and "空きが出た" in sections[1]
+    assert "72 hours" in user.send.call_args.args[0]
+    assert "view" in user.send.call_args.kwargs
+    assert "Synthetic organizer instructions" not in expected and "Instructions" not in expected
+    assert "支払い証明" not in expected
 
 
 async def test_interest_removal_keeps_success_when_announcement_fails(custom_event):

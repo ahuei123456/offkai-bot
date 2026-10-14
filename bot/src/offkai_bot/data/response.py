@@ -747,12 +747,14 @@ def promote_waitlist_response(
     user_id: int | None = None,
     *,
     expected_timestamp: datetime | None = None,
-    reset_payment_choice: bool = False,
 ) -> Response | None:
     """Persist a FIFO or selected promotion without an unregistered snapshot.
 
     Stage the move so failed response writes leave the cache and queue unchanged.
     Save event numbering after the response commit, as for add_response_for_event.
+    Every promotion starts a new payment choice, including legacy waitlist entries.
+    Validation and commit contain no await, so competing asyncio callers cannot
+    promote the same entry twice or reset an already-confirmed user's deadline.
     """
     from offkai_bot.data.event import save_event_data
 
@@ -777,7 +779,7 @@ def promote_waitlist_response(
         raise DuplicateResponseError(event.event_name, entry.user_id)
     response = Response(**asdict(entry))
     methods = (event.signup_form or {}).get("payment_methods", {})
-    if methods and (reset_payment_choice or response.payment_method not in methods):
+    if methods:
         response.payment_method = None
         response.payment_selection_expires_at = datetime.now(UTC) + timedelta(hours=72)
     assigned_max_number = None
