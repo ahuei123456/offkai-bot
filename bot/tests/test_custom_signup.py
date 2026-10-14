@@ -1112,7 +1112,7 @@ async def test_payment_dm_keeps_original_server_context_and_replies_directly(cus
         assert ("Synthetic organizer instructions" in reply) == (outcome == "confirmed")
         assert "I've sent you a DM" not in reply
         if outcome == "confirmed":
-            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id)
+            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id, event=custom_event)
             rank.assert_called_once()
             source.channel.send.assert_awaited_once()  # Milestone stays in the event thread.
         else:
@@ -1248,7 +1248,7 @@ async def test_saved_payment_dm_reply_failure_keeps_bookkeeping(custom_event, ou
         target.user.send.assert_awaited_once()
         assert target.user.send.call_args == target.response.send_message.call_args
         if outcome == "confirmed":
-            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id)
+            role.assert_awaited_once_with(source.guild, source.user.id, custom_event.role_id, event=custom_event)
             rank.assert_called_once_with(source.user.id, source.user.name)
             milestone.assert_called_once()
             texts = [call.args[0] for call in source.channel.send.call_args_list]

@@ -190,7 +190,7 @@ def create_admin_app(client: discord.Client) -> web.Application:
         if role_id:
             actions.append(
                 (
-                    lambda: assign_event_role(thread.guild, entry.user_id, role_id),
+                    lambda: assign_event_role(thread.guild, entry.user_id, role_id, event=event),
                     "Promotion saved, but the participant role could not be assigned.",
                 )
             )

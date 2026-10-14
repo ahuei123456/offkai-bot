@@ -533,6 +533,13 @@ payment-choice window, as do `/promote` and automatic waitlist promotion, includ
 saved method. Automatic promotion respects capacity; the arrow and `/promote` bypass it. If delivery fails,
 the promotion remains saved and the organizer can resend the confirmation without extending its deadline.
 
+If that window expires without a selected method, the attendee and all guests move to the end of the waitlist.
+The bot checks saved deadlines every minute after it is ready, including deadlines missed while offline. Existing
+waitlisted groups can fill the released places, but users demoted in that pass cannot immediately promote themselves
+again. Their answers and payment history are retained; this is not a voluntary withdrawal and does not reduce rank.
+The organizer can use the arrow or `/promote` to grant another fresh 72-hour choice. Archived events, interest checks,
+and events with no configured payment methods are excluded from expiry processing.
+
 A helper deployment script `deploy.sh` is provided in the root directory to automate deploying updates on your production host (e.g. Raspberry Pi):
 
 1. **Host Setup:**

@@ -1,11 +1,46 @@
+import asyncio
 import logging
 import secrets
+from weakref import WeakValueDictionary
 
 import discord
+
+from offkai_bot.data.event import Event
+from offkai_bot.data.response import get_responses
 
 _log = logging.getLogger(__name__)
 
 STRIP_SUFFIXES = ("-meetups", "-meetup")
+_role_locks: WeakValueDictionary[tuple[int, int, int], asyncio.Lock] = WeakValueDictionary()
+
+
+async def _sync_registered_role(guild: discord.Guild, user_id: int, role_id: int, event: Event) -> None:
+    """Serialize role work and reconcile changes made while a Discord request was in flight."""
+    key = guild.id, user_id, role_id
+    lock = _role_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _role_locks[key] = lock
+    async with lock:
+        role = guild.get_role(role_id)
+        if role is None:
+            return
+        try:
+            # Gateway role caches can lag behind a preceding add/remove request.
+            member = await guild.fetch_member(user_id)
+            has_role = role in member.roles
+            while True:
+                wanted = not event.archived and any(r.user_id == user_id for r in get_responses(event.event_name))
+                if has_role == wanted:
+                    return
+                if wanted:
+                    await member.add_roles(role, reason="Offkai attendance confirmed")
+                else:
+                    await member.remove_roles(role, reason="Offkai attendance no longer confirmed")
+                has_role = wanted
+                # Re-read saved attendance after the network request, including re-registration.
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+            _log.exception("Could not reconcile participant role for user %s in event %r", user_id, event.event_name)
 
 
 def generate_role_name(channel_name: str) -> str:
@@ -33,8 +68,11 @@ async def create_event_role(guild: discord.Guild, channel_name: str) -> discord.
     return role
 
 
-async def assign_event_role(guild: discord.Guild, user_id: int, role_id: int) -> None:
+async def assign_event_role(guild: discord.Guild, user_id: int, role_id: int, *, event: Event | None = None) -> None:
     """Assign the event participant role to a user."""
+    if event is not None:
+        await _sync_registered_role(guild, user_id, role_id, event)
+        return
     role = guild.get_role(role_id)
     if not role:
         _log.warning("Role %s not found in guild %s, skipping assignment.", role_id, guild.id)
@@ -47,8 +85,11 @@ async def assign_event_role(guild: discord.Guild, user_id: int, role_id: int) ->
         _log.warning("Failed to assign role %s to user %s: %s", role_id, user_id, e)
 
 
-async def remove_event_role(guild: discord.Guild, user_id: int, role_id: int) -> None:
+async def remove_event_role(guild: discord.Guild, user_id: int, role_id: int, *, event: Event | None = None) -> None:
     """Remove the event participant role from a user."""
+    if event is not None:
+        await _sync_registered_role(guild, user_id, role_id, event)
+        return
     role = guild.get_role(role_id)
     if not role:
         _log.warning("Role %s not found in guild %s, skipping removal.", role_id, guild.id)

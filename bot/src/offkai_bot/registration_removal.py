@@ -54,7 +54,7 @@ async def remove_registration(
 
     if freed_spots and event.role_id and guild:
         try:
-            await remove_event_role(guild, member.id, event.role_id)
+            await remove_event_role(guild, member.id, event.role_id, event=event)
         except Exception:
             _log.exception("Role removal failed for user %s in event %r", member.id, event.event_name)
             warnings.append("The registration was removed, but the participant role could not be removed.")

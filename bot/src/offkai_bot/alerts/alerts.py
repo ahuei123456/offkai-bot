@@ -155,6 +155,10 @@ async def alert_loop():
 
         # --- Delegate processing to the helper function, passing the current time ---
         await fire_alert(current_time_jst)
+        if _client is not None:
+            from offkai_bot.payment_selection import expire_pending_payments
+
+            await expire_pending_payments(_client)
         # --- End Delegation ---
 
     except Exception as loop_err:

@@ -373,7 +373,9 @@ async def resend_registration_details(
     return sent, failed
 
 
-async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spots: int | None = None) -> list[int]:
+async def promote_waitlist_batch(
+    event: Event, client: discord.Client, freed_spots: int | None = None, *, excluded_user_ids: set[int] | None = None
+) -> list[int]:
     """
     Promote users from waitlist to fill available capacity.
 
@@ -413,6 +415,9 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
         target_capacity = get_current_attendance_count(event.event_name) + freed_spots
 
     while True:
+        waitlist = get_waitlist(event.event_name)
+        if event.archived or not waitlist or (excluded_user_ids and waitlist[0].user_id in excluded_user_ids):
+            break
         # Check if we should continue promoting
         # (if target_capacity is None there is no constraint: drain the whole waitlist)
         if target_capacity is not None:
@@ -443,7 +448,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
 
         # Assign event participant role
         if guild and event.role_id:
-            await assign_event_role(guild, promoted_entry.user_id, event.role_id)
+            await assign_event_role(guild, promoted_entry.user_id, event.role_id, event=event)
 
         # Notify the promoted user
         try:
@@ -726,7 +731,7 @@ class GatheringModal(ui.Modal):
         # Membership must not depend on the optional ranking file or milestone update.
         await _add_user_to_event_thread(self.event, context, interaction.client)
         if self.event.role_id and context.guild:
-            await assign_event_role(context.guild, context.user.id, self.event.role_id)
+            await assign_event_role(context.guild, context.user.id, self.event.role_id, event=self.event)
 
         # Update rank and announce milestones regardless of whether the DM succeeded
         update_rank(context.user.id, context.user.name)
@@ -1297,7 +1302,7 @@ class OpenEvent(EventView):
 
             # 5. Remove event participant role if removed from responses
             if removed_from_responses and self.event.role_id and interaction.guild:
-                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id, event=self.event)
 
             # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
@@ -1451,7 +1456,7 @@ class ClosedEvent(EventView):
 
             # 5. Remove event participant role if removed from responses
             if removed_from_responses and self.event.role_id and interaction.guild:
-                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id, event=self.event)
 
             # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
@@ -1675,7 +1680,7 @@ class PostDeadlineEvent(EventView):
 
             # 5. Remove event participant role if removed from responses
             if removed_from_responses and self.event.role_id and interaction.guild:
-                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id)
+                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id, event=self.event)
 
             # 6. Promote users from the waitlist only if removed from responses
             # (not from waitlist, since that doesn't free up capacity)
@@ -1791,6 +1796,34 @@ async def send_signup_reply(
     **kwargs: Any,
 ) -> None:
     """`notice` is an (English, Japanese) pair shown above the reply."""
+
+    def current_promotion() -> bool:
+        if not promotion or not isinstance(entry, Response):
+            return True
+        current = next((r for r in get_responses(event.event_name) if r.user_id == entry.user_id), None)
+        return (
+            not event.archived
+            and current is not None
+            and current.timestamp == entry.timestamp
+            and current.payment_selection_expires_at == entry.payment_selection_expires_at
+            and current.payment_method == entry.payment_method
+        )
+
+    if not current_promotion():
+        return  # Withdrawn, demoted, replaced or completed while Discord work was pending.
+
+    async def deliver(*args: Any, **options: Any) -> None:
+        message = await send(*args, **options)
+        if not current_promotion():
+            view = options.get("view")
+            if view is not None:
+                view.stop()
+            if isinstance(message, discord.Message):
+                try:
+                    await message.delete()  # A sent request cannot be cancelled retroactively.
+                except discord.HTTPException:
+                    _log.warning("Could not remove stale promotion DM for user %s", entry.user_id)
+
     sections = render_custom_reply_sections(event, entry, status) if event.signup_form else []
     if sections and promotion:
         sections[0] = (
@@ -1816,15 +1849,15 @@ async def send_signup_reply(
             if sections:
                 kwargs["embeds"] = [discord.Embed(description=section) for section in sections]
             try:
-                await send(choice_notice if sections else f"{message}\n\n{choice_notice}", **kwargs)
+                await deliver(choice_notice if sections else f"{message}\n\n{choice_notice}", **kwargs)
             except Exception:
                 kwargs["view"].stop()
                 raise
             return
     if sections and len(message) > 2000:
-        await send(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
+        await deliver(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
     else:
-        await send(message, **kwargs)
+        await deliver(message, **kwargs)
 
 
 async def start_signup(interaction: discord.Interaction, event: Event):
@@ -1866,7 +1899,7 @@ class PromotedPaymentSelection(ui.View):
             await error_message(
                 interaction,
                 "This payment choice has expired, been completed, or belongs to another registration. "
-                "Your attendance is unchanged; contact the organizer if you still need to choose.",
+                "Contact the organizer if you still need to choose or be promoted again.",
             )
             return False
         return True

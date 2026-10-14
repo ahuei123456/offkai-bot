@@ -806,6 +806,35 @@ def promote_waitlist_response(
     return response
 
 
+def expire_payment_selections(event: "Event", now: datetime) -> list[Response]:
+    """Atomically move expired, unchosen groups to the queue tail; never count this as withdrawal."""
+    if event.archived or event.interest_check or not (event.signup_form or {}).get("payment_methods"):
+        return []
+    data = load_responses().get(event.event_name, EventData(attendees=[], waitlist=[]))
+    expired = [
+        entry
+        for entry in data["attendees"]
+        if entry.payment_method is None
+        and entry.payment_selection_expires_at is not None
+        and entry.payment_selection_expires_at <= now
+    ]
+    if not expired:
+        return []
+    expired_ids = {entry.user_id for entry in expired}
+    fields = WaitlistEntry.__dataclass_fields__
+    queued = [
+        WaitlistEntry(**{key: value for key, value in asdict(entry).items() if key in fields}) for entry in expired
+    ]
+    _commit_event_data(
+        event.event_name,
+        EventData(
+            attendees=[entry for entry in data["attendees"] if entry.user_id not in expired_ids],
+            waitlist=[*data["waitlist"], *queued],
+        ),
+    )
+    return expired
+
+
 def complete_payment_selection(
     event_name: str, user_id: int, timestamp: datetime, expires_at: datetime, method: str
 ) -> Response:

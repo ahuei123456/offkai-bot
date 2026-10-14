@@ -876,7 +876,7 @@ class EventsCog(commands.Cog):
         assert promoted_response is not None
 
         if event.role_id and interaction.guild:
-            await assign_event_role(interaction.guild, user_id, event.role_id)
+            await assign_event_role(interaction.guild, user_id, event.role_id, event=event)
 
         await interaction.followup.send(
             f"Promoted user <@{user_id}> from the waitlist for '{event_name}'.",
