@@ -10,7 +10,7 @@ from offkai_bot.data.ranking import decrease_rank
 from offkai_bot.data.response import get_responses, get_waitlist, remove_from_waitlist, remove_response
 from offkai_bot.errors import RegistrationChangedError, ResponseNotFoundError
 from offkai_bot.event_actions import update_event_message
-from offkai_bot.interactions import promote_waitlist_batch
+from offkai_bot.interactions import promote_waitlist_batch, remove_event_thread_member
 from offkai_bot.role_management import remove_event_role
 
 _log = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ async def remove_registration(
         channel = thread or client.get_channel(event.thread_id)
         if isinstance(channel, discord.Thread):
             try:
-                await channel.remove_user(member)
+                await remove_event_thread_member(event, channel, member)
                 _log.info("Removed user %s from thread %s for event '%s'.", member.id, channel.id, event.event_name)
             except discord.HTTPException as exc:
                 _log.error("Failed to remove user %s from thread %s: %s", member.id, channel.id, exc)

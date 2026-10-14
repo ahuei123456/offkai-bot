@@ -112,7 +112,16 @@ async def test_payment_confirmation_requires_auth_registration_and_reports_dm_fa
     client.is_ready.return_value = True
     client.get_user.return_value = user
     monkeypatch.setattr(admin_api, "get_config", lambda: {"ADMIN_KEY": "synthetic-admin"})
-    monkeypatch.setattr(admin_api, "registered_payment_events", lambda user_id: [event] if user_id == uid else [])
+    event.signup_form = {"payment_methods": {"Bank": "Instructions"}}
+
+    def lookup(name):
+        if name != event.event_name:
+            raise admin_api.EventNotFoundError(name)
+        return event
+
+    monkeypatch.setattr(admin_api, "get_event", lookup)
+    monkeypatch.setattr(admin_api, "get_responses", lambda name: [MagicMock(user_id=uid)])
+    monkeypatch.setattr(admin_api, "get_waitlist", lambda name: [])
     payload = {"event_name": event.event_name, "user_id": str(uid)}
     headers = {"Authorization": "Bearer synthetic-admin"}
     async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:

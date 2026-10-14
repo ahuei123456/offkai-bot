@@ -11,6 +11,7 @@ from aiohttp import web
 
 from offkai_bot.config import get_config
 from offkai_bot.data.event import get_event
+from offkai_bot.data.response import get_responses, get_waitlist
 from offkai_bot.errors import (
     EventNotFoundError,
     RegistrationChangedError,
@@ -19,7 +20,6 @@ from offkai_bot.errors import (
     ThreadNotFoundError,
 )
 from offkai_bot.event_actions import fetch_thread_for_event
-from offkai_bot.payment_proof import registered_payment_events
 from offkai_bot.registration_removal import remove_registration
 
 _log = logging.getLogger(__name__)
@@ -51,7 +51,18 @@ def create_admin_app(client: discord.Client) -> web.Application:
         if isinstance(parsed, web.Response):
             return parsed
         event_name, user_id = parsed
-        if not any(event.event_name == event_name for event in registered_payment_events(int(user_id))):
+        try:
+            event = get_event(event_name)
+        except EventNotFoundError:
+            return web.json_response({"error": "not_found"}, status=404)
+        if (
+            event.archived
+            or event.interest_check
+            or not event.signup_form
+            or not event.signup_form.get("payment_methods")
+        ):
+            return web.json_response({"error": "not_found"}, status=404)
+        if not any(entry.user_id == int(user_id) for entry in [*get_responses(event_name), *get_waitlist(event_name)]):
             return web.json_response({"error": "not_found"}, status=404)
         try:
             user = client.get_user(int(user_id)) or await client.fetch_user(int(user_id))

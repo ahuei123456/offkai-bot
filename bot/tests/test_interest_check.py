@@ -9,6 +9,7 @@ import pytest
 from offkai_bot.alerts import alerts
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
 from offkai_bot.alerts.task import CloseOffkaiTask
+from offkai_bot.data import response as response_data
 from offkai_bot.data.event import Event, create_event_message
 from offkai_bot.data.response import Response
 from offkai_bot.errors import DuplicateResponseError, ResponseNotFoundError
@@ -149,6 +150,11 @@ async def test_interest_modal_submit_records_noncommittal_response(
     modal.extra_people_input = MagicMock()
     modal.extra_people_input.value = "2"
 
+    mock_add_response.side_effect = lambda event_name, entry: response_data.RESPONSE_DATA_CACHE.update(
+        {event_name: {"attendees": [entry], "waitlist": []}}
+    )
+    response_data.RESPONSE_DATA_CACHE = {}
+
     await modal.on_submit(mock_interaction)
 
     mock_add_response.assert_called_once()
@@ -181,6 +187,11 @@ async def test_interest_signup_unarchives_thread_before_adding_member(
     mock_interaction.channel.archived = True
     active_thread = MagicMock(spec=discord.Thread, id=789, archived=False, locked=False, add_user=AsyncMock())
     mock_interaction.channel.edit = AsyncMock(return_value=active_thread)
+
+    mock_add_response.side_effect = lambda event_name, entry: response_data.RESPONSE_DATA_CACHE.update(
+        {event_name: {"attendees": [entry], "waitlist": []}}
+    )
+    response_data.RESPONSE_DATA_CACHE = {}
 
     await modal.on_submit(mock_interaction)
 

@@ -645,9 +645,9 @@ def add_response(
         start_number = attendee_number_start if attendee_number_start is not None else _next_attendee_number(event_data)
         assigned_max_number = _assign_group_numbers(response, start_number) - 1
 
-    event_data["attendees"].append(response)
-    all_data[event_name] = event_data
-    save_responses()
+    _commit_event_data(
+        event_name, EventData(attendees=[*event_data["attendees"], response], waitlist=event_data["waitlist"]), all_data
+    )
     _log.info("Added response from user %s to event %s.", response.user_id, event_name)
     return assigned_max_number
 
@@ -670,9 +670,13 @@ def remove_response(event_name: str, user_id: int) -> Response:
         raise ResponseNotFoundError(event_name, user_id)
     else:
         # Response found and removed, update the cache and save
-        event_data["attendees"] = [r for r in event_data["attendees"] if r.user_id != user_id]
-        all_data[event_name] = event_data
-        save_responses()
+        _commit_event_data(
+            event_name,
+            EventData(
+                attendees=[r for r in event_data["attendees"] if r.user_id != user_id], waitlist=event_data["waitlist"]
+            ),
+            all_data,
+        )
         _log.info("Removed response from user %s for event %s.", user_id, event_name)
         return removed_response
 
@@ -697,9 +701,9 @@ def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:
         raise DuplicateResponseError(event_name, entry.user_id)
 
     # If no duplicate, proceed with adding
-    event_data["waitlist"].append(entry)
-    all_data[event_name] = event_data
-    save_responses()
+    _commit_event_data(
+        event_name, EventData(attendees=event_data["attendees"], waitlist=[*event_data["waitlist"], entry]), all_data
+    )
     _log.info("Added user %s to waitlist for event %s.", entry.user_id, event_name)
 
 
@@ -713,20 +717,20 @@ def remove_from_waitlist(event_name: str, user_id: int) -> None:
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
 
     initial_count = len(event_data["waitlist"])
-    event_data["waitlist"] = [e for e in event_data["waitlist"] if e.user_id != user_id]
+    staged_waitlist = [e for e in event_data["waitlist"] if e.user_id != user_id]
 
-    if len(event_data["waitlist"]) == initial_count:
+    if len(staged_waitlist) == initial_count:
         _log.warning("No waitlist entry found for user %s in event %s. Raising error.", user_id, event_name)
         raise ResponseNotFoundError(event_name, user_id)
     else:
-        all_data[event_name] = event_data
-        save_responses()
+        _commit_event_data(event_name, EventData(attendees=event_data["attendees"], waitlist=staged_waitlist), all_data)
         _log.info("Removed user %s from waitlist for event %s.", user_id, event_name)
 
 
-def _commit_event_data(event_name: str, staged: EventData) -> None:
+def _commit_event_data(event_name: str, staged: EventData, all_data: dict[str, EventData] | None = None) -> None:
     """Publish the cache change only after the shared JSON transaction succeeds."""
-    all_data = load_responses()
+    if all_data is None:
+        all_data = load_responses()
     atomic_write_json(
         get_config()["RESPONSES_FILE"],
         {**all_data, event_name: staged},

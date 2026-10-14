@@ -1,12 +1,26 @@
 """Discord archive/permission failures must not lose saved signup membership work."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
 from aiohttp import ClientConnectionError
 
+from offkai_bot.data import response as responses
 from offkai_bot.interactions import SignupContext, _add_user_to_event_thread
+
+
+@pytest.fixture(autouse=True)
+def registered_user(sample_event_list):
+    # Membership helpers operate only on a saved registration.
+    responses.RESPONSE_DATA_CACHE = {
+        event.event_name: {
+            "attendees": [responses.Response(123, "Synthetic", 0, True, True, event.event_name, datetime.now(UTC))],
+            "waitlist": [],
+        }
+        for event in sample_event_list
+    }
 
 
 def thread_mock(thread_id=1501, *, archived=False, locked=False):

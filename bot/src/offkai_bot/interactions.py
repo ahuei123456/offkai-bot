@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import logging
 import random
@@ -5,8 +6,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from weakref import WeakValueDictionary
 
 import discord
+from aiohttp import ClientError
 from discord import ui
 
 from offkai_bot.data.event import Event
@@ -75,7 +78,47 @@ class SignupContext:
         return self.channel.id if self.channel else None
 
 
+_membership_locks: WeakValueDictionary[tuple[str, int], asyncio.Lock] = WeakValueDictionary()
+
+
+def _membership_lock(event: Event, user_id: int) -> asyncio.Lock:
+    key = event.event_name, user_id
+    lock = _membership_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _membership_locks[key] = lock
+    return lock
+
+
+def _registration_timestamp(event: Event, user_id: int) -> datetime | None:
+    return next(
+        (
+            entry.timestamp
+            for entry in [*get_responses(event.event_name), *get_waitlist(event.event_name)]
+            if entry.user_id == user_id
+        ),
+        None,
+    )
+
+
+async def remove_event_thread_member(event: Event, thread: discord.Thread, user: Any) -> None:
+    async with _membership_lock(event, user.id):
+        # A withdrawal's Discord work may resume after the user has rejoined.
+        if _registration_timestamp(event, user.id) is None:
+            await thread.remove_user(user)
+
+
 async def _add_user_to_event_thread(event: Event, context: SignupContext, client: discord.Client) -> None:
+    timestamp = _registration_timestamp(event, context.user.id)
+    if timestamp is None:
+        return
+    async with _membership_lock(event, context.user.id):
+        await _join_registered_thread(event, context, client, timestamp)
+
+
+async def _join_registered_thread(
+    event: Event, context: SignupContext, client: discord.Client, timestamp: datetime
+) -> None:
     """Join the saved signup's thread, including threads auto-archived during a DM step."""
     thread = context.channel
     try:
@@ -86,6 +129,8 @@ async def _add_user_to_event_thread(event: Event, context: SignupContext, client
             thread = await fetch_thread_for_event(client, event)
 
         for attempt in range(2):
+            if _registration_timestamp(event, context.user.id) != timestamp:
+                return
             if event.archived or (thread.archived and thread.locked):
                 _log.warning(
                     "Not adding user %s to archived event or locked archived thread %s for '%s'.",
@@ -97,7 +142,11 @@ async def _add_user_to_event_thread(event: Event, context: SignupContext, client
             if thread.archived:
                 thread = await thread.edit(archived=False)
             try:
+                if _registration_timestamp(event, context.user.id) != timestamp:
+                    return
                 await thread.add_user(context.user)
+                if _registration_timestamp(event, context.user.id) is None:
+                    await thread.remove_user(context.user)
                 return
             except discord.HTTPException as error:
                 if error.code != 50083 or attempt:
@@ -643,18 +692,18 @@ class GatheringModal(ui.Modal):
                         else interaction.response.send_message
                     )
                     await send_signup_reply(send, self.event, entry, status, message)
-                except (discord.HTTPException, discord.InteractionResponded):
+                except (discord.HTTPException, discord.InteractionResponded, ClientError, TimeoutError):
                     await send_signup_reply(interaction.user.send, self.event, entry, status, message)
             else:
                 try:
                     await send_signup_reply(interaction.user.send, self.event, entry, status, message)
-                except discord.HTTPException:
+                except (discord.HTTPException, ClientError, TimeoutError):
                     await send_signup_reply(
                         interaction.response.send_message, self.event, entry, status, message, ephemeral=True
                     )
                 else:
                     await interaction.response.send_message(ack_text, ephemeral=True)
-        except discord.HTTPException:
+        except (discord.HTTPException, ClientError, TimeoutError):
             _log.warning(
                 "Registration saved for user %s in event %r, but the signup reply could not be delivered",
                 entry.user_id,
@@ -1231,7 +1280,7 @@ class OpenEvent(EventView):
             # 4. Remove user from the thread
             try:
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await interaction.channel.remove_user(interaction.user)
+                    await remove_event_thread_member(self.event, interaction.channel, interaction.user)
                 else:
                     _log.warning(
                         "Could not remove user %s from channel %s (not a thread?).",
@@ -1361,7 +1410,7 @@ class ClosedEvent(EventView):
             # 4. Remove user from the thread
             try:
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await interaction.channel.remove_user(interaction.user)
+                    await remove_event_thread_member(self.event, interaction.channel, interaction.user)
                 else:
                     _log.warning(
                         "Could not remove user %s from channel %s (not a thread?).",
@@ -1470,7 +1519,7 @@ class InterestCheckEvent(EventView):
 
         try:
             if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                await interaction.channel.remove_user(interaction.user)
+                await remove_event_thread_member(self.event, interaction.channel, interaction.user)
         except discord.HTTPException as e:
             _log.error(
                 "Failed to remove user %s from thread %s: %s",
@@ -1585,7 +1634,7 @@ class PostDeadlineEvent(EventView):
             # 4. Remove user from the thread
             try:
                 if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await interaction.channel.remove_user(interaction.user)
+                    await remove_event_thread_member(self.event, interaction.channel, interaction.user)
                 else:
                     _log.warning(
                         "Could not remove user %s from channel %s (not a thread?).",
@@ -1768,7 +1817,11 @@ async def send_signup_reply(
             # Keep long existing language embeds within Discord's content cap.
             if sections:
                 kwargs["embeds"] = [discord.Embed(description=section) for section in sections]
-            await send(choice_notice if sections else f"{message}\n\n{choice_notice}", **kwargs)
+            try:
+                await send(choice_notice if sections else f"{message}\n\n{choice_notice}", **kwargs)
+            except Exception:
+                kwargs["view"].stop()
+                raise
             return
     if sections and len(message) > 2000:
         await send(embeds=[discord.Embed(description=section) for section in sections], **kwargs)
@@ -1789,9 +1842,15 @@ class PromotedPaymentSelection(ui.View):
         self.owner_id = entry.user_id
         self.timestamp = entry.timestamp
         self.expires_at = entry.payment_selection_expires_at
+        delay = max(0, (self.expires_at - datetime.now(UTC)).total_seconds()) if self.expires_at else 0
+        self._expiry_handle = asyncio.get_running_loop().call_later(delay, self.stop)
         self.message: discord.Message | None = None
         identity = f"{event.event_name}:{entry.user_id}:{entry.timestamp.isoformat()}:{self.expires_at}"
         self.choose_payment.custom_id = f"offkai-payment:{hashlib.sha256(identity.encode()).hexdigest()[:40]}"
+
+    def stop(self) -> None:
+        self._expiry_handle.cancel()
+        super().stop()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         entry = next((r for r in get_responses(self.event.event_name) if r.user_id == self.owner_id), None)
