@@ -51,7 +51,9 @@ export function PaymentControl({ attendee, adminKey, eventName, onPayment }: {
     {paid ? t.markUnpaid : t.markPaid}
   </button>
   if (!paid && !proof) return <div className="border-t-2 border-[#17120F] bg-red-50 px-3 py-2 text-xs font-black">
-    <details><summary className="cursor-pointer">{t.waitingForProof}</summary>
+    <details><summary className="cursor-pointer">{t.waitingForProof}
+      {attendee.payment_method && <span className="ml-3 font-normal">{attendee.payment_method}</span>}
+    </summary>
       <div className="pt-2">{paidButton}</div>
     </details>
     {error && <p role="alert" className="mt-2 text-red-700">{t.paymentSaveError}</p>}
