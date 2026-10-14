@@ -419,3 +419,45 @@ async def test_popup_timeout_does_not_end_or_extend_the_72_hour_choice(custom_ev
     assert second.response.send_modal.call_args.args[0] is not popup
     assert not view.is_finished()
     assert view.expires_at == entry.payment_selection_expires_at
+
+
+@pytest.mark.parametrize("path", ["automatic", "manual", "resend"])
+async def test_failed_payment_dm_reuses_enable_dms_notice(custom_event, queued_entry, path):
+    user = interaction(queued_entry.user_id).user
+    user.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "DM blocked")
+    bot = MagicMock(spec=discord.Client, fetch_user=AsyncMock(return_value=user))
+    thread = MagicMock(spec=discord.Thread, archived=False, locked=False, send=AsyncMock())
+    with (
+        patch("offkai_bot.event_actions.fetch_thread_for_event", new=AsyncMock(return_value=thread)),
+        patch("offkai_bot.cogs.events.update_event_message", new=AsyncMock()),
+    ):
+        if path == "automatic":
+            await promote_waitlist_batch(custom_event, bot)
+        elif path == "manual":
+            await EventsCog.promote.callback(EventsCog(bot), interaction(), custom_event.event_name, str(user.id))
+        else:
+            responses.promote_waitlist_response(custom_event)
+            await resend_registration_details(custom_event, bot)
+    thread.send.assert_awaited_once()
+    text = thread.send.call_args.args[0]
+    assert f"<@{user.id}>" in text
+    assert "I couldn't send you a DM. Please enable DMs from this server" in text
+    assert "resend your confirmation" in text
+    assert "restart registration" not in text
+    assert "Synthetic organizer instructions" not in text
+    assert "https://" not in text
+    assert responses.get_responses(custom_event.event_name)[0].payment_selection_expires_at is not None
+
+
+@pytest.mark.parametrize("state", ["locked", "archived", "event_archived", "send_fails"])
+async def test_dm_recovery_respects_thread_state_and_failure(custom_event, state):
+    from offkai_bot.interactions import notify_dm_failure
+
+    thread = MagicMock(spec=discord.Thread, archived=state == "archived", locked=state == "locked", send=AsyncMock())
+    custom_event.archived = state == "event_archived"
+    if state == "send_fails":
+        thread.send.side_effect = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "No access")
+    with patch("offkai_bot.event_actions.fetch_thread_for_event", new=AsyncMock(return_value=thread)):
+        await notify_dm_failure(MagicMock(spec=discord.Client), custom_event, 123)
+    thread.edit.assert_not_called()
+    assert thread.send.await_count == (1 if state == "send_fails" else 0)

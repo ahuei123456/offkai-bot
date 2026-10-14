@@ -272,6 +272,26 @@ REGISTRATION_UPDATED_NOTICE = (
 )
 
 
+DM_FAILURE_NOTICE = "I couldn't send you a DM. Please enable DMs from this server, then "
+
+
+async def notify_dm_failure(client: discord.Client, event: Event, user_id: int) -> None:
+    """Offer recovery in the event thread without publishing private registration details."""
+    from offkai_bot.event_actions import fetch_thread_for_event
+
+    try:
+        thread = await fetch_thread_for_event(client, event)
+        if event.archived or thread.archived or thread.locked:
+            return
+        await thread.send(
+            f"<@{user_id}> {DM_FAILURE_NOTICE}ask the organizer to resend your confirmation. "
+            "Your registration is saved; you do not need to register again.",
+            allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=user_id)], roles=False, everyone=False),
+        )
+    except Exception:
+        _log.warning("Could not send DM recovery notice for user %s in event %r", user_id, event.event_name)
+
+
 async def resend_registration_details(
     event: Event, client: discord.Client, user_ids: set[int] | None = None
 ) -> tuple[list[str], list[str]]:
@@ -299,6 +319,8 @@ async def resend_registration_details(
         except (discord.Forbidden, discord.HTTPException, discord.NotFound, OSError) as e:
             _log.warning("Could not resend details to user %s for '%s': %s", entry.user_id, event.event_name, e)
             failed.append(entry.username)
+            if isinstance(e, discord.HTTPException):
+                await notify_dm_failure(client, event, entry.user_id)
     return sent, failed
 
 
@@ -408,6 +430,7 @@ async def promote_waitlist_batch(event: Event, client: discord.Client, freed_spo
                 event.event_name,
                 e,
             )
+            await notify_dm_failure(client, event, promoted_entry.user_id)
 
     return promoted_user_ids
 
@@ -846,7 +869,7 @@ class GatheringModal(ui.Modal):
                             view.stop()
                             self.reply_in_dm = False
                             await interaction.followup.send(
-                                "I couldn't send you a DM. Please enable DMs from this server, then click "
+                                DM_FAILURE_NOTICE + "click "
                                 "the event's signup button again to restart registration. "
                                 "You haven't been registered yet.",
                                 ephemeral=True,
