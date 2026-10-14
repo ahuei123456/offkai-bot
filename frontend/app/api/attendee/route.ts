@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, readCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
 import { paymentFromSnapshot, readPaymentSnapshot, proofExpiry } from '../payments'
-import { paymentEnabled } from '../payment-access'
+import { paymentChoiceEnabled } from '../payment-access'
 import { verifyToken } from '../token'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
 
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     c => c.user_id === attendee!.user_id && c.event_name === event.event_name
   )
 
-  const enabled = !isWaitlist && paymentEnabled(event)
+  const enabled = !isWaitlist && paymentChoiceEnabled(event, attendee)
   const snapshot = enabled ? readPaymentSnapshot() : {}
   let payment = null
   let paymentUnavailable = snapshot === null

@@ -724,6 +724,19 @@ def remove_from_waitlist(event_name: str, user_id: int) -> None:
         _log.info("Removed user %s from waitlist for event %s.", user_id, event_name)
 
 
+def _commit_event_data(event_name: str, staged: EventData) -> None:
+    """Publish the cache change only after the shared JSON transaction succeeds."""
+    all_data = load_responses()
+    atomic_write_json(
+        get_config()["RESPONSES_FILE"],
+        {**all_data, event_name: staged},
+        indent=4,
+        cls=DataclassJSONEncoder,
+        ensure_ascii=False,
+    )
+    all_data[event_name] = staged
+
+
 def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Response | None:
     """Persist a FIFO or selected promotion without an unregistered snapshot.
 
@@ -767,14 +780,7 @@ def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Res
         attendees=[*event_data["attendees"], response],
         waitlist=[*event_data["waitlist"][:index], *event_data["waitlist"][index + 1 :]],
     )
-    atomic_write_json(
-        get_config()["RESPONSES_FILE"],
-        {**all_data, event.event_name: staged},
-        indent=4,
-        cls=DataclassJSONEncoder,
-        ensure_ascii=False,
-    )
-    all_data[event.event_name] = staged
+    _commit_event_data(event.event_name, staged)
     if assigned_max_number is not None:
         event.max_attendee_number = assigned_max_number
         save_event_data()
@@ -800,14 +806,33 @@ def complete_payment_selection(
         attendees=[updated if r is response else r for r in event_data["attendees"]],
         waitlist=event_data["waitlist"],
     )
-    atomic_write_json(
-        get_config()["RESPONSES_FILE"],
-        {**all_data, event_name: staged},
-        indent=4,
-        cls=DataclassJSONEncoder,
-        ensure_ascii=False,
+    _commit_event_data(event_name, staged)
+    return updated
+
+
+def prepare_payment_selection(event: "Event", entry: Response) -> Response:
+    """Repair a removed/renamed or missing legacy method without extending an existing deadline."""
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    event_data = load_responses().get(event.event_name, EventData(attendees=[], waitlist=[]))
+    current = next(
+        (r for r in event_data["attendees"] if r.user_id == entry.user_id and r.timestamp == entry.timestamp), None
     )
-    all_data[event_name] = staged
+    if current is None or not methods or current.payment_method in methods:
+        return current or entry
+    if current.payment_method is None and current.payment_selection_expires_at is not None:
+        return current or entry
+    updated = replace(
+        current,
+        payment_method=None,
+        payment_selection_expires_at=current.payment_selection_expires_at or datetime.now(UTC) + timedelta(hours=72),
+    )
+    _commit_event_data(
+        event.event_name,
+        EventData(
+            attendees=[updated if r is current else r for r in event_data["attendees"]],
+            waitlist=event_data["waitlist"],
+        ),
+    )
     return updated
 
 

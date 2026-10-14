@@ -40,21 +40,26 @@ def test_names_do_not_guess_ambiguous_or_wrong_number():
 
 
 @pytest.mark.parametrize("waitlisted", [False, True])
-def test_candidates_only_include_sender_payment_registrations(monkeypatch, waitlisted):
+@pytest.mark.parametrize("method", ["Test", None, "Removed"])
+def test_candidates_only_include_sender_payment_registrations(monkeypatch, waitlisted, method):
     target, archived, interest, default = event(), event("Archived"), event("Interest"), event("Default")
     archived.archived, interest.interest_check, default.signup_form = True, True, None
     outsider = event("Someone else's event")
     uid = 101000000000000001
     entry_type = WaitlistEntry if waitlisted else Response
     entry = entry_type(uid, "Synthetic", 0, True, True, target.event_name, datetime.now(UTC))
+    entry.payment_method = method
     monkeypatch.setattr(payment_proof, "load_event_data", lambda: [target, archived, interest, default, outsider])
     monkeypatch.setattr(
         payment_proof, "get_responses", lambda name: [] if waitlisted or name == outsider.event_name else [entry]
     )
     monkeypatch.setattr(
-        payment_proof, "get_waitlist", lambda name: [entry] if waitlisted and name != outsider.event_name else []
+        "offkai_bot.data.response.RESPONSE_DATA_CACHE",
+        {
+            target.event_name: {"attendees": [], "waitlist": [entry] if waitlisted else []},
+        },
     )
-    assert payment_proof.registered_payment_events(uid) == [target]
+    assert payment_proof.registered_payment_events(uid) == ([target] if not waitlisted and method == "Test" else [])
 
 
 def message(content="payment proof post fest2", *, guild=None, bot=False):
@@ -86,6 +91,32 @@ async def test_private_handler_replacement_paid_and_failure_responses(monkeypatc
     await payment_proof.handle_payment_proof(msg)
     assert "Couldn't confirm" in msg.reply.call_args.args[0]
     assert "received" not in msg.reply.call_args.args[0]
+
+
+async def test_waitlisted_event_name_cannot_fuzzy_match_a_confirmed_event(monkeypatch):
+    waiting, confirmed = event("Post Fest2 Offkai Dinner"), event("Post Fest2 Offkai Diner")
+    uid = 101000000000000001
+
+    def entry(kind, target):
+        return kind(uid, "Synthetic", 0, True, True, target.event_name, datetime.now(UTC), payment_method="Test")
+
+    monkeypatch.setattr(payment_proof, "load_event_data", lambda: [waiting, confirmed])
+    monkeypatch.setattr(
+        payment_proof,
+        "get_responses",
+        lambda name: [entry(Response, confirmed)] if name == confirmed.event_name else [],
+    )
+    monkeypatch.setattr(
+        payment_proof,
+        "get_waitlist",
+        lambda name: [entry(WaitlistEntry, waiting)] if name == waiting.event_name else [],
+    )
+    upload = AsyncMock()
+    monkeypatch.setattr(payment_proof, "upload_attachment", upload)
+    msg = message("I paid Post Fest2 Offkai Dinner")
+    assert await payment_proof.handle_payment_proof(msg)
+    assert "only for confirmed" in msg.reply.call_args.args[0]
+    upload.assert_not_awaited()
 
 
 async def test_handler_ignores_guilds_bots_unrelated_and_refuses_missing_or_ambiguous(monkeypatch):

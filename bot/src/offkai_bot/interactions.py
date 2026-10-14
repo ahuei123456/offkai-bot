@@ -20,12 +20,12 @@ from offkai_bot.data.response import (
     get_effective_display_name,
     get_responses,
     get_waitlist,
+    prepare_payment_selection,
     promote_waitlist_response,
     remove_from_waitlist,
     remove_response,
 )
 from offkai_bot.errors import (
-    BotCommandError,
     DuplicateResponseError,
     ResponseNotFoundError,
 )
@@ -108,7 +108,7 @@ async def _add_user_to_event_thread(event: Event, context: SignupContext, client
                 if not isinstance(refreshed, discord.Thread):
                     raise
                 thread = refreshed
-    except (discord.HTTPException, BotCommandError) as error:
+    except Exception as error:
         _log.error(
             "Failed to add user %s to event thread %s for '%s': %s",
             context.user.id,
@@ -296,7 +296,7 @@ async def resend_registration_details(
             user = await client.fetch_user(entry.user_id)
             await send_signup_reply(user.send, event, entry, status, message, notice=(notice[0], notice[1]))
             sent.append(entry.username)
-        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound, OSError) as e:
             _log.warning("Could not resend details to user %s for '%s': %s", entry.user_id, event.event_name, e)
             failed.append(entry.username)
     return sent, failed
@@ -837,7 +837,6 @@ class GatheringModal(ui.Modal):
                                 "You do not need to choose a payment method or pay while waitlisted. "
                                 "If promoted, you will get 72 hours to choose a payment method."
                             )
-                        self.origin_context = SignupContext.from_interaction(interaction)
                         self.reply_in_dm = True
                         await interaction.response.defer(ephemeral=True, thinking=True)
                         try:
@@ -1720,6 +1719,8 @@ async def send_signup_reply(
     **kwargs: Any,
 ) -> None:
     """`notice` is an (English, Japanese) pair shown above the reply."""
+    if isinstance(entry, Response) and entry.payment_method not in _payment_methods(event):
+        entry = prepare_payment_selection(event, entry)
     sections = render_custom_reply_sections(event, entry, status) if event.signup_form else []
     if sections and promotion:
         sections[0] = (
@@ -1737,7 +1738,7 @@ async def send_signup_reply(
         if datetime.now(UTC) < expiry and not event.archived and _payment_methods(event):
             kwargs["view"] = PromotedPaymentSelection(event, entry)
             choice_notice = (
-                f"Choose your payment method within 72 hours of confirmation (by <t:{int(expiry.timestamp())}:F>). "
+                f"Choose your payment method within 72 hours (by <t:{int(expiry.timestamp())}:F>). "
                 "Payment instructions will be sent after you choose.\n"
                 "参加確定から72時間以内に支払い方法を選択してください。選択後に支払い案内をお送りします。"
             )
@@ -1792,16 +1793,16 @@ class PromotedPaymentSelection(ui.View):
 
     @ui.button(label="Choose Payment Method", style=discord.ButtonStyle.primary, custom_id="offkai-payment")
     async def choose_payment(self, interaction: discord.Interaction, button: ui.Button):
-        if await self.interaction_check(interaction):
-            if isinstance(interaction.message, discord.Message):
-                self.message = interaction.message
-            await interaction.response.send_modal(PromotedPaymentModal(self))
+        # discord.py has already run interaction_check for this button dispatch.
+        if isinstance(interaction.message, discord.Message):
+            self.message = interaction.message
+        await interaction.response.send_modal(PromotedPaymentModal(self))
 
 
 class PromotedPaymentModal(ui.Modal):
     def __init__(self, selection: PromotedPaymentSelection):
         # Reopening this modal does not reset the persisted promotion deadline.
-        super().__init__(title="Choose payment method", timeout=72 * 60 * 60)
+        super().__init__(title="Choose payment method", timeout=300)
         self.selection = selection
         self.payment_method_input = ui.Select(
             placeholder="Choose your payment method",

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
+from aiohttp import ClientConnectionError
 
 from offkai_bot.interactions import SignupContext, _add_user_to_event_thread
 
@@ -126,3 +127,15 @@ async def test_deleted_event_thread_lookup_is_logged(sample_event_list, caplog):
 
     assert "Failed to add user 123" in caplog.text
     assert event.event_name in caplog.text
+
+
+async def test_unexpected_thread_transport_failure_stays_best_effort(sample_event_list, caplog):
+    event = sample_event_list[0]
+    client = MagicMock(spec=discord.Client)
+    client.get_channel.return_value = None
+    client.fetch_channel = AsyncMock(side_effect=ClientConnectionError("Synthetic connection failure"))
+
+    await _add_user_to_event_thread(event, SignupContext(None, None, discord.Object(id=123)), client)
+
+    assert "Failed to add user 123" in caplog.text
+    assert "Synthetic connection failure" in caplog.text

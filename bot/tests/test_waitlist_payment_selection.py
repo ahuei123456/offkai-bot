@@ -209,7 +209,7 @@ async def test_promoted_choice_survives_reload_and_completes_without_reregisteri
     source.message = MagicMock(spec=discord.Message, edit=AsyncMock())
     await restored.choose_payment.callback(source)
     modal = source.response.send_modal.call_args.args[0]
-    assert modal.timeout == 72 * 60 * 60
+    assert modal.timeout == 300  # Only the popup expires; the persistent choice remains available for 72 hours.
     submitted = [
         {
             "type": 18,
@@ -330,3 +330,92 @@ async def test_legacy_selected_waitlist_method_is_only_disclosed_after_promotion
     assert entry.payment_method == "PayNow" and entry.payment_selection_expires_at is None
     assert "Synthetic organizer instructions" in send.call_args.args[0]
     assert "view" not in send.call_args.kwargs
+
+
+async def test_renamed_method_offers_new_choice_and_resend_does_not_extend_it(custom_event, queued_entry):
+    entry = responses.promote_waitlist_response(custom_event)
+    selected = responses.complete_payment_selection(
+        custom_event.event_name, entry.user_id, entry.timestamp, entry.payment_selection_expires_at, "PayNow"
+    )
+    custom_event.signup_form["payment_methods"] = {"PayNow (SG)": "Updated organizer instructions"}
+    send = AsyncMock()
+    await send_signup_reply(send, custom_event, selected, "Attendance confirmed", "Confirmed")
+    current = responses.get_responses(custom_event.event_name)[0]
+    assert current.payment_method is None
+    assert current.timestamp == queued_entry.timestamp and current.extras_names == queued_entry.extras_names
+    view = send.call_args.kwargs["view"]
+    assert view.expires_at == current.payment_selection_expires_at
+    deadline = current.payment_selection_expires_at
+    await send_signup_reply(send, custom_event, selected, "Attendance confirmed", "Confirmed")
+    assert responses.get_responses(custom_event.event_name)[0].payment_selection_expires_at == deadline
+    source = interaction(entry.user_id)
+    modal = PromotedPaymentModal(view)
+    modal.payment_method_input._values = ["PayNow (SG)"]
+    await modal.on_submit(source)
+    assert responses.get_responses(custom_event.event_name)[0].payment_method == "PayNow (SG)"
+    assert "Updated organizer instructions" in source.response.send_message.call_args.args[0]
+
+
+async def test_renamed_method_write_failure_preserves_selected_registration(custom_event, queued_entry):
+    entry = responses.promote_waitlist_response(custom_event)
+    selected = responses.complete_payment_selection(
+        custom_event.event_name, entry.user_id, entry.timestamp, entry.payment_selection_expires_at, "PayNow"
+    )
+    custom_event.signup_form["payment_methods"] = {"Replacement": "New instructions"}
+    send = AsyncMock()
+    with (
+        patch("offkai_bot.data.response.atomic_write_json", side_effect=OSError("Synthetic failure")),
+        pytest.raises(OSError),
+    ):
+        await send_signup_reply(send, custom_event, selected, "Attendance confirmed", "Confirmed")
+    assert responses.get_responses(custom_event.event_name)[0] is selected
+    assert selected.payment_method == "PayNow" and selected.payment_selection_expires_at is None
+    send.assert_not_awaited()
+
+
+async def test_legacy_confirmed_missing_method_can_choose_before_upload(custom_event, queued_entry):
+    queued_entry.payment_method = "PayNow"
+    entry = responses.promote_waitlist_response(custom_event)
+    entry.payment_method = None
+    assert entry.payment_selection_expires_at is None
+    responses.save_responses()
+    send = AsyncMock()
+    await send_signup_reply(send, custom_event, entry, "Attendance confirmed", "Confirmed")
+    current = responses.get_responses(custom_event.event_name)[0]
+    assert current.payment_selection_expires_at > datetime.now(UTC)
+    assert send.call_args.kwargs["view"].expires_at == current.payment_selection_expires_at
+    source = interaction(entry.user_id)
+    modal = PromotedPaymentModal(send.call_args.kwargs["view"])
+    modal.payment_method_input._values = ["PayNow"]
+    await modal.on_submit(source)
+    assert responses.get_responses(custom_event.event_name)[0].payment_method == "PayNow"
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+async def test_button_dispatch_runs_owner_check_once(custom_event, queued_entry, invalid):
+    entry = responses.promote_waitlist_response(custom_event)
+    view = PromotedPaymentSelection(custom_event, entry)
+    source = interaction(999 if invalid else entry.user_id)
+    with patch("offkai_bot.interactions.get_responses", wraps=responses.get_responses) as lookup:
+        await view._scheduled_task(view.choose_payment, source)
+        assert lookup.call_count == 1
+    if invalid:
+        source.response.send_modal.assert_not_awaited()
+        source.response.send_message.assert_awaited_once()
+    else:
+        source.response.send_modal.assert_awaited_once()
+
+
+async def test_popup_timeout_does_not_end_or_extend_the_72_hour_choice(custom_event, queued_entry):
+    entry = responses.promote_waitlist_response(custom_event)
+    view = PromotedPaymentSelection(custom_event, entry)
+    first = interaction(entry.user_id)
+    await view._scheduled_task(view.choose_payment, first)
+    popup = first.response.send_modal.call_args.args[0]
+    assert popup.timeout == 300
+    popup.stop()
+    second = interaction(entry.user_id)
+    await view._scheduled_task(view.choose_payment, second)
+    assert second.response.send_modal.call_args.args[0] is not popup
+    assert not view.is_finished()
+    assert view.expires_at == entry.payment_selection_expires_at

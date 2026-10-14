@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseEventParam, parseUserId } from '../validation'
-import { paymentRegistration } from '../payment-access'
+import { adminPaymentRegistration } from '../payment-access'
 import { getPayment, setPaid, registrationTimestamp } from '../payments'
 
 export const runtime = 'nodejs'
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       !Number.isFinite(Date.parse(body.registration_timestamp))) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
-  const registration = paymentRegistration(eventName, userId)
+  const registration = adminPaymentRegistration(eventName, userId)
   if (!registration) return NextResponse.json({ error: 'not_found' }, { status: 404 })
   if (registrationTimestamp(registration.attendee.timestamp) !== registrationTimestamp(body.registration_timestamp)) {
     return NextResponse.json({ error: 'registration_changed' }, { status: 409 })
