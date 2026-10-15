@@ -532,7 +532,7 @@ def test_add_response_new(mock_paths):
     # Mock save_responses to check it gets called
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
-        patch("offkai_bot.data.response.save_responses") as mock_save,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         response_data.add_response("Event A", RESP_2_OBJ)  # Add the second response
@@ -557,7 +557,7 @@ def test_add_response_new_event(mock_paths):
 
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
-        patch("offkai_bot.data.response.save_responses") as mock_save,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         response_data.add_response("Event B", RESP_3_OBJ)  # Add response for new event
@@ -593,7 +593,7 @@ def test_add_response_duplicate(mock_paths):
 
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
-        patch("offkai_bot.data.response.save_responses") as mock_save,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         with pytest.raises(DuplicateResponseError):
@@ -622,7 +622,7 @@ def test_remove_response_found(mock_paths):
 
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
-        patch("offkai_bot.data.response.save_responses") as mock_save,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         response_data.remove_response("Event A", RESP_1_OBJ.user_id)  # Remove User 1
@@ -646,7 +646,7 @@ def test_remove_response_not_found_user(mock_paths):
 
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
-        patch("offkai_bot.data.response.save_responses") as mock_save,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         with pytest.raises(ResponseNotFoundError):
@@ -671,7 +671,7 @@ def test_remove_response_not_found_event(mock_paths):
 
     with (
         patch("offkai_bot.data.response.load_responses", return_value=initial_cache) as mock_load,
-        patch("offkai_bot.data.response.save_responses") as mock_save,
+        patch("offkai_bot.data.response.atomic_write_json") as mock_save,
         patch("offkai_bot.data.response._log") as mock_log,
     ):
         with pytest.raises(ResponseNotFoundError):

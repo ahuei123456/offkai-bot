@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, readCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
 import { paymentFromSnapshot, readPaymentSnapshot, proofExpiry } from '../payments'
-import { paymentEnabled } from '../payment-access'
+import { paymentChoiceEnabled } from '../payment-access'
 import { verifyToken } from '../token'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
 
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     c => c.user_id === attendee!.user_id && c.event_name === event.event_name
   )
 
-  const enabled = paymentEnabled(event)
+  const enabled = !isWaitlist && paymentChoiceEnabled(event, attendee)
   const snapshot = enabled ? readPaymentSnapshot() : {}
   let payment = null
   let paymentUnavailable = snapshot === null
@@ -92,9 +92,9 @@ export async function GET(request: NextRequest) {
     attendee: {
       payment_enabled: enabled,
       payment_unavailable: paymentUnavailable,
-      payment_method: attendee.payment_method ?? null,
-      payment_instructions: activeInstructions(event, attendee.payment_method),
-      payment_instructions_jp: attendee.payment_method
+      payment_method: isWaitlist ? null : attendee.payment_method ?? null,
+      payment_instructions: isWaitlist ? null : activeInstructions(event, attendee.payment_method),
+      payment_instructions_jp: !isWaitlist && attendee.payment_method
         ? event.signup_form?.payment_instructions_jp?.[attendee.payment_method] ?? null : null,
       payment,
       proof_upload_available: enabled && !paymentUnavailable && !!event.event_datetime && Date.parse(proofExpiry(event.event_datetime)) > Date.now(),

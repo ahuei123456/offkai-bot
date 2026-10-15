@@ -21,16 +21,20 @@ IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 PROOF_COMMAND = re.compile(r"^(?:payment\s+proof|proof\s+payment(?:\s+proof)?|i\s+paid)\b\s*(.*)$", re.I | re.S)
 
 
+def payment_event_enabled(event: Event) -> bool:
+    """Event-level payment availability; does not grant registration or organizer access."""
+    return not event.archived and not event.interest_check and bool((event.signup_form or {}).get("payment_methods"))
+
+
 def registered_payment_events(user_id: int) -> list[Event]:
     return [
         event
         for event in load_event_data()
-        if not event.archived
-        and not event.interest_check
+        if payment_event_enabled(event)
         and event.signup_form
-        and event.signup_form.get("payment_methods")
         and any(
-            entry.user_id == user_id for entry in [*get_responses(event.event_name), *get_waitlist(event.event_name)]
+            entry.user_id == user_id and entry.payment_method in event.signup_form["payment_methods"]
+            for entry in get_responses(event.event_name)
         )
     ]
 
@@ -120,12 +124,33 @@ async def handle_payment_proof(message: discord.Message) -> bool:
     if not query:
         await message.reply("Please include the event name: payment proof <event name>, with your screenshot attached.")
         return True
-    matches = match_events(query, registered_payment_events(message.author.id))
+    eligible = registered_payment_events(message.author.id)
+    # Match against all of this user's registrations before enforcing payment eligibility.
+    # Otherwise an ineligible event name can fuzzy-match a different confirmed event.
+    registered = [
+        event
+        for event in load_event_data()
+        if any(
+            entry.user_id == message.author.id
+            for entry in [*get_responses(event.event_name), *get_waitlist(event.event_name)]
+        )
+    ]
+    known = {event.event_name: event for event in [*registered, *eligible]}
+    matches = match_events(query, list(known.values()))
     if not matches:
-        await message.reply("I couldn't find a registered event matching that name. Please check the event name.")
+        await message.reply(
+            "I couldn't find a confirmed registration with a chosen payment method matching that name. "
+            "Waitlisted users should wait for promotion; confirmed attendees must choose a payment method first. "
+            "Please also check the event name."
+        )
     elif len(matches) > 1:
         names = "\n".join(f"• {event.event_name}" for event in matches[:10])
         await message.reply(f"Which event do you mean?\n{names}\nResend with the full event name and your screenshot.")
+    elif matches[0].event_name not in {event.event_name for event in eligible}:
+        await message.reply(
+            "Payment proof is available only for confirmed attendance with a chosen payment method. "
+            "Waitlisted users should wait for promotion; confirmed attendees must choose a payment method first."
+        )
     elif not message.attachments:
         await message.reply("Please attach your payment screenshot.")
     elif len(message.attachments) != 1:

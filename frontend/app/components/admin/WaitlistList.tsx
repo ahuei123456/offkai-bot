@@ -1,12 +1,14 @@
 'use client'
 import { PaymentControl } from './PaymentControl'
 import { RemoveRegistration } from './RemoveRegistration'
+import { PromoteRegistration } from './PromoteRegistration'
 import type { Attendee } from '../../lib/types'
 
-export function WaitlistList({ waitlist, adminKey, eventName, onPayment, onRemove }: {
+export function WaitlistList({ waitlist, adminKey, eventName, onPayment, onRemove, onPromote }: {
   waitlist: Attendee[]; adminKey: string; eventName: string
   onPayment: (userId: string, paid: boolean, timestamp: string) => Promise<boolean>
   onRemove: (userId: string, timestamp: string) => Promise<boolean>
+  onPromote: (userId: string, timestamp: string) => Promise<boolean>
 }) {
   if (waitlist.length === 0) return null
   return (
@@ -19,6 +21,7 @@ export function WaitlistList({ waitlist, adminKey, eventName, onPayment, onRemov
               {(a.display_name || a.username)[0].toUpperCase()}
             </div>
             <p className="flex-1 min-w-0 break-words font-bold text-[#17120F] text-sm">{a.display_name || a.username}</p>
+            <PromoteRegistration attendee={a} onPromote={onPromote} />
             <RemoveRegistration attendee={a} onRemove={onRemove} />
           </div>
             <PaymentControl attendee={a} adminKey={adminKey} eventName={eventName} onPayment={onPayment} />

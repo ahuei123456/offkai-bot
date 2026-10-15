@@ -4,6 +4,7 @@ import hmac
 import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 import discord
@@ -11,6 +12,7 @@ from aiohttp import web
 
 from offkai_bot.config import get_config
 from offkai_bot.data.event import get_event
+from offkai_bot.data.response import get_responses, get_waitlist, promote_waitlist_response
 from offkai_bot.errors import (
     EventNotFoundError,
     RegistrationChangedError,
@@ -18,9 +20,16 @@ from offkai_bot.errors import (
     ThreadAccessError,
     ThreadNotFoundError,
 )
-from offkai_bot.event_actions import fetch_thread_for_event
-from offkai_bot.payment_proof import registered_payment_events
+from offkai_bot.event_actions import fetch_thread_for_event, update_event_message
+from offkai_bot.interactions import (
+    SignupContext,
+    _add_user_to_event_thread,
+    build_confirmation_message,
+    send_signup_reply,
+)
+from offkai_bot.payment_proof import payment_event_enabled
 from offkai_bot.registration_removal import remove_registration
+from offkai_bot.role_management import assign_event_role
 
 _log = logging.getLogger(__name__)
 
@@ -51,8 +60,26 @@ def create_admin_app(client: discord.Client) -> web.Application:
         if isinstance(parsed, web.Response):
             return parsed
         event_name, user_id = parsed
-        if not any(event.event_name == event_name for event in registered_payment_events(int(user_id))):
+        try:
+            event = get_event(event_name)
+        except EventNotFoundError:
             return web.json_response({"error": "not_found"}, status=404)
+        if not payment_event_enabled(event):
+            return web.json_response({"error": "not_found"}, status=404)
+        entry = next(
+            (
+                entry
+                for entry in [*get_responses(event_name), *get_waitlist(event_name)]
+                if entry.user_id == int(user_id)
+            ),
+            None,
+        )
+        if entry is None:
+            return web.json_response({"error": "not_found"}, status=404)
+        if entry.payment_selection_demotes and entry.payment_method not in (event.signup_form or {}).get(
+            "payment_methods", {}
+        ):
+            return web.json_response({"error": "payment_method_required"}, status=409)
         try:
             user = client.get_user(int(user_id)) or await client.fetch_user(int(user_id))
             await user.send(f"Payment confirmed for {event_name}!")
@@ -120,8 +147,98 @@ def create_admin_app(client: discord.Client) -> web.Application:
             result["warnings"].append("The registration was removed, but the confirmation DM could not be delivered.")
         return web.json_response(result)
 
+    async def promote(request: web.Request) -> web.Response:
+        parsed = await parse_admin_request(request, client)
+        if isinstance(parsed, web.Response):
+            return parsed
+        event_name, user_id = parsed
+        body = await request.json()
+        try:
+            timestamp = body.get("registration_timestamp")
+            if not isinstance(timestamp, str) or len(timestamp) > 100:
+                raise ValueError("Invalid timestamp")
+            expected_timestamp = datetime.fromisoformat(timestamp)
+            if expected_timestamp.tzinfo is None:
+                raise ValueError("Timestamp requires timezone")
+            expected_timestamp = expected_timestamp.astimezone(UTC)
+            expected_timestamp = expected_timestamp.replace(microsecond=expected_timestamp.microsecond // 1000 * 1000)
+        except ValueError:
+            return web.json_response({"error": "invalid_request", "promoted": False}, status=400)
+        try:
+            event = get_event(event_name)
+            if event.archived or event.interest_check:
+                return web.json_response({"error": "event_unavailable", "promoted": False}, status=400)
+            thread = await fetch_thread_for_event(client, event)
+            if thread.guild.id not in get_config()["GUILDS"]:
+                return web.json_response({"error": "event_unavailable", "promoted": False}, status=403)
+            user = client.get_user(int(user_id)) or await client.fetch_user(int(user_id))
+        except (EventNotFoundError, ThreadNotFoundError, discord.NotFound):
+            return web.json_response({"error": "preflight_not_found", "promoted": False}, status=404)
+        except (ThreadAccessError, discord.Forbidden):
+            return web.json_response({"error": "preflight_forbidden", "promoted": False}, status=403)
+        except Exception:
+            _log.exception("Registration promotion preflight failed")
+            return web.json_response({"error": "preflight_unavailable", "promoted": False}, status=503)
+        # Recheck after network preflight; no await between identity validation and commit.
+        if event.archived or event.interest_check:
+            return web.json_response({"error": "event_unavailable", "promoted": False}, status=400)
+        try:
+            entry = promote_waitlist_response(event, int(user_id), expected_timestamp=expected_timestamp)
+            assert entry is not None
+        except (RegistrationChangedError, ResponseNotFoundError):
+            return web.json_response({"error": "registration_changed", "promoted": False}, status=409)
+        except Exception:
+            # A later metadata write can fail after the roster commit; do not claim no mutation.
+            _log.exception("Admin registration promotion failed for event %r", event_name)
+            return web.json_response({"error": "promotion_unconfirmed"}, status=502)
+        warnings = []
+        # Saved attendance is not rolled back if Discord delivery or cleanup fails.
+        actions: list[tuple[Callable[[], Awaitable[bool | None]], str]] = [
+            (
+                lambda: _add_user_to_event_thread(event, SignupContext(thread, thread.guild, user), client),
+                "Promotion saved, but thread access could not be added. "
+                "Check bot permissions and add the user manually.",
+            ),
+        ]
+        role_id = event.role_id
+        if role_id:
+            actions.append(
+                (
+                    lambda: assign_event_role(thread.guild, entry.user_id, role_id, event=event),
+                    "Promotion saved, but the participant role could not be assigned.",
+                )
+            )
+        actions.extend(
+            [
+                (
+                    lambda: send_signup_reply(
+                        user.send,
+                        event,
+                        entry,
+                        "Attendance confirmed",
+                        build_confirmation_message(event, entry),
+                        promotion=True,
+                    ),
+                    "Promotion saved, but the DM could not be delivered. Enable DMs and resend the confirmation.",
+                ),
+                (
+                    lambda: update_event_message(client, event),
+                    "Promotion saved, but the event message could not be updated.",
+                ),
+            ]
+        )
+        for action, warning in actions:
+            try:
+                if await action() is False:
+                    warnings.append(warning)
+            except Exception:
+                _log.exception("Post-promotion action failed for user %s in event %r", user_id, event_name)
+                warnings.append(warning)
+        return web.json_response({"promoted": True, "warnings": warnings})
+
     app = web.Application(client_max_size=4096)
     app.router.add_post("/registrations/remove", remove)
+    app.router.add_post("/registrations/promote", promote)
     app.router.add_post("/payments/confirm", confirm_payment)
     return app
 

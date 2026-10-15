@@ -27,7 +27,9 @@ from offkai_bot.event_actions import (
     fetch_thread_for_event,
     update_event_message,
 )
+from offkai_bot.interactions import restore_payment_selections
 from offkai_bot.payment_proof import handle_payment_proof
+from offkai_bot.payment_selection import start_payment_selection_loop, stop_payment_selection_loop
 from offkai_bot.util import send_interaction_error
 
 # --- End Updated Imports ---
@@ -97,6 +99,7 @@ class OffkaiClient(commands.Bot):
         load_event_data()
         load_responses()  # Loads both attendees and waitlist
         load_rankings()
+        restore_payment_selections(self)
         _log.info("Initial data loaded into cache.")
 
         if not get_config().get("FRONTEND_URL"):
@@ -113,6 +116,7 @@ class OffkaiClient(commands.Bot):
 
         await load_and_update_events(self)
         start_alert_loop(self)
+        start_payment_selection_loop(self)
         self.admin_api = None
         try:
             self.admin_api = await start_admin_api(self)
@@ -120,6 +124,7 @@ class OffkaiClient(commands.Bot):
             _log.exception("Private admin API unavailable; continuing Discord startup")
 
     async def close(self):
+        stop_payment_selection_loop()
         runner = getattr(self, "admin_api", None)
         if runner:
             await runner.cleanup()

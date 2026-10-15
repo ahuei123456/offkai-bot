@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '../token'
 import { parseEventParam, parseUserId } from '../validation'
-import { paymentRegistration, tokenPaymentRegistration } from '../payment-access'
+import { adminPaymentRegistration, tokenPaymentRegistration } from '../payment-access'
 import { getPayment, registrationTimestamp, InvalidImageError, RegistrationChangedError, ProofExpiredError, MAX_IMAGE_BYTES, proofExpiry, readProof, saveProof } from '../payments'
 
 export const runtime = 'nodejs'
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     expectedFilename = params.get('proof_filename')
     if (!eventName || !parsedId || !expectedTimestamp || !Number.isFinite(Date.parse(expectedTimestamp)) ||
         !expectedFilename || !/^[a-f0-9-]+\.webp$/.test(expectedFilename)) return error('invalid_request', 400)
-    registration = paymentRegistration(eventName, parsedId)
+    registration = adminPaymentRegistration(eventName, parsedId)
     userId = parsedId
   }
   if (!registration) return error('not_found', 404)

@@ -53,6 +53,7 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     const loading = useAdminData()
     assert.equal(await loading.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(await loading.removeRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
+    assert.equal(await loading.promoteRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
     assert.deepEqual(posts, [])
     loading.changeEvent('Event A')
     begin()
@@ -73,6 +74,8 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     assert.equal(refreshes, 1)
     await assert.rejects(loaded.removeRegistration(uid, '2026-10-01T00:00:00.000Z'), /registration_changed/)
     assert.equal(refreshes, 2)
+    await assert.rejects(loaded.promoteRegistration(uid, '2026-10-01T00:00:00.000Z'), /registration_changed/)
+    assert.equal(refreshes, 3)
     // A's initial load and 10-second poll both remain pending during A → B.
     const pending: { event: string; resolve: (value: Response) => void }[] = []
     globalThis.fetch = async (url, options) => {
@@ -111,6 +114,7 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     const previousPostCount = posts.length
     // Even a callback retained from the old render cannot mutate the new event.
     assert.equal(await beforeSwitch.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
+    assert.equal(await beforeSwitch.promoteRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(posts.length, previousPostCount)
   } finally {
     globalThis.fetch = previousFetch

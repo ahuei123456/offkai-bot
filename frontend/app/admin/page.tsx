@@ -81,7 +81,7 @@ export default function AdminPage() {
           )}
         </div>
 
-        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} adminKey={data.key} eventName={data.eventName} onPayment={data.updatePayment} onRemove={data.removeRegistration} />}
+        {data.filter === 'all' && !data.search && <WaitlistList waitlist={data.waitlist} adminKey={data.key} eventName={data.eventName} onPayment={data.updatePayment} onRemove={data.removeRegistration} onPromote={data.promoteRegistration} />}
       </div>
 
       {scanner.scanResult && (

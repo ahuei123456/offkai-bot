@@ -69,7 +69,12 @@ from offkai_bot.event_actions import (
     send_event_message,
     update_event_message,
 )
-from offkai_bot.interactions import promote_waitlist_batch, resend_registration_details, send_signup_reply
+from offkai_bot.interactions import (
+    notify_dm_failure,
+    promote_waitlist_batch,
+    resend_registration_details,
+    send_signup_reply,
+)
 from offkai_bot.registration_removal import remove_registration
 from offkai_bot.role_management import assign_event_role, create_event_role
 from offkai_bot.signup_setup import PublicationState, SignupSetup
@@ -871,7 +876,7 @@ class EventsCog(commands.Cog):
         assert promoted_response is not None
 
         if event.role_id and interaction.guild:
-            await assign_event_role(interaction.guild, user_id, event.role_id)
+            await assign_event_role(interaction.guild, user_id, event.role_id, event=event)
 
         await interaction.followup.send(
             f"Promoted user <@{user_id}> from the waitlist for '{event_name}'.",
@@ -900,6 +905,7 @@ class EventsCog(commands.Cog):
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
             _log.warning("Could not DM promoted user %s for event '%s': %s", user_id, event_name, e)
+            await notify_dm_failure(self.bot, event, user_id)
 
         await update_event_message(self.bot, event)
 

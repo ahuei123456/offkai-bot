@@ -60,6 +60,48 @@ function request(url: string, body?: unknown, headers: Record<string, string> = 
   })
 }
 
+test('payment proof submission requires confirmed attendance and a current chosen method', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offkai-review-proof-gates-'))
+  const modules = compileRoutes()
+  const previous = { dir: process.env.BOT_DATA_DIR, key: process.env.ADMIN_KEY, mock: process.env.MOCK_MODE }
+  process.env.BOT_DATA_DIR = dataDir
+  process.env.ADMIN_KEY = 'synthetic-test-key'
+  process.env.MOCK_MODE = 'false'
+  try {
+    const name = 'Synthetic promotion choice'
+    fs.writeFileSync(path.join(dataDir, 'events.json'), JSON.stringify([{
+      event_name: name, event_datetime: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+      archived: false, open: true, signup_form: { fields: ['payment_method'], payment_methods: { PayNow: 'Instructions' } },
+    }]))
+    const attendeeRoute = await import(pathToFileURL(path.join(modules, 'api', 'attendee/route.js')).href)
+    const proofRoute = await import(pathToFileURL(path.join(modules, 'api', 'payment-proof/route.js')).href)
+    const image = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'red' } }).png().toBuffer()
+    for (const [waiting, method] of [[true, 'PayNow'], [false, null], [false, 'Removed']] as const) {
+      const entry = { user_id: uid, username: 'Synthetic', timestamp: new Date().toISOString(), payment_method: method }
+      fs.writeFileSync(path.join(dataDir, 'responses.json'), JSON.stringify({
+        [name]: { attendees: waiting ? [] : [entry], waitlist: waiting ? [entry] : [] },
+      }))
+      const token = signedToken(uid, name)
+      const pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
+      assert.equal(pass.attendee.payment_enabled, false)
+      assert.equal(pass.attendee.proof_upload_available, false)
+      const form = new FormData()
+      form.set('token', token)
+      form.set('image', new Blob([new Uint8Array(image)], { type: 'image/png' }), 'proof.png')
+      const upload = await proofRoute.POST(new NextRequest('http://localhost/api/payment-proof', { method: 'POST', body: form }))
+      assert.equal(upload.status, 404)
+      assert.equal(fs.existsSync(path.join(dataDir, 'payments.json')), false)
+      assert.equal(fs.existsSync(path.join(dataDir, 'payment-proofs')), false)
+    }
+  } finally {
+    if (previous.dir === undefined) delete process.env.BOT_DATA_DIR; else process.env.BOT_DATA_DIR = previous.dir
+    if (previous.key === undefined) delete process.env.ADMIN_KEY; else process.env.ADMIN_KEY = previous.key
+    if (previous.mock === undefined) delete process.env.MOCK_MODE; else process.env.MOCK_MODE = previous.mock
+    fs.rmSync(dataDir, { recursive: true, force: true })
+    fs.rmSync(modules, { recursive: true, force: true })
+  }
+})
+
 test('synthetic confirmed and waitlist payment flow, isolation, auth, image processing and retention', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offkai-payment-data-'))
   const modules = compileRoutes()
@@ -110,7 +152,7 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       const replies = JSON.parse(fs.readFileSync(path.join(process.env.OFFKAI_SYNTHETIC_OUTPUT, 'replies.json'), 'utf8'))
       for (const name of eventNames) {
         assert.equal(replies[name].token, signedToken(uid, name))
-        assert.ok(replies[name].reply.includes('Synthetic organizer instructions'))
+        assert.equal(replies[name].reply.includes('Synthetic organizer instructions'), name === eventNames[0])
         assert.ok(replies[name].reply.includes(signedToken(uid, name)))
       }
     }
@@ -128,6 +170,17 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       form.set('token', token)
       form.set('image', new Blob([new Uint8Array(bytes)], { type: mime }), 'untrusted-name.jpg')
       return proofRoute.POST(new NextRequest('http://localhost/api/payment-proof', { method: 'POST', body: form }))
+    }
+    const recordedUpload = async (name: string, token: string) => {
+      if (name === eventNames[0]) return upload(token)
+      // Seed historical proof from a confirmed/selected registration, then restore its waitlist state.
+      const filename = path.join(dataDir, 'responses.json')
+      const before = fs.readFileSync(filename, 'utf8')
+      const rows = JSON.parse(before.replace(/("user_id"\s*:\s*)(\d+)/g, '$1"$2"'))
+      rows[name] = { attendees: rows[name].waitlist.map((entry: object) => ({ ...entry, payment_method: 'PayNow' })), waitlist: [] }
+      fs.writeFileSync(filename, JSON.stringify(rows))
+      try { return await upload(token) }
+      finally { fs.writeFileSync(filename, before) }
     }
     assert.equal((await upload('bad-token')).status, 401)
     // Chunked body with an oversized ignored part must stop before token parsing.
@@ -159,12 +212,18 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       const count = notifications.length
       await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: true }))
       assert.equal(notifications.length, count, 'Repeated Mark paid must not send another DM')
-      const uploaded = await upload(token)
+      if (i === 1) assert.equal((await upload(token)).status, 404)
+      const uploaded = await recordedUpload(name, token)
       assert.equal(uploaded.status, 200)
       const uploadedData = await uploaded.json()
       assert.equal(uploadedData.payment.paid, true)
       assert.equal(uploadedData.replaced, false)
-      const read = await proofRoute.GET(request('/api/payment-proof?token=' + token))
+      const publicRead = await proofRoute.GET(request('/api/payment-proof?token=' + token))
+      assert.equal(publicRead.status, i === 0 ? 200 : 404)
+      const read = i === 0 ? publicRead : await proofRoute.GET(request(
+        `/api/payment-proof?event=${encodeURIComponent(name)}&user_id=${uid}&registration_timestamp=${encodeURIComponent(registrationTime)}&proof_filename=${uploadedData.payment.proof.filename}`,
+        undefined, { Authorization: 'Bearer synthetic-test-key' },
+      ))
       assert.equal(read.status, 200)
       assert.equal(read.headers.get('cache-control'), 'private, no-store')
       const metadata = await sharp(Buffer.from(await read.arrayBuffer())).metadata()
@@ -176,15 +235,20 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
       assert.equal(adminRead.status, 200)
       const pass = await (await attendeeRoute.GET(request('/api/attendee?token=' + token))).json()
       assert.equal(pass.attendee.status, i === 0 ? 'attending' : 'waitlist')
-      assert.equal(pass.attendee.payment_instructions, 'Synthetic organizer instructions')
+      assert.equal(pass.attendee.payment_instructions, i === 0 ? 'Synthetic organizer instructions' : null)
       assert.equal(pass.attendee.payment_instructions_jp, i === 0 ? '主催者の支払い案内' : null)
-      assert.equal(pass.attendee.payment_method, 'PayNow')
+      assert.equal(pass.attendee.payment_method, i === 0 ? 'PayNow' : null)
       assert.equal(pass.attendee.no_show_agreed, true)
-      assert.equal(pass.attendee.payment.paid, true)
+      assert.equal(pass.attendee.payment_enabled, i === 0)
+      if (i === 0) assert.equal(pass.attendee.payment.paid, true)
+      else {
+        assert.equal(pass.attendee.payment, null)
+        assert.equal(pass.attendee.proof_upload_available, false)
+      }
       paid = await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: false }))
       assert.equal((await paid.json()).payment.paid, false)
       // Replacing a proof preserves unpaid status and removes the old image.
-      const replacement = await (await upload(token)).json()
+      const replacement = await (await recordedUpload(name, token)).json()
       assert.equal(replacement.payment.paid, false)
       assert.equal(replacement.replaced, true)
       await paidRoute.POST(request('/api/payment?key=synthetic-test-key', { event_name: name, user_id: uid, paid: true }))
@@ -277,7 +341,7 @@ test('payment gating, registration lifetime, promotion, legacy migration and cor
       'No prepayment': { attendees: [attendee], waitlist: [] },
     }))
     fs.writeFileSync(path.join(dataDir, 'events.json'), JSON.stringify(events))
-    writeResponses(originalTime, true)
+    writeResponses(originalTime)
     const importModule = (file: string) => import(pathToFileURL(path.join(modules, 'api', file)).href)
     const payments = await importModule('payments.js')
     const proofRoute = await importModule('payment-proof/route.js')
@@ -288,6 +352,7 @@ test('payment gating, registration lifetime, promotion, legacy migration and cor
     const image = await sharp({ create: { width: 20, height: 20, channels: 3, background: 'blue' } }).png().toBuffer()
     const proof = await payments.saveProof(eventName, uid, start, image, originalTime)
     payments.setPaid(eventName, uid, true, originalTime)
+    writeResponses(originalTime, true)
     const oldImage = path.join(dataDir, 'payment-proofs', proof.proof.filename)
     // Promotion changes only status; the registration and its payment survive.
     writeResponses(originalTime)
@@ -379,7 +444,9 @@ test('round-two stale paid actions, undated legacy binding, proof removal and up
     const start = new Date(Date.now() + 86400000).toISOString()
     const stampA = new Date(Date.now() - 7200000).toISOString()
     const stampB = new Date(Date.now() - 3600000).toISOString()
-    const attendee = (user_id: string, timestamp = stampA) => ({ user_id, timestamp, username: 'Synthetic', extra_people: 0 })
+    const attendee = (user_id: string, timestamp = stampA) => ({
+      user_id, timestamp, username: 'Synthetic', extra_people: 0, payment_method: 'Cash',
+    })
     const responseFile = path.join(dataDir, 'responses.json')
     const paymentFile = path.join(dataDir, 'payments.json')
     const responses = (rows: unknown[], waitlist: unknown[] = []) => fs.writeFileSync(responseFile, JSON.stringify({
@@ -447,8 +514,10 @@ test('round-two stale paid actions, undated legacy binding, proof removal and up
     try { assert.equal((await upload()).status, 409) } finally { fs.readFileSync = originalRead }
     assert.equal(fs.readdirSync(path.join(dataDir, 'payment-proofs')).length, 0)
     responses([attendee(uid)], [attendee(otherUid)])
+    responses([attendee(uid), attendee(otherUid)])
     const confirmed = await payments.saveProof(eventName, uid, start, image, stampA)
     const waiting = await payments.saveProof(eventName, otherUid, start, image, stampA)
+    responses([attendee(uid)], [attendee(otherUid)])
     const imagePath = (record: { proof: { filename: string } }) => path.join(dataDir, 'payment-proofs', record.proof.filename)
     const adminUrl = `/api/payment-proof?event=${encodeURIComponent(eventName)}&user_id=${uid}&registration_timestamp=${encodeURIComponent(stampA)}&proof_filename=${confirmed.proof.filename}`
     assert.equal((await proofRoute.GET(request(adminUrl + '&key=synthetic-test-key'))).status, 401)

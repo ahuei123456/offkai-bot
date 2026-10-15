@@ -30,6 +30,7 @@ export interface BotAttendee {
   arrival_confirmed: boolean
   event_name: string
   payment_method?: string | null
+  payment_selection_demotes?: boolean
   no_show_agreed?: boolean
   timestamp: string
   // Sequential per-event entry numbers assigned by the bot: the primary's own

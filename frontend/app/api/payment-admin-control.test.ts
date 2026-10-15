@@ -47,9 +47,9 @@ test('actual admin payment control supports confirmed cash override and private 
     globalThis.window = { confirm: () => confirm } as unknown as Window & typeof globalThis
     const attendee = { user_id: '191524132624531458', payment_enabled: true, registration_timestamp: '2026-10-01T00:00:00Z',
       payment: { paid: false, proof: null } }
-    const render = (proof: { filename: string; uploaded_at: string } | null = null) => {
+    const render = (proof: { filename: string; uploaded_at: string } | null = null, required = false) => {
       begin()
-      return PaymentControl({ attendee: { ...attendee, payment: { paid: false, proof } },
+      return PaymentControl({ attendee: { ...attendee, payment_method_required: required, payment: { paid: false, proof } },
         adminKey: 'synthetic-test-key', eventName: 'Test event', onPayment: async (...args: unknown[]) => { calls.push(args); return true } })
     }
     let tree = render()
@@ -60,6 +60,11 @@ test('actual admin payment control supports confirmed cash override and private 
     confirm = true
     await (paid.props.onClick as () => Promise<void>)()
     assert.deepEqual(calls, [[attendee.user_id, true, attendee.registration_timestamp]])
+    tree = render(null, true)
+    paid = elements(tree, 'button').find(button => button.props.children === 'Mark paid')!
+    assert.equal(paid.props.disabled, true)
+    await (paid.props.onClick as () => Promise<void>)()
+    assert.equal(calls.length, 1, 'Even a direct click handler call cannot bypass pending selection')
     const requests: { url: string; options: RequestInit; resolve: (r: Response) => void }[] = []
     globalThis.fetch = (async (url, options) => new Promise<Response>(resolve => requests.push({ url: String(url), options: options!, resolve }))) as typeof fetch
     let nextUrl = 0

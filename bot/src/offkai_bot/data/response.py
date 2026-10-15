@@ -3,9 +3,9 @@ import json
 import logging
 import os
 from collections import Counter
-from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, TypedDict
+from dataclasses import asdict, dataclass, field, replace
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
@@ -15,6 +15,7 @@ from offkai_bot.errors import (
     DuplicateResponseError,
     NoResponsesFoundError,
     NoWaitlistEntriesFoundError,
+    RegistrationChangedError,
     ResponseNotFoundError,
 )
 
@@ -41,6 +42,8 @@ class Response:
     display_name: str | None = None
     attendee_number: int | None = None
     extras_attendee_numbers: list[int] = field(default_factory=list)
+    payment_selection_expires_at: datetime | None = None
+    payment_selection_demotes: bool = False
 
 
 # --- Waitlist Entry Dataclass ---
@@ -58,6 +61,7 @@ class WaitlistEntry:
     payment_method: str | None = None
     no_show_agreed: bool = False
     display_name: str | None = None
+    payment_selection_demotes: bool = False
 
 
 def get_effective_display_name(entry: Response | WaitlistEntry) -> str:
@@ -92,9 +96,41 @@ class AttendeeReportRow:
 
 
 # --- Type Definitions ---
+class PaymentExpiryBackfill(TypedDict):
+    target_count: int
+    eligible_registrations: list[str]
+    excluded_user_ids: list[int]
+
+
 class EventData(TypedDict):
     attendees: list[Response]
     waitlist: list[WaitlistEntry]
+    payment_expiry_backfill: NotRequired[PaymentExpiryBackfill | None]
+
+
+def registration_key(entry: Response | WaitlistEntry) -> str:
+    return f"{entry.user_id}:{entry.timestamp.isoformat()}"
+
+
+def _parse_payment_expiry_backfill(value: Any) -> PaymentExpiryBackfill | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, dict)
+        or type(value.get("target_count")) is not int
+        or value["target_count"] < 0
+        or not isinstance(value.get("eligible_registrations"), list)
+        or not all(isinstance(key, str) for key in value["eligible_registrations"])
+        or not isinstance(value.get("excluded_user_ids"), list)
+        or not all(type(user_id) is int for user_id in value["excluded_user_ids"])
+    ):
+        _log.warning("Invalid payment expiry backfill metadata; preserving the roster without this request")
+        return None
+    return PaymentExpiryBackfill(
+        target_count=value["target_count"],
+        eligible_registrations=value["eligible_registrations"],
+        excluded_user_ids=value["excluded_user_ids"],
+    )
 
 
 class NumberedAttendeeName(str):
@@ -214,6 +250,17 @@ def _migrate_old_format_to_new(
     return new_data
 
 
+def _parse_payment_selection_expiry(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        expiry = datetime.fromisoformat(value)
+        return expiry if expiry.tzinfo else expiry.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        _log.warning("Invalid payment selection expiry; leaving the registration intact with an expired choice.")
+        return datetime.min.replace(tzinfo=UTC)
+
+
 def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | None:
     """Parse a Response object from a dictionary."""
     try:
@@ -256,6 +303,8 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             no_show_agreed=resp_dict.get("no_show_agreed", False),
             attendee_number=attendee_number,
             extras_attendee_numbers=extras_attendee_numbers,
+            payment_selection_expires_at=_parse_payment_selection_expiry(resp_dict.get("payment_selection_expires_at")),
+            payment_selection_demotes=resp_dict.get("payment_selection_demotes") is True,
         )
     except (TypeError, ValueError) as e:
         _log.error("Error creating Response object for event %s from dict %s: %s", event_name, resp_dict, e)
@@ -298,6 +347,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
+            payment_selection_demotes=entry_dict.get("payment_selection_demotes") is True,
             payment_method=entry_dict.get("payment_method"),
             no_show_agreed=entry_dict.get("no_show_agreed", False),
         )
@@ -380,6 +430,9 @@ def _load_responses() -> dict[str, EventData]:
                             waitlist_list.append(entry)
 
                 responses_dict[event_name] = EventData(attendees=attendees_list, waitlist=waitlist_list)
+                pending = _parse_payment_expiry_backfill(event_data.get("payment_expiry_backfill"))
+                if pending is not None:
+                    responses_dict[event_name]["payment_expiry_backfill"] = pending
 
         else:
             # Old format: {"event_name": [Response, ...]}
@@ -632,9 +685,9 @@ def add_response(
         start_number = attendee_number_start if attendee_number_start is not None else _next_attendee_number(event_data)
         assigned_max_number = _assign_group_numbers(response, start_number) - 1
 
-    event_data["attendees"].append(response)
-    all_data[event_name] = event_data
-    save_responses()
+    _commit_event_data(
+        event_name, EventData(attendees=[*event_data["attendees"], response], waitlist=event_data["waitlist"]), all_data
+    )
     _log.info("Added response from user %s to event %s.", response.user_id, event_name)
     return assigned_max_number
 
@@ -657,9 +710,13 @@ def remove_response(event_name: str, user_id: int) -> Response:
         raise ResponseNotFoundError(event_name, user_id)
     else:
         # Response found and removed, update the cache and save
-        event_data["attendees"] = [r for r in event_data["attendees"] if r.user_id != user_id]
-        all_data[event_name] = event_data
-        save_responses()
+        _commit_event_data(
+            event_name,
+            EventData(
+                attendees=[r for r in event_data["attendees"] if r.user_id != user_id], waitlist=event_data["waitlist"]
+            ),
+            all_data,
+        )
         _log.info("Removed response from user %s for event %s.", user_id, event_name)
         return removed_response
 
@@ -684,9 +741,9 @@ def add_to_waitlist(event_name: str, entry: WaitlistEntry) -> None:
         raise DuplicateResponseError(event_name, entry.user_id)
 
     # If no duplicate, proceed with adding
-    event_data["waitlist"].append(entry)
-    all_data[event_name] = event_data
-    save_responses()
+    _commit_event_data(
+        event_name, EventData(attendees=event_data["attendees"], waitlist=[*event_data["waitlist"], entry]), all_data
+    )
     _log.info("Added user %s to waitlist for event %s.", entry.user_id, event_name)
 
 
@@ -700,22 +757,47 @@ def remove_from_waitlist(event_name: str, user_id: int) -> None:
     event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
 
     initial_count = len(event_data["waitlist"])
-    event_data["waitlist"] = [e for e in event_data["waitlist"] if e.user_id != user_id]
+    staged_waitlist = [e for e in event_data["waitlist"] if e.user_id != user_id]
 
-    if len(event_data["waitlist"]) == initial_count:
+    if len(staged_waitlist) == initial_count:
         _log.warning("No waitlist entry found for user %s in event %s. Raising error.", user_id, event_name)
         raise ResponseNotFoundError(event_name, user_id)
     else:
-        all_data[event_name] = event_data
-        save_responses()
+        _commit_event_data(event_name, EventData(attendees=event_data["attendees"], waitlist=staged_waitlist), all_data)
         _log.info("Removed user %s from waitlist for event %s.", user_id, event_name)
 
 
-def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Response | None:
+def _commit_event_data(event_name: str, staged: EventData, all_data: dict[str, EventData] | None = None) -> None:
+    """Publish the cache change only after the shared JSON transaction succeeds."""
+    if all_data is None:
+        all_data = load_responses()
+    if "payment_expiry_backfill" not in staged:
+        pending = all_data.get(event_name, {}).get("payment_expiry_backfill")
+        if pending is not None:
+            staged = {**staged, "payment_expiry_backfill": pending}
+    atomic_write_json(
+        get_config()["RESPONSES_FILE"],
+        {**all_data, event_name: staged},
+        indent=4,
+        cls=DataclassJSONEncoder,
+        ensure_ascii=False,
+    )
+    all_data[event_name] = staged
+
+
+def promote_waitlist_response(
+    event: "Event",
+    user_id: int | None = None,
+    *,
+    expected_timestamp: datetime | None = None,
+) -> Response | None:
     """Persist a FIFO or selected promotion without an unregistered snapshot.
 
     Stage the move so failed response writes leave the cache and queue unchanged.
     Save event numbering after the response commit, as for add_response_for_event.
+    Deferred signups get a new payment choice; legacy entries retain a valid saved method.
+    Validation and commit contain no await, so competing asyncio callers cannot
+    promote the same entry twice or reset an already-confirmed user's deadline.
     """
     from offkai_bot.data.event import save_event_data
 
@@ -730,9 +812,23 @@ def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Res
         if index is None:
             raise ResponseNotFoundError(event.event_name, user_id)
     entry = event_data["waitlist"][index]
+    if expected_timestamp is not None:
+        # Match the registration displayed by the frontend at millisecond precision.
+        current = entry.timestamp.replace(tzinfo=UTC) if entry.timestamp.tzinfo is None else entry.timestamp
+        current = current.astimezone(UTC)
+        if current.replace(microsecond=current.microsecond // 1000 * 1000) != expected_timestamp.astimezone(UTC):
+            raise RegistrationChangedError()
     if any(response.user_id == entry.user_id for response in event_data["attendees"]):
         raise DuplicateResponseError(event.event_name, entry.user_id)
     response = Response(**asdict(entry))
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    legacy_selected_method = not entry.payment_selection_demotes and entry.payment_method in methods
+    if methods and not legacy_selected_method:
+        # Only newly recorded deferred-payment signups can lose a place on expiry.
+        # Legacy waitlist entries may already have paid through the old proof flow.
+        response.payment_selection_demotes = entry.payment_selection_demotes and entry.payment_method is None
+        response.payment_method = None
+        response.payment_selection_expires_at = datetime.now(UTC) + timedelta(hours=72)
     assigned_max_number = None
     if not event.open or _event_has_attendee_numbers(event_data):
         start_number = _next_attendee_number(event_data)
@@ -750,18 +846,127 @@ def promote_waitlist_response(event: "Event", user_id: int | None = None) -> Res
         attendees=[*event_data["attendees"], response],
         waitlist=[*event_data["waitlist"][:index], *event_data["waitlist"][index + 1 :]],
     )
-    atomic_write_json(
-        get_config()["RESPONSES_FILE"],
-        {**all_data, event.event_name: staged},
-        indent=4,
-        cls=DataclassJSONEncoder,
-        ensure_ascii=False,
-    )
-    all_data[event.event_name] = staged
+    _commit_event_data(event.event_name, staged)
     if assigned_max_number is not None:
         event.max_attendee_number = assigned_max_number
         save_event_data()
     return response
+
+
+def expire_payment_selections(event: "Event", now: datetime) -> list[Response]:
+    """Atomically move expired, unchosen groups to the queue tail; never count this as withdrawal."""
+    if (
+        event.archived
+        or event.interest_check
+        or event.event_datetime <= now
+        or not (event.signup_form or {}).get("payment_methods")
+    ):
+        return []
+    data = load_responses().get(event.event_name, EventData(attendees=[], waitlist=[]))
+    expired = [
+        entry
+        for entry in data["attendees"]
+        if entry.payment_selection_demotes
+        and entry.payment_method is None
+        and entry.payment_selection_expires_at is not None
+        and entry.payment_selection_expires_at <= now
+    ]
+    if not expired:
+        return []
+    expired_ids = {entry.user_id for entry in expired}
+    fields = WaitlistEntry.__dataclass_fields__
+    queued = [
+        WaitlistEntry(**{key: value for key, value in asdict(entry).items() if key in fields}) for entry in expired
+    ]
+    previous = data.get("payment_expiry_backfill")
+    excluded = expired_ids | (set(previous["excluded_user_ids"]) if previous else set())
+    eligible = set(previous["eligible_registrations"]) if previous else set()
+    eligible.update(registration_key(entry) for entry in data["waitlist"] if entry.user_id not in excluded)
+    pending = PaymentExpiryBackfill(
+        # Absolute target prevents retries from counting already-filled places twice, including unlimited events.
+        target_count=max(
+            sum(1 + entry.extra_people for entry in data["attendees"]),
+            previous["target_count"] if previous else 0,
+        ),
+        eligible_registrations=sorted(eligible),
+        excluded_user_ids=sorted(excluded),
+    )
+    _commit_event_data(
+        event.event_name,
+        EventData(
+            attendees=[entry for entry in data["attendees"] if entry.user_id not in expired_ids],
+            waitlist=[*data["waitlist"], *queued],
+            payment_expiry_backfill=pending,
+        ),
+    )
+    return expired
+
+
+def get_payment_expiry_backfill(event_name: str) -> PaymentExpiryBackfill | None:
+    return load_responses().get(event_name, {}).get("payment_expiry_backfill")
+
+
+def clear_payment_expiry_backfill(event_name: str, expected: PaymentExpiryBackfill) -> None:
+    data = load_responses().get(event_name)
+    if data is not None and data.get("payment_expiry_backfill") is expected:
+        # A newer expiry may replace this request while its promotion DMs are pending.
+        _commit_event_data(event_name, {**data, "payment_expiry_backfill": None})
+
+
+def complete_payment_selection(
+    event_name: str, user_id: int, timestamp: datetime, expires_at: datetime, method: str
+) -> Response:
+    """Save a promoted attendee's choice atomically; reject expired or replaced registrations."""
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    response = next((r for r in event_data["attendees"] if r.user_id == user_id), None)
+    if (
+        response is None
+        or response.timestamp != timestamp
+        or response.payment_selection_expires_at != expires_at
+        or datetime.now(UTC) >= expires_at
+    ):
+        raise ValueError("This payment choice has expired, been completed, or belongs to an old registration.")
+    updated = replace(
+        response, payment_method=method, payment_selection_expires_at=None, payment_selection_demotes=False
+    )
+    staged = EventData(
+        attendees=[updated if r is response else r for r in event_data["attendees"]],
+        waitlist=event_data["waitlist"],
+    )
+    _commit_event_data(event_name, staged)
+    return updated
+
+
+def prepare_payment_selection(event: "Event", entry: Response) -> Response:
+    """Repair legacy methods; preserve live/demoting deadlines, reopen expired exempt choices on resend."""
+    methods = (event.signup_form or {}).get("payment_methods", {})
+    event_data = load_responses().get(event.event_name, EventData(attendees=[], waitlist=[]))
+    current = next(
+        (r for r in event_data["attendees"] if r.user_id == entry.user_id and r.timestamp == entry.timestamp), None
+    )
+    if current is None or not methods or current.payment_method in methods:
+        return current or entry
+    now = datetime.now(UTC)
+    expiry = current.payment_selection_expires_at
+    if current.payment_method is None and expiry is not None and (current.payment_selection_demotes or expiry > now):
+        return current
+    if expiry is None or (not current.payment_selection_demotes and expiry <= now):
+        expiry = now + timedelta(hours=72)
+    updated = replace(
+        current,
+        payment_method=None,
+        payment_selection_demotes=False,
+        payment_selection_expires_at=expiry,
+    )
+    _commit_event_data(
+        event.event_name,
+        EventData(
+            attendees=[updated if r is current else r for r in event_data["attendees"]],
+            waitlist=event_data["waitlist"],
+        ),
+    )
+    return updated
 
 
 def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:

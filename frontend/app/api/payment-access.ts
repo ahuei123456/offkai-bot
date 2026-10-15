@@ -1,17 +1,34 @@
 import { getDefaultEvent, isSelectableForCheckin, readEvents, readResponses } from './db'
 import type { ResolvedToken } from './token'
-import type { Event } from './db'
+import type { BotAttendee, Event } from './db'
 
 export function paymentEnabled(event: Event) {
   return !!event.signup_form?.payment_methods && Object.keys(event.signup_form.payment_methods).length > 0
 }
 
-export function paymentRegistration(eventName: string, userId: string) {
+export function paymentChoiceEnabled(event: Event, attendee: BotAttendee) {
+  return paymentEnabled(event) && !!attendee.payment_method &&
+    Object.hasOwn(event.signup_form!.payment_methods, attendee.payment_method)
+}
+
+export function paymentMethodRequired(event: Event, attendee: BotAttendee) {
+  return attendee.payment_selection_demotes === true && !paymentChoiceEnabled(event, attendee)
+}
+
+function findPaymentRegistration(eventName: string, userId: string, admin: boolean) {
   const event = readEvents().find(e => e.event_name === eventName && isSelectableForCheckin(e))
   if (!event || !paymentEnabled(event)) return null
   const responses = readResponses()[eventName]
-  const attendee = [...(responses?.attendees || []), ...(responses?.waitlist || [])].find(a => a.user_id === userId)
-  return attendee ? { event, attendee } : null
+  const entries = admin ? [...(responses?.attendees || []), ...(responses?.waitlist || [])] : responses?.attendees || []
+  const attendee = entries.find(a => a.user_id === userId)
+  return attendee && (admin || paymentChoiceEnabled(event, attendee)) ? { event, attendee } : null
+}
+export function paymentRegistration(eventName: string, userId: string) {
+  return findPaymentRegistration(eventName, userId, false)
+}
+export function adminPaymentRegistration(eventName: string, userId: string) {
+  // Organizers can still inspect/correct historical records; this never authorizes user uploads.
+  return findPaymentRegistration(eventName, userId, true)
 }
 export function tokenPaymentRegistration(resolved: ResolvedToken) {
   const name = resolved.eventName || getDefaultEvent(readEvents())?.event_name
