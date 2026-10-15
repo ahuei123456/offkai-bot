@@ -7,11 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from aiohttp.test_utils import TestClient, TestServer
 
+from offkai_bot import admin_api
 from offkai_bot.data import event as events
 from offkai_bot.data import response as responses
 from offkai_bot.data.event import Event
-from offkai_bot.interactions import promote_waitlist_batch, send_signup_reply
+from offkai_bot.interactions import InterestCheckModal, promote_waitlist_batch, send_signup_reply
+from offkai_bot.payment_selection import expire_pending_payments
 from offkai_bot.role_management import assign_event_role, remove_event_role
 
 
@@ -463,3 +466,119 @@ async def test_expected_role_error_logs_warning_without_traceback(expired_regist
         await assign_event_role(guild, entry.user_id, 999, event=event)
     log.warning.assert_called_once()
     log.exception.assert_not_called()
+
+
+def test_legacy_valid_method_survives_promotion(expired_registration):
+    event, entry, waiting, _ = expired_registration
+    responses.remove_response(event.event_name, entry.user_id)
+    waiting.payment_method = "Bank"
+    promoted = responses.promote_waitlist_response(event, waiting.user_id)
+    assert promoted.payment_method == "Bank"
+    assert promoted.payment_selection_expires_at is None
+
+
+@pytest.mark.parametrize("demotes,expired", [(False, True), (False, False), (True, True)])
+def test_only_expired_non_demoting_choice_can_be_reopened(expired_registration, demotes, expired):
+    event, entry, _, now = expired_registration
+    entry.payment_selection_demotes = demotes
+    entry.payment_selection_expires_at = now + timedelta(hours=-1 if expired else 1)
+    original = entry.payment_selection_expires_at
+    repaired = responses.prepare_payment_selection(event, entry)
+    assert (repaired.payment_selection_expires_at > original) == (expired and not demotes)
+    assert (
+        responses.prepare_payment_selection(event, repaired).payment_selection_expires_at
+        == repaired.payment_selection_expires_at
+    )
+
+
+@pytest.mark.parametrize("failure", ["ack", "join"])
+async def test_interest_failure_does_not_skip_remaining_saved_signup_work(expired_registration, failure):
+    event, entry, _, _ = expired_registration
+    responses.remove_response(event.event_name, entry.user_id)
+    event.interest_check = True
+    modal = InterestCheckModal(event=event)
+    modal.extra_people_input._value = "0"
+    modal.preferred_name_input._value = ""
+    source = MagicMock(spec=discord.Interaction)
+    source.user.id = entry.user_id
+    source.user.name = "Synthetic"
+    source.user.display_name = "Synthetic"
+    error = discord.HTTPException(MagicMock(status=500, reason="Synthetic"), "Network failed")
+    source.response.send_message = AsyncMock(side_effect=error if failure == "ack" else None)
+    with (
+        patch(
+            "offkai_bot.interactions._add_user_to_event_thread",
+            new=AsyncMock(side_effect=error if failure == "join" else None),
+        ) as join,
+        patch("offkai_bot.interactions._refresh_interest_check_message", new=AsyncMock()) as refresh,
+        patch("offkai_bot.interactions.error_message", new=AsyncMock()),
+    ):
+        await modal.on_submit(source)
+    join.assert_awaited_once()
+    refresh.assert_awaited_once()
+    assert responses.get_responses(event.event_name)[0].user_id == entry.user_id
+
+
+async def test_expiry_does_not_backfill_after_await_crosses_event_start(expired_registration):
+    event, _, waiting, _ = expired_registration
+    entered, release = asyncio.Event(), asyncio.Event()
+    client = MagicMock(spec=discord.Client)
+    client.get_user.return_value = None
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+
+    async def fetch_user(user_id):
+        entered.set()
+        await release.wait()
+        return user
+
+    client.fetch_user = AsyncMock(side_effect=fetch_user)
+    with patch("offkai_bot.payment_selection.update_event_message", new=AsyncMock()):
+        task = asyncio.create_task(expire_pending_payments(client))
+        await asyncio.wait_for(entered.wait(), 3)
+        event.event_datetime = datetime.now(UTC) - timedelta(seconds=1)
+        release.set()
+        await task
+    assert responses.get_responses(event.event_name) == []
+    assert responses.get_waitlist(event.event_name)[0].user_id == waiting.user_id
+    user.send.assert_not_awaited()
+
+
+async def test_automatic_batch_rechecks_start_before_next_commit(expired_registration):
+    event, entry, waiting, _ = expired_registration
+    responses.remove_response(event.event_name, entry.user_id)
+    responses.add_to_waitlist(
+        event.event_name, responses.WaitlistEntry(789, "Next", 0, True, True, event.event_name, datetime.now(UTC))
+    )
+    client = MagicMock(spec=discord.Client)
+
+    async def fetch_user(user_id):
+        event.event_datetime = datetime.now(UTC) - timedelta(seconds=1)
+        return MagicMock(spec=discord.User, send=AsyncMock())
+
+    client.fetch_user = AsyncMock(side_effect=fetch_user)
+    assert await promote_waitlist_batch(event, client) == [waiting.user_id]
+    assert [w.user_id for w in responses.get_waitlist(event.event_name)] == [789]
+
+
+async def test_payment_confirmation_requires_new_deferred_signup_to_choose_first(expired_registration, monkeypatch):
+    event, entry, _, now = expired_registration
+    entry.user_id = 101000000000000001
+    entry.payment_selection_expires_at = now + timedelta(hours=72)
+    client = MagicMock(spec=discord.Client)
+    client.is_ready.return_value = True
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+    client.get_user.return_value = user
+    monkeypatch.setattr(admin_api, "get_config", lambda: {"ADMIN_KEY": "synthetic-admin"})
+    payload = {"event_name": event.event_name, "user_id": str(entry.user_id)}
+    headers = {"Authorization": "Bearer synthetic-admin"}
+    async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
+        rejected = await http.post("/payments/confirm", json=payload, headers=headers)
+        assert rejected.status == 409
+        assert await rejected.json() == {"error": "payment_method_required"}
+        user.send.assert_not_awaited()
+        responses.complete_payment_selection(
+            event.event_name, entry.user_id, entry.timestamp, entry.payment_selection_expires_at, "Bank"
+        )
+        assert (await http.post("/payments/confirm", json=payload, headers=headers)).status == 200
+        assert responses.expire_payment_selections(event, now + timedelta(hours=73)) == []
+    user.send.assert_awaited_once()

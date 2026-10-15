@@ -65,8 +65,20 @@ def create_admin_app(client: discord.Client) -> web.Application:
             return web.json_response({"error": "not_found"}, status=404)
         if not payment_event_enabled(event):
             return web.json_response({"error": "not_found"}, status=404)
-        if not any(entry.user_id == int(user_id) for entry in [*get_responses(event_name), *get_waitlist(event_name)]):
+        entry = next(
+            (
+                entry
+                for entry in [*get_responses(event_name), *get_waitlist(event_name)]
+                if entry.user_id == int(user_id)
+            ),
+            None,
+        )
+        if entry is None:
             return web.json_response({"error": "not_found"}, status=404)
+        if entry.payment_selection_demotes and entry.payment_method not in (event.signup_form or {}).get(
+            "payment_methods", {}
+        ):
+            return web.json_response({"error": "payment_method_required"}, status=409)
         try:
             user = client.get_user(int(user_id)) or await client.fetch_user(int(user_id))
             await user.send(f"Payment confirmed for {event_name}!")

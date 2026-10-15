@@ -795,7 +795,7 @@ def promote_waitlist_response(
 
     Stage the move so failed response writes leave the cache and queue unchanged.
     Save event numbering after the response commit, as for add_response_for_event.
-    Every promotion starts a new payment choice, including legacy waitlist entries.
+    Deferred signups get a new payment choice; legacy entries retain a valid saved method.
     Validation and commit contain no await, so competing asyncio callers cannot
     promote the same entry twice or reset an already-confirmed user's deadline.
     """
@@ -822,7 +822,8 @@ def promote_waitlist_response(
         raise DuplicateResponseError(event.event_name, entry.user_id)
     response = Response(**asdict(entry))
     methods = (event.signup_form or {}).get("payment_methods", {})
-    if methods:
+    legacy_selected_method = not entry.payment_selection_demotes and entry.payment_method in methods
+    if methods and not legacy_selected_method:
         # Only newly recorded deferred-payment signups can lose a place on expiry.
         # Legacy waitlist entries may already have paid through the old proof flow.
         response.payment_selection_demotes = entry.payment_selection_demotes and entry.payment_method is None
@@ -938,7 +939,7 @@ def complete_payment_selection(
 
 
 def prepare_payment_selection(event: "Event", entry: Response) -> Response:
-    """Repair a removed/renamed or missing legacy method without extending an existing deadline."""
+    """Repair legacy methods; preserve live/demoting deadlines, reopen expired exempt choices on resend."""
     methods = (event.signup_form or {}).get("payment_methods", {})
     event_data = load_responses().get(event.event_name, EventData(attendees=[], waitlist=[]))
     current = next(
@@ -946,13 +947,17 @@ def prepare_payment_selection(event: "Event", entry: Response) -> Response:
     )
     if current is None or not methods or current.payment_method in methods:
         return current or entry
-    if current.payment_method is None and current.payment_selection_expires_at is not None:
+    now = datetime.now(UTC)
+    expiry = current.payment_selection_expires_at
+    if current.payment_method is None and expiry is not None and (current.payment_selection_demotes or expiry > now):
         return current
+    if expiry is None or (not current.payment_selection_demotes and expiry <= now):
+        expiry = now + timedelta(hours=72)
     updated = replace(
         current,
         payment_method=None,
         payment_selection_demotes=False,
-        payment_selection_expires_at=current.payment_selection_expires_at or datetime.now(UTC) + timedelta(hours=72),
+        payment_selection_expires_at=expiry,
     )
     _commit_event_data(
         event.event_name,

@@ -36,12 +36,7 @@ async def expire_pending_payments(client: discord.Client) -> None:
 
 async def _expire_event_payments(client: discord.Client, event: Event) -> None:
     now = datetime.now(UTC)
-    if (
-        event.archived
-        or event.interest_check
-        or event.event_datetime <= now
-        or not (event.signup_form or {}).get("payment_methods")
-    ):
+    if event.archived or event.interest_check or event.is_over or not (event.signup_form or {}).get("payment_methods"):
         return
     try:
         # One atomic roster transaction before any Discord await.
@@ -61,6 +56,8 @@ async def _expire_event_payments(client: discord.Client, event: Event) -> None:
     for entry in expired:
         try:
             user = client.get_user(entry.user_id) or await client.fetch_user(entry.user_id)
+            if event.is_over:
+                return
             if not any(
                 w.user_id == entry.user_id and w.timestamp == entry.timestamp for w in get_waitlist(event.event_name)
             ):
@@ -75,6 +72,8 @@ async def _expire_event_payments(client: discord.Client, event: Event) -> None:
         except Exception:
             _log.exception("Payment expiry notification failed for user %s", entry.user_id)
     pending = get_payment_expiry_backfill(event.event_name)
+    if event.is_over:
+        return
     if pending is not None:
         try:
             await promote_waitlist_batch(

@@ -40,7 +40,8 @@ def promotion_context(monkeypatch):
         event.event_name,
         datetime.now(UTC),
         extras_names=["Guest A", "Guest B"],
-        payment_method="Bank",
+        payment_method=None,
+        payment_selection_demotes=True,
         no_show_agreed=True,
     )
     events.EVENT_DATA_CACHE = [event]

@@ -120,7 +120,9 @@ async def test_payment_confirmation_requires_auth_registration_and_reports_dm_fa
         return event
 
     monkeypatch.setattr(admin_api, "get_event", lookup)
-    monkeypatch.setattr(admin_api, "get_responses", lambda name: [MagicMock(user_id=uid)])
+    monkeypatch.setattr(
+        admin_api, "get_responses", lambda name: [MagicMock(user_id=uid, payment_selection_demotes=False)]
+    )
     monkeypatch.setattr(admin_api, "get_waitlist", lambda name: [])
     payload = {"event_name": event.event_name, "user_id": str(uid)}
     headers = {"Authorization": "Bearer synthetic-admin"}

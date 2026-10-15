@@ -38,6 +38,7 @@ export function PaymentControl({ attendee, adminKey, eventName, onPayment }: {
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [preview, proofFilename, proofUploadedAt, proofIdentity, registrationTimestamp, eventName, attendee.user_id, adminKey])
   async function toggle() {
+    if (!paid && attendee.payment_method_required) return
     if (!paid && !proof && !window.confirm(t.confirmPaidWithoutProof)) return
     if (!attendee.registration_timestamp) { setError(true); return }
     setBusy(true)
@@ -47,14 +48,14 @@ export function PaymentControl({ attendee, adminKey, eventName, onPayment }: {
   }
   if (!attendee.payment_enabled) return null
   if (attendee.payment_unavailable) return <p role="alert" className="border-t-2 border-[#17120F] bg-red-50 p-3 text-xs">{t.paymentUnavailable}</p>
-  const paidButton = <button className="brand-action rounded-xl px-3 py-2" disabled={busy} onClick={toggle}>
+  const paidButton = <button className="brand-action rounded-xl px-3 py-2" disabled={busy || (!paid && attendee.payment_method_required)} onClick={toggle}>
     {paid ? t.markUnpaid : t.markPaid}
   </button>
   if (!paid && !proof) return <div className="border-t-2 border-[#17120F] bg-red-50 px-3 py-2 text-xs font-black">
-    <details><summary className="cursor-pointer">{t.waitingForProof}
+    <details><summary className="cursor-pointer">{attendee.payment_method_required ? t.waitingForPaymentMethod : t.waitingForProof}
       {attendee.payment_method && <span className="ml-3 font-normal">{attendee.payment_method}</span>}
     </summary>
-      <div className="pt-2">{paidButton}</div>
+      <div className="pt-2">{paidButton}{attendee.payment_method_required && <p className="mt-2">{t.paymentMethodRequired}</p>}</div>
     </details>
     {error && <p role="alert" className="mt-2 text-red-700">{t.paymentSaveError}</p>}
   </div>
@@ -66,6 +67,7 @@ export function PaymentControl({ attendee, adminKey, eventName, onPayment }: {
       </summary>
       <div className="flex flex-wrap items-center gap-3 px-3 pb-3">
         {paidButton}
+        {!paid && attendee.payment_method_required && <p>{t.paymentMethodRequired}</p>}
         {attendee.payment?.proof && <button className="brand-action-alt rounded-xl px-3 py-2"
           onClick={() => { setPreviewImage(null); setPreviewFailure(null); setPreview(v => !v) }}>{t.previewProof}</button>}
       </div>

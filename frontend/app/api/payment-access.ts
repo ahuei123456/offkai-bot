@@ -11,6 +11,10 @@ export function paymentChoiceEnabled(event: Event, attendee: BotAttendee) {
     Object.hasOwn(event.signup_form!.payment_methods, attendee.payment_method)
 }
 
+export function paymentMethodRequired(event: Event, attendee: BotAttendee) {
+  return attendee.payment_selection_demotes === true && !paymentChoiceEnabled(event, attendee)
+}
+
 function findPaymentRegistration(eventName: string, userId: string, admin: boolean) {
   const event = readEvents().find(e => e.event_name === eventName && isSelectableForCheckin(e))
   if (!event || !paymentEnabled(event)) return null

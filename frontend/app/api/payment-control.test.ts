@@ -18,9 +18,9 @@ const { createElement } = require('react')
 const { renderToStaticMarkup } = require('react-dom/server')
 const { PaymentControl } = require('../components/admin/PaymentControl.tsx')
 
-function render(method: string | null, paid = false, proof: object | null = null) {
+function render(method: string | null, paid = false, proof: object | null = null, required = false) {
   return renderToStaticMarkup(createElement(PaymentControl, {
-    attendee: { user_id: '1', payment_enabled: true, payment_method: method, payment: { paid, proof } },
+    attendee: { user_id: '1', payment_enabled: true, payment_method: method, payment_method_required: required, payment: { paid, proof } },
     adminKey: 'test', eventName: 'test', onPayment: async () => true,
   }))
 }
@@ -37,6 +37,14 @@ test('missing method never invents a payment choice', () => {
   const html = render(null)
   assert.match(html, /Pending payment proof/)
   assert.doesNotMatch(html, /font-normal/)
+})
+
+test('pending selection disables Mark paid and explains the requirement; Mark unpaid remains available', () => {
+  const pending = render(null, false, null, true)
+  assert.match(pending, /Waiting for payment method/)
+  assert.match(pending, /disabled=""/)
+  assert.match(pending, /must choose a payment method/)
+  assert.doesNotMatch(render(null, true, null, true), /disabled=""/)
 })
 
 test('method labels are escaped and remain visible for paid and uploaded proof states', () => {

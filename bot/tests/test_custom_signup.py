@@ -668,7 +668,8 @@ async def test_automatic_and_manual_promotions_preserve_custom_answers(custom_ev
         arrival_confirmed=True,
         event_name=custom_event.event_name,
         timestamp=datetime.now(UTC),
-        payment_method="PayNow",
+        payment_method=None,
+        payment_selection_demotes=True,
         no_show_agreed=True,
     )
     bot = MagicMock()
@@ -930,7 +931,8 @@ async def test_promotions_send_identical_confirmed_signup_instructions(
         arrival_confirmed=True,
         event_name=custom_event.event_name,
         timestamp=datetime.now(UTC),
-        payment_method="PayNow",
+        payment_method=None,
+        payment_selection_demotes=True,
         no_show_agreed=True,
     )
     responses.RESPONSE_DATA_CACHE = {custom_event.event_name: {"attendees": [], "waitlist": [entry]}}

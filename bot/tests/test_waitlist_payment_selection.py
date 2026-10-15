@@ -186,7 +186,7 @@ def queued_entry(custom_event):
 
 
 @pytest.mark.parametrize("automatic", [False, True])
-@pytest.mark.parametrize("saved_method", [None, "PayNow"])
+@pytest.mark.parametrize("saved_method", [None, "Removed method"])
 async def test_promotion_sends_persistent_72_hour_choice_without_payment_instructions(
     custom_event, queued_entry, automatic, saved_method
 ):
@@ -367,16 +367,16 @@ async def test_expired_choice_is_not_restored_or_extended(custom_event, queued_e
     assert entry.payment_method is None
 
 
-async def test_legacy_selected_waitlist_method_requires_fresh_choice_after_promotion(custom_event, queued_entry):
+async def test_legacy_selected_waitlist_method_remains_usable_after_promotion(custom_event, queued_entry):
     queued_entry.payment_method = "PayNow"
     send = AsyncMock()
     await send_signup_reply(send, custom_event, queued_entry, "Waitlisted — attendance is not confirmed", "Waitlisted")
     assert "Synthetic organizer instructions" not in send.call_args.args[0]
     entry = responses.promote_waitlist_response(custom_event)
     await send_signup_reply(send, custom_event, entry, "Attendance confirmed", "Confirmed", promotion=True)
-    assert entry.payment_method is None and entry.payment_selection_expires_at is not None
-    assert "Synthetic organizer instructions" not in send.call_args.args[0]
-    assert isinstance(send.call_args.kwargs["view"], PromotedPaymentSelection)
+    assert entry.payment_method == "PayNow" and entry.payment_selection_expires_at is None
+    assert "Synthetic organizer instructions" in send.call_args.args[0]
+    assert "view" not in send.call_args.kwargs
 
 
 async def test_concurrent_popups_commit_only_one_choice(custom_event, queued_entry):

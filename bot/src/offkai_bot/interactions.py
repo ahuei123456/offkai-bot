@@ -427,7 +427,12 @@ async def promote_waitlist_batch(
 
     while True:
         waitlist = get_waitlist(event.event_name)
-        if event.archived or not waitlist or (excluded_user_ids and waitlist[0].user_id in excluded_user_ids):
+        if (
+            event.archived
+            or event.is_over
+            or not waitlist
+            or (excluded_user_ids and waitlist[0].user_id in excluded_user_ids)
+        ):
             break
         if not any(waitlist[0] is entry for entry in eligible_entries):
             break  # A suspended older batch cannot consume a newly demoted or rejoined registration.
@@ -1158,18 +1163,26 @@ class InterestCheckModal(ui.Modal):
 
             # Interest is non-binding: no DM, no rank/milestone update, no role.
             group_size = 1 + num_extra_people
-            await interaction.response.send_message(
-                f"🙋 Thanks! You're counted as interested in **{self.event.event_name}** "
-                f"as **{resolved_display_name}** "
-                f"({group_size} {'person' if group_size == 1 else 'people'}).\n"
-                f"🙋 ありがとうございます！**{self.event.event_name}**に"
-                f"{resolved_display_name}さんとして"
-                f"興味あり（{group_size}名）として記録されました。",
-                ephemeral=True,
-            )
+            try:
+                await interaction.response.send_message(
+                    f"🙋 Thanks! You're counted as interested in **{self.event.event_name}** "
+                    f"as **{resolved_display_name}** "
+                    f"({group_size} {'person' if group_size == 1 else 'people'}).\n"
+                    f"🙋 ありがとうございます！**{self.event.event_name}**に"
+                    f"{resolved_display_name}さんとして"
+                    f"興味あり（{group_size}名）として記録されました。",
+                    ephemeral=True,
+                )
+            except (discord.HTTPException, discord.InteractionResponded, ClientError, TimeoutError) as error:
+                _log.warning("Interest saved but acknowledgement failed for user %s: %s", interaction.user.id, error)
 
             # Add user to the thread so they can be reached for follow-ups.
-            await _add_user_to_event_thread(self.event, SignupContext.from_interaction(interaction), interaction.client)
+            try:
+                await _add_user_to_event_thread(
+                    self.event, SignupContext.from_interaction(interaction), interaction.client
+                )
+            except (discord.HTTPException, ClientError, TimeoutError) as error:
+                _log.warning("Interest saved but thread join failed for user %s: %s", interaction.user.id, error)
 
             await _refresh_interest_check_message(interaction.client, self.event)
 
