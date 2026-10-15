@@ -39,8 +39,10 @@ async def _sync_registered_role(guild: discord.Guild, user_id: int, role_id: int
                     await member.remove_roles(role, reason="Offkai attendance no longer confirmed")
                 has_role = wanted
                 # Re-read saved attendance after the network request, including re-registration.
-        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
-            _log.exception("Could not reconcile participant role for user %s in event %r", user_id, event.event_name)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as error:
+            _log.warning(
+                "Could not reconcile participant role for user %s in event %r: %s", user_id, event.event_name, error
+            )
 
 
 def generate_role_name(channel_name: str) -> str:

@@ -43,6 +43,7 @@ class Response:
     attendee_number: int | None = None
     extras_attendee_numbers: list[int] = field(default_factory=list)
     payment_selection_expires_at: datetime | None = None
+    payment_selection_demotes: bool = False
 
 
 # --- Waitlist Entry Dataclass ---
@@ -60,6 +61,7 @@ class WaitlistEntry:
     payment_method: str | None = None
     no_show_agreed: bool = False
     display_name: str | None = None
+    payment_selection_demotes: bool = False
 
 
 def get_effective_display_name(entry: Response | WaitlistEntry) -> str:
@@ -302,6 +304,7 @@ def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | No
             attendee_number=attendee_number,
             extras_attendee_numbers=extras_attendee_numbers,
             payment_selection_expires_at=_parse_payment_selection_expiry(resp_dict.get("payment_selection_expires_at")),
+            payment_selection_demotes=resp_dict.get("payment_selection_demotes") is True,
         )
     except (TypeError, ValueError) as e:
         _log.error("Error creating Response object for event %s from dict %s: %s", event_name, resp_dict, e)
@@ -344,6 +347,7 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
             drinks=drinks,
             extras_names=extras_names,
             display_name=display_name,
+            payment_selection_demotes=entry_dict.get("payment_selection_demotes") is True,
             payment_method=entry_dict.get("payment_method"),
             no_show_agreed=entry_dict.get("no_show_agreed", False),
         )
@@ -819,6 +823,9 @@ def promote_waitlist_response(
     response = Response(**asdict(entry))
     methods = (event.signup_form or {}).get("payment_methods", {})
     if methods:
+        # Only newly recorded deferred-payment signups can lose a place on expiry.
+        # Legacy waitlist entries may already have paid through the old proof flow.
+        response.payment_selection_demotes = entry.payment_selection_demotes and entry.payment_method is None
         response.payment_method = None
         response.payment_selection_expires_at = datetime.now(UTC) + timedelta(hours=72)
     assigned_max_number = None
@@ -847,13 +854,19 @@ def promote_waitlist_response(
 
 def expire_payment_selections(event: "Event", now: datetime) -> list[Response]:
     """Atomically move expired, unchosen groups to the queue tail; never count this as withdrawal."""
-    if event.archived or event.interest_check or not (event.signup_form or {}).get("payment_methods"):
+    if (
+        event.archived
+        or event.interest_check
+        or event.event_datetime <= now
+        or not (event.signup_form or {}).get("payment_methods")
+    ):
         return []
     data = load_responses().get(event.event_name, EventData(attendees=[], waitlist=[]))
     expired = [
         entry
         for entry in data["attendees"]
-        if entry.payment_method is None
+        if entry.payment_selection_demotes
+        and entry.payment_method is None
         and entry.payment_selection_expires_at is not None
         and entry.payment_selection_expires_at <= now
     ]
@@ -913,7 +926,9 @@ def complete_payment_selection(
         or datetime.now(UTC) >= expires_at
     ):
         raise ValueError("This payment choice has expired, been completed, or belongs to an old registration.")
-    updated = replace(response, payment_method=method, payment_selection_expires_at=None)
+    updated = replace(
+        response, payment_method=method, payment_selection_expires_at=None, payment_selection_demotes=False
+    )
     staged = EventData(
         attendees=[updated if r is response else r for r in event_data["attendees"]],
         waitlist=event_data["waitlist"],
@@ -936,6 +951,7 @@ def prepare_payment_selection(event: "Event", entry: Response) -> Response:
     updated = replace(
         current,
         payment_method=None,
+        payment_selection_demotes=False,
         payment_selection_expires_at=current.payment_selection_expires_at or datetime.now(UTC) + timedelta(hours=72),
     )
     _commit_event_data(

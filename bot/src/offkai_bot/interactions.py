@@ -1001,6 +1001,7 @@ class GatheringModal(ui.Modal):
                     display_name=resolved_display_name,
                     payment_method=None,
                     no_show_agreed=self.no_show_agreed,
+                    payment_selection_demotes=bool(methods),
                 )
 
                 add_to_waitlist(self.event.event_name, new_entry)
@@ -1028,6 +1029,7 @@ class GatheringModal(ui.Modal):
                     display_name=resolved_display_name,
                     payment_method=None,
                     no_show_agreed=self.no_show_agreed,
+                    payment_selection_demotes=bool(methods),
                 )
 
                 # Add to waitlist
@@ -1053,6 +1055,7 @@ class GatheringModal(ui.Modal):
                     payment_selection_expires_at=(
                         datetime.now(UTC) + timedelta(hours=72) if methods and self.payment_deferred else None
                     ),
+                    payment_selection_demotes=bool(methods and self.payment_deferred),
                     no_show_agreed=self.no_show_agreed,
                 )
 

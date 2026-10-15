@@ -102,6 +102,7 @@ async def test_waitlist_registration_needs_no_payment_choice(custom_event, reaso
     assert second.payment_method_input is None
     entry = responses.get_waitlist(custom_event.event_name)[0]
     assert entry.payment_method is None and entry.no_show_agreed
+    assert entry.payment_selection_demotes
     assert "Synthetic organizer instructions" not in source.payment_target.response.send_message.call_args.args[0]
 
 
@@ -118,6 +119,22 @@ async def test_waitlist_without_agreement_saves_immediately(custom_event):
     assert "view" not in source.user.send.call_args.kwargs
 
 
+async def test_new_deferred_signup_still_demotes_after_promotion_and_reload(custom_event):
+    custom_event.max_capacity = 0
+    source = interaction()
+    signup = GatheringModal(event=custom_event)
+    signup.extra_people_input._value = "0"
+    signup.confirmation_input._value = "Yes"
+    await signup.on_submit(source)
+    await submit_payment(source)
+    responses.RESPONSE_DATA_CACHE = None
+    promoted = responses.promote_waitlist_response(custom_event, source.user.id)
+    assert promoted.payment_selection_demotes
+    expired = responses.expire_payment_selections(custom_event, promoted.payment_selection_expires_at)
+    assert [entry.user_id for entry in expired] == [source.user.id]
+    assert responses.get_responses(custom_event.event_name) == []
+
+
 async def test_capacity_change_during_agreement_starts_72_hour_choice_when_confirmed(custom_event):
     custom_event.max_capacity = 0
     source = interaction()
@@ -129,6 +146,7 @@ async def test_capacity_change_during_agreement_starts_72_hour_choice_when_confi
     await submit_payment(source)
     entry = responses.get_responses(custom_event.event_name)[0]
     assert entry.payment_method is None and entry.payment_selection_expires_at > datetime.now(UTC)
+    assert entry.payment_selection_demotes
     reply = source.payment_target.response.send_message
     assert "72 hours" in reply.call_args.args[0]
     assert isinstance(reply.call_args.kwargs["view"], PromotedPaymentSelection)
@@ -229,6 +247,7 @@ async def test_promoted_choice_survives_reload_and_completes_without_reregisteri
     saved = current[0]
     assert saved.timestamp == queued_entry.timestamp and saved.extras_names == queued_entry.extras_names
     assert saved.payment_method == "PayNow" and saved.payment_selection_expires_at is None
+    assert not saved.payment_selection_demotes
     assert restored.is_finished() and restored.choose_payment.disabled
     source.message.edit.assert_awaited_once_with(view=restored)
     assert "Synthetic organizer instructions" in source.response.send_message.call_args.args[0]

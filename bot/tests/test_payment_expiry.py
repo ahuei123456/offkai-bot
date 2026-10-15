@@ -1,7 +1,7 @@
 """Expired payment choices release the whole group without reviving stale work."""
 
 import asyncio
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,6 +35,7 @@ def expired_registration():
         attendee_number=1,
         extras_attendee_numbers=[2, 3],
         payment_selection_expires_at=now,
+        payment_selection_demotes=True,
     )
     waiting = responses.WaitlistEntry(456, "Bob", 0, True, True, event.event_name, now)
     responses.RESPONSE_DATA_CACHE = {event.event_name: {"attendees": [entry], "waitlist": [waiting]}}
@@ -174,19 +175,16 @@ async def test_rejoin_during_role_removal_restores_role(expired_registration):
     member.add_roles.assert_awaited_once()
 
 
-async def test_alert_tick_runs_saved_expiry_processing(expired_registration, monkeypatch):
-    from offkai_bot.alerts import alerts
+async def test_payment_loop_tick_runs_saved_expiry_processing(expired_registration, monkeypatch):
+    from offkai_bot import payment_selection
 
     event, _, waiting, _ = expired_registration
     responses.remove_from_waitlist(event.event_name, waiting.user_id)
     client = MagicMock(spec=discord.Client)
     client.get_user.return_value = MagicMock(spec=discord.User, send=AsyncMock())
-    monkeypatch.setattr(alerts, "_client", client)
-    with (
-        patch.object(alerts, "fire_alert", new=AsyncMock()),
-        patch("offkai_bot.payment_selection.update_event_message", new=AsyncMock()),
-    ):
-        await alerts.alert_loop.coro()
+    monkeypatch.setattr(payment_selection, "_client", client)
+    with patch("offkai_bot.payment_selection.update_event_message", new=AsyncMock()):
+        await payment_selection.payment_selection_loop.coro()
     assert responses.get_responses(event.event_name) == []
     assert [r.user_id for r in responses.get_waitlist(event.event_name)] == [123]
 
@@ -359,3 +357,109 @@ def test_corrupt_backfill_metadata_does_not_drop_the_roster(expired_registration
     assert responses.get_responses(event.event_name)[0].user_id == entry.user_id
     assert responses.get_waitlist(event.event_name)[0].user_id == waiting.user_id
     assert responses.get_payment_expiry_backfill(event.event_name) is None
+
+
+@pytest.mark.parametrize("method", [None, "Bank", "Old bank"])
+def test_legacy_resend_repair_cannot_demote_a_potentially_paid_attendee(expired_registration, method):
+    event, entry, _, now = expired_registration
+    raw = asdict(entry)
+    raw.pop("payment_selection_demotes", None)
+    raw.update(timestamp=entry.timestamp.isoformat(), payment_method=method, payment_selection_expires_at=None)
+    legacy = responses._parse_response_from_dict(raw, event.event_name)
+    responses.RESPONSE_DATA_CACHE[event.event_name]["attendees"] = [legacy]
+    responses.prepare_payment_selection(event, legacy)
+    assert responses.expire_payment_selections(event, now + timedelta(hours=73)) == []
+    assert responses.get_responses(event.event_name)[0].user_id == entry.user_id
+
+
+@pytest.mark.parametrize("method", [None, "Bank", "Old bank"])
+def test_legacy_promotion_cannot_demote_a_potentially_paid_waitlisted_user(expired_registration, method):
+    event, _, waiting, now = expired_registration
+    raw = asdict(waiting)
+    raw.pop("payment_selection_demotes", None)
+    raw.update(timestamp=waiting.timestamp.isoformat(), payment_method=method)
+    legacy = responses._parse_waitlist_entry_from_dict(raw, event.event_name)
+    responses.RESPONSE_DATA_CACHE[event.event_name] = {"attendees": [], "waitlist": [legacy]}
+    responses.promote_waitlist_response(event, legacy.user_id)
+    responses.RESPONSE_DATA_CACHE = None
+    assert responses.expire_payment_selections(event, now + timedelta(hours=73)) == []
+    assert responses.get_responses(event.event_name)[0].user_id == waiting.user_id
+
+
+def test_expiry_does_not_reshuffle_attendance_after_event_start(expired_registration):
+    event, entry, _, now = expired_registration
+    event.event_datetime = now - timedelta(hours=1)
+    assert responses.expire_payment_selections(event, now) == []
+    assert responses.get_responses(event.event_name) == [entry]
+
+
+async def test_slow_expiry_cannot_block_the_alert_tick(monkeypatch):
+    from offkai_bot.alerts import alerts
+
+    release = asyncio.Event()
+
+    async def slow_expiry(client):
+        await release.wait()
+
+    monkeypatch.setattr(alerts, "_client", MagicMock(spec=discord.Client))
+    with (
+        patch.object(alerts, "fire_alert", new=AsyncMock()) as fire,
+        patch("offkai_bot.payment_selection.expire_pending_payments", side_effect=slow_expiry),
+    ):
+        await asyncio.wait_for(alerts.alert_loop.coro(), 0.05)
+    fire.assert_awaited_once()
+
+
+async def test_legacy_active_deadline_remains_exempt_after_reload(expired_registration):
+    event, entry, _, now = expired_registration
+    raw = asdict(entry)
+    raw.pop("payment_selection_demotes")
+    raw.update(timestamp=entry.timestamp.isoformat(), payment_selection_expires_at=now.isoformat())
+    legacy = responses._parse_response_from_dict(raw, event.event_name)
+    responses.RESPONSE_DATA_CACHE[event.event_name]["attendees"] = [legacy]
+    responses.save_responses()
+    responses.RESPONSE_DATA_CACHE = None
+    assert responses.expire_payment_selections(event, now + timedelta(hours=1)) == []
+
+
+async def test_completed_event_does_not_retry_saved_backfill(expired_registration):
+    from offkai_bot.payment_selection import expire_pending_payments
+
+    event, _, _, now = expired_registration
+    responses.expire_payment_selections(event, now)
+    event.event_datetime = now - timedelta(seconds=1)
+    with patch("offkai_bot.payment_selection.promote_waitlist_batch", new=AsyncMock()) as promote:
+        await expire_pending_payments(MagicMock(spec=discord.Client))
+    promote.assert_not_awaited()
+
+
+async def test_payment_loop_waits_for_ready_and_cancels_on_shutdown(monkeypatch):
+    from offkai_bot import payment_selection
+
+    client = MagicMock(spec=discord.Client, wait_until_ready=AsyncMock())
+    monkeypatch.setattr(payment_selection, "_client", None)
+    with (
+        patch.object(payment_selection.payment_selection_loop, "start") as start,
+        patch.object(payment_selection.payment_selection_loop, "is_running", return_value=False),
+        patch.object(payment_selection.payment_selection_loop, "cancel") as cancel,
+    ):
+        payment_selection.start_payment_selection_loop(client)
+        start.assert_called_once()
+        await payment_selection.before_payment_selection_loop()
+        client.wait_until_ready.assert_awaited_once()
+        payment_selection.stop_payment_selection_loop()
+        cancel.assert_called_once()
+        assert payment_selection._client is None
+
+
+async def test_expected_role_error_logs_warning_without_traceback(expired_registration):
+    event, entry, _, _ = expired_registration
+    guild = MagicMock(spec=discord.Guild)
+    guild.get_role.return_value = MagicMock(spec=discord.Role)
+    guild.fetch_member = AsyncMock(
+        side_effect=discord.NotFound(MagicMock(status=404, reason="Not Found"), "Member left")
+    )
+    with patch("offkai_bot.role_management._log") as log:
+        await assign_event_role(guild, entry.user_id, 999, event=event)
+    log.warning.assert_called_once()
+    log.exception.assert_not_called()

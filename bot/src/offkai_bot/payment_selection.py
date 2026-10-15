@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 import discord
+from discord.ext import tasks
 
 from offkai_bot.data.event import Event, load_event_data
 from offkai_bot.data.response import (
@@ -34,11 +35,17 @@ async def expire_pending_payments(client: discord.Client) -> None:
 
 
 async def _expire_event_payments(client: discord.Client, event: Event) -> None:
-    if event.archived or event.interest_check or not (event.signup_form or {}).get("payment_methods"):
+    now = datetime.now(UTC)
+    if (
+        event.archived
+        or event.interest_check
+        or event.event_datetime <= now
+        or not (event.signup_form or {}).get("payment_methods")
+    ):
         return
     try:
         # One atomic roster transaction before any Discord await.
-        expired = expire_payment_selections(event, datetime.now(UTC))
+        expired = expire_payment_selections(event, now)
     except Exception:
         _log.exception("Payment expiry could not be saved for %r; retrying next tick", event.event_name)
         return
@@ -84,3 +91,34 @@ async def _expire_event_payments(client: discord.Client, event: Event) -> None:
         await update_event_message(client, event)
     except Exception:
         _log.exception("Event message update failed after payment expiry for %r", event.event_name)
+
+
+_client: discord.Client | None = None
+
+
+@tasks.loop(minutes=1.0)
+async def payment_selection_loop() -> None:
+    if _client is not None:
+        try:
+            await expire_pending_payments(_client)
+        except Exception:
+            _log.exception("Payment expiry sweep failed; retrying next tick")
+
+
+@payment_selection_loop.before_loop
+async def before_payment_selection_loop() -> None:
+    if _client is not None:
+        await _client.wait_until_ready()
+
+
+def start_payment_selection_loop(client: discord.Client) -> None:
+    global _client
+    _client = client
+    if not payment_selection_loop.is_running():
+        payment_selection_loop.start()
+
+
+def stop_payment_selection_loop() -> None:
+    global _client
+    payment_selection_loop.cancel()
+    _client = None

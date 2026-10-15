@@ -525,7 +525,10 @@ After upgrading payment eligibility checks, confirmed registrations with a missi
 method cannot submit proof through the RSVP page or the bot's `I paid` handler. An organizer can run
 `/resend_confirmation` for each affected member on a live event to offer a payment choice. Existing choice deadlines
 are preserved; resending does not extend them. Historical payment records are retained. Review affected registrations
-before a bulk resend, since it sends DMs to registrants, including the waitlist.
+before a bulk resend, since it sends DMs to registrants, including the waitlist. Legacy records may already have
+paid through the former waitlist proof flow: they default to no automatic demotion. Repairing a missing/renamed
+method or promoting a legacy entry can offer a payment-choice window, but expiry does not remove their confirmed
+place. Paid status remains in the frontend store; the bot does not infer nonpayment from a missing method.
 
 The organizer admin page has an up-arrow beside each waitlisted registration. Confirming it promotes that attendee
 and their guests even when the event is full. Events with configured payment methods send a fresh 72-hour
@@ -533,12 +536,14 @@ payment-choice window, as do `/promote` and automatic waitlist promotion, includ
 saved method. Automatic promotion respects capacity; the arrow and `/promote` bypass it. If delivery fails,
 the promotion remains saved and the organizer can resend the confirmation without extending its deadline.
 
-If that window expires without a selected method, the attendee and all guests move to the end of the waitlist.
-The bot checks saved deadlines every minute after it is ready, including deadlines missed while offline. Existing
+New signups that explicitly defer payment selection are marked eligible for automatic demotion. If their window
+expires without a selected method, the attendee and all guests move to the end of the waitlist. The bot checks
+saved deadlines every minute in a separate loop after it is ready, including deadlines missed while offline. Slow
+payment DMs cannot block close/reminder alerts. Existing
 waitlisted groups can fill the released places, but users demoted in that pass cannot immediately promote themselves
 again. Their answers and payment history are retained; this is not a voluntary withdrawal and does not reduce rank.
 The organizer can use the arrow or `/promote` to grant another fresh 72-hour choice. Archived events, interest checks,
-and events with no configured payment methods are excluded from expiry processing.
+events that have started, and events with no configured payment methods are excluded from expiry processing.
 
 Automatic batches only consider the queue entries present when they started. Expiry backfill is saved with the
 demotion and retried after failures or restart, using the original attendance target and eligible registrations.

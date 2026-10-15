@@ -183,7 +183,13 @@ async def test_optional_admin_api_real_startup_failures_do_not_block_bot(monkeyp
     monkeypatch.setenv("ADMIN_API_PORT", "invalid" if port_mode == "invalid" else str(port))
     monkeypatch.setattr(main, "settings", {"GUILDS": []})
     monkeypatch.setattr(main, "get_config", lambda: {})
-    for name in ["load_event_data", "load_responses", "load_rankings", "start_alert_loop"]:
+    for name in [
+        "load_event_data",
+        "load_responses",
+        "load_rankings",
+        "start_alert_loop",
+        "start_payment_selection_loop",
+    ]:
         monkeypatch.setattr(main, name, MagicMock())
     monkeypatch.setattr(main, "load_and_update_events", AsyncMock())
     client = main.OffkaiClient(intents=discord.Intents.none())
@@ -193,6 +199,7 @@ async def test_optional_admin_api_real_startup_failures_do_not_block_bot(monkeyp
         assert client.load_extension.await_count == 2
         main.load_and_update_events.assert_awaited_once_with(client)
         main.start_alert_loop.assert_called_once_with(client)
+        main.start_payment_selection_loop.assert_called_once_with(client)
         assert (client.admin_api is not None) is (port_mode == "available")
     finally:
         await client.close()
