@@ -4,6 +4,7 @@ import hmac
 import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 import discord
@@ -192,10 +193,11 @@ def create_admin_app(client: discord.Client) -> web.Application:
             return web.json_response({"error": "promotion_unconfirmed"}, status=502)
         warnings = []
         # Saved attendance is not rolled back if Discord delivery or cleanup fails.
-        actions = [
+        actions: list[tuple[Callable[[], Awaitable[bool | None]], str]] = [
             (
                 lambda: _add_user_to_event_thread(event, SignupContext(thread, thread.guild, user), client),
-                "Promotion saved, but thread membership could not be updated.",
+                "Promotion saved, but thread access could not be added. "
+                "Check bot permissions and add the user manually.",
             ),
         ]
         role_id = event.role_id
@@ -227,7 +229,8 @@ def create_admin_app(client: discord.Client) -> web.Application:
         )
         for action, warning in actions:
             try:
-                await action()
+                if await action() is False:
+                    warnings.append(warning)
             except Exception:
                 _log.exception("Post-promotion action failed for user %s in event %r", user_id, event_name)
                 warnings.append(warning)

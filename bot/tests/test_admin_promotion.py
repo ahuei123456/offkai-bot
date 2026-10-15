@@ -207,3 +207,19 @@ async def test_promotion_without_payment_methods_numbers_closed_event_group(prom
     assert current.extra_people == entry.extra_people
     assert current.payment_selection_expires_at is None
     assert "view" not in user.send.call_args.kwargs
+
+
+async def test_promotion_reports_discord_thread_rejection_without_losing_payment_dm(promotion_context):
+    event, entry, user, thread, client, payload = promotion_context
+    thread.add_user.side_effect = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "Missing Permissions")
+    async with TestClient(TestServer(admin_api.create_admin_app(client))) as http:
+        response = await http.post("/registrations/promote", json=payload, headers=HEADERS)
+        result = await response.json()
+    assert response.status == 200 and result["promoted"] is True
+    assert len(result["warnings"]) == 1
+    assert "thread" in result["warnings"][0].lower()
+    assert "permissions" in result["warnings"][0].lower()
+    current = responses.get_responses(event.event_name)[0]
+    assert current.user_id == entry.user_id and current.payment_selection_expires_at is not None
+    user.send.assert_awaited_once()
+    assert user.send.call_args.kwargs["view"].expires_at == current.payment_selection_expires_at

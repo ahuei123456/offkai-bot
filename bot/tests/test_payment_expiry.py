@@ -582,3 +582,33 @@ async def test_payment_confirmation_requires_new_deferred_signup_to_choose_first
         assert (await http.post("/payments/confirm", json=payload, headers=headers)).status == 200
         assert responses.expire_payment_selections(event, now + timedelta(hours=73)) == []
     user.send.assert_awaited_once()
+
+
+@pytest.mark.parametrize("change", ["expired", "withdrawn"])
+async def test_resend_uses_roster_after_user_lookup(expired_registration, change):
+    from offkai_bot.interactions import resend_registration_details
+
+    event, entry, _, now = expired_registration
+    user = MagicMock(spec=discord.User, send=AsyncMock())
+
+    async def fetch_user(user_id):
+        if change == "expired":
+            responses.expire_payment_selections(event, now)
+        else:
+            responses.remove_response(event.event_name, entry.user_id)
+        return user
+
+    client = MagicMock(spec=discord.Client, fetch_user=AsyncMock(side_effect=fetch_user))
+    sent, failed = await resend_registration_details(event, client, {entry.user_id})
+    assert failed == []
+    if change == "withdrawn":
+        assert sent == []
+        user.send.assert_not_awaited()
+    else:
+        assert sent == [entry.username]
+        user.send.assert_awaited_once()
+        content = str(user.send.call_args)
+        assert "waitlist" in content.lower()
+        assert "Attendance confirmed" not in content
+        assert "view" not in user.send.call_args.kwargs
+        assert responses.get_responses(event.event_name) == []

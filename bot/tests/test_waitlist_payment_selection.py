@@ -500,7 +500,7 @@ async def test_renamed_method_write_failure_preserves_selected_registration(cust
     assert responses.get_responses(custom_event.event_name)[0] is selected
     assert selected.payment_method == "PayNow" and selected.payment_selection_expires_at is None
     user.send.assert_not_awaited()
-    bot.fetch_user.assert_not_awaited()
+    bot.fetch_user.assert_awaited_once_with(selected.user_id)
 
 
 async def test_legacy_confirmed_missing_method_can_choose_before_upload(custom_event, queued_entry):

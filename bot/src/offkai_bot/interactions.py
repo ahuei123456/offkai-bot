@@ -109,17 +109,17 @@ async def remove_event_thread_member(event: Event, thread: discord.Thread, user:
             await thread.remove_user(user)
 
 
-async def _add_user_to_event_thread(event: Event, context: SignupContext, client: discord.Client) -> None:
+async def _add_user_to_event_thread(event: Event, context: SignupContext, client: discord.Client) -> bool:
     timestamp = _registration_timestamp(event, context.user.id)
     if timestamp is None:
-        return
+        return False
     async with _membership_lock(event, context.user.id):
-        await _join_registered_thread(event, context, client, timestamp)
+        return await _join_registered_thread(event, context, client, timestamp)
 
 
 async def _join_registered_thread(
     event: Event, context: SignupContext, client: discord.Client, timestamp: datetime
-) -> None:
+) -> bool:
     """Join the saved signup's thread, including threads auto-archived during a DM step."""
     thread = context.channel
     try:
@@ -131,7 +131,7 @@ async def _join_registered_thread(
 
         for attempt in range(2):
             if _registration_timestamp(event, context.user.id) != timestamp:
-                return
+                return False
             if event.archived or (thread.archived and thread.locked):
                 _log.warning(
                     "Not adding user %s to archived event or locked archived thread %s for '%s'.",
@@ -139,16 +139,17 @@ async def _join_registered_thread(
                     thread.id,
                     event.event_name,
                 )
-                return
+                return False
             if thread.archived:
                 thread = await thread.edit(archived=False)
             try:
                 if _registration_timestamp(event, context.user.id) != timestamp:
-                    return
+                    return False
                 await thread.add_user(context.user)
                 if _registration_timestamp(event, context.user.id) is None:
                     await thread.remove_user(context.user)
-                return
+                    return False
+                return True
             except discord.HTTPException as error:
                 if error.code != 50083 or attempt:
                     raise
@@ -166,6 +167,8 @@ async def _join_registered_thread(
             event.event_name,
             error,
         )
+
+    return False
 
 
 def validate_extra_people_input(extra_people_str: str) -> int:
@@ -350,22 +353,36 @@ async def resend_registration_details(
     Covers attendees and the waitlist, or only `user_ids` when given.
     Returns (sent, failed) as lists of usernames.
     """
-    targets: list[tuple[Response | WaitlistEntry, str, str]] = [
-        (r, "Attendance confirmed", build_confirmation_message(event, r)) for r in get_responses(event.event_name)
-    ] + [
-        (w, "Waitlisted — attendance is not confirmed", build_waitlist_message(event, w))
-        for w in get_waitlist(event.event_name)
-    ]
+    targets = [*get_responses(event.event_name), *get_waitlist(event.event_name)]
     notice = tuple(line.format(event_name=event.event_name) for line in REGISTRATION_UPDATED_NOTICE)
     sent: list[str] = []
     failed: list[str] = []
-    for entry, status, message in targets:
+    for target in targets:
+        entry = target
         if user_ids is not None and entry.user_id not in user_ids:
             continue
         try:
-            if isinstance(entry, Response) and entry.payment_method not in _payment_methods(event):
-                entry = prepare_payment_selection(event, entry)
             user = await client.fetch_user(entry.user_id)
+            # Expiry or withdrawal can change the roster while Discord resolves the user.
+            current = next(
+                (
+                    r
+                    for r in [*get_responses(event.event_name), *get_waitlist(event.event_name)]
+                    if r.user_id == entry.user_id
+                ),
+                None,
+            )
+            if current is None:
+                continue
+            entry = current
+            if isinstance(entry, Response):
+                if entry.payment_method not in _payment_methods(event):
+                    entry = prepare_payment_selection(event, entry)
+                status = "Attendance confirmed"
+                message = build_confirmation_message(event, entry)
+            else:
+                status = "Waitlisted — attendance is not confirmed"
+                message = build_waitlist_message(event, entry)
             await send_signup_reply(user.send, event, entry, status, message, notice=(notice[0], notice[1]))
             sent.append(entry.username)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound, OSError) as e:
