@@ -34,6 +34,7 @@ def custom_event():
     responses.RESPONSE_DATA_CACHE = {}
     return Event(
         event_name="Synthetic Custom",
+        channel_id=1001,
         venue="Venue",
         address="Address",
         google_maps_link="",

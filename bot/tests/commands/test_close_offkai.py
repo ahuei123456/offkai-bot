@@ -20,7 +20,7 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-def mock_cog():
+def mock_cog(prepopulated_event_cache):
     """Fixture to create a mock EventsCog instance."""
     bot = MagicMock(spec=commands.Bot)
     return EventsCog(bot)
@@ -122,7 +122,7 @@ async def test_close_offkai_command_success_no_message(mock_perform_close, mock_
 async def test_close_offkai_command_error_propagation(mock_perform_close, mock_interaction, mock_cog):
     """Test that errors from perform_close_event are propagated by the command."""
     # Arrange
-    event_name_to_close = "NonExistent Event"
+    event_name_to_close = "Summer Bash"
     error_to_raise = EventNotFoundError(event_name_to_close)
     mock_perform_close.side_effect = error_to_raise
 
