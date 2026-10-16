@@ -1,7 +1,7 @@
 # src/offkai_bot/alerts/alerts.py
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 from discord.ext import tasks  # type: ignore[attr-defined]
@@ -21,6 +21,20 @@ _client: discord.Client | None = None
 
 # --- Key Format String ---
 _TIME_KEY_FORMAT = "%Y-%m-%dT%H:%M"
+
+
+def alert_key(alert_time_jst: datetime) -> str:
+    """Bucket key for an aware JST alert time, rounded *up* to the next whole minute.
+
+    The loop ticks once a minute at an arbitrary second and fires every bucket at or
+    before the current minute. Flooring 18:00:28 to "18:00" would let a tick at
+    18:00:05 run the task early; rounding up means a task never runs before its
+    requested time. Combined with the loop's arbitrary tick second, a task can run
+    up to (but under) two minutes after it was requested.
+    """
+    if alert_time_jst.second or alert_time_jst.microsecond:
+        alert_time_jst = alert_time_jst.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return alert_time_jst.strftime(_TIME_KEY_FORMAT)
 
 
 def register_alert(alert_time: datetime, task: Task):
@@ -57,7 +71,7 @@ def register_alert(alert_time: datetime, task: Task):
         raise AlertTimeInPastError(alert_time_jst)
 
     # --- Generate Key ---
-    key = alert_time_jst.strftime(_TIME_KEY_FORMAT)
+    key = alert_key(alert_time_jst)
 
     # --- Add to Storage ---
     _scheduled_tasks.setdefault(key, []).append(task)

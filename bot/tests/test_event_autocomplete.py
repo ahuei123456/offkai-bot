@@ -46,6 +46,7 @@ def sample_events():
             google_maps_link="g1",
             open=True,
             archived=False,
+            channel_id=1001,
             event_datetime=now,
         ),
         Event(
@@ -55,6 +56,7 @@ def sample_events():
             google_maps_link="g2",
             open=False,
             archived=False,
+            channel_id=1001,
             event_datetime=now,
         ),
         Event(
@@ -64,6 +66,7 @@ def sample_events():
             google_maps_link="g3",
             open=True,
             archived=False,
+            channel_id=1001,
             event_datetime=now,
         ),
         Event(
@@ -73,6 +76,7 @@ def sample_events():
             google_maps_link="g4",
             open=False,
             archived=False,
+            channel_id=1001,
             event_datetime=now,
         ),
         Event(
@@ -82,6 +86,7 @@ def sample_events():
             google_maps_link="g5",
             open=False,
             archived=True,
+            channel_id=1001,
             event_datetime=now,
         ),  # Archived
         Event(
@@ -91,6 +96,7 @@ def sample_events():
             google_maps_link="g6",
             open=True,
             archived=False,
+            channel_id=1001,
             event_datetime=now,
         ),  # Another open one
     ]
@@ -209,6 +215,7 @@ async def test_autocomplete_base_limit_choices(mock_load_data, mock_interaction,
             google_maps_link="G",
             open=True,
             archived=False,
+            channel_id=1001,
             event_datetime=datetime.now(),
         )
         for i in range(30)

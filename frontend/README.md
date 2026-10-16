@@ -9,6 +9,41 @@ A Next.js frontend application that serves as the RSVP page and check-in portal 
 - **Direct Database Integration**: Reads directly from the shared bot databases and logs check-ins to `checkins.json`.
 - **Health Check API**: Endpoint at `/api/health` for docker orchestrator monitoring.
 
+## Check-in identity and migration
+
+Physical arrival comes only from a check-in for the current attending registration,
+identified by event, user ID, and `registration_timestamp` (the signup timestamp
+normalized to ISO UTC milliseconds, matching the existing payment/admin identity
+convention). Signup `arrival_confirmed` is an acknowledgement, not arrival evidence.
+Withdrawal, import replacement, or re-registration with a different signup timestamp
+does not inherit an earlier arrival, including its guests. Imports must preserve the
+timestamp only when preserving the same registration; replacement signups need a new
+timestamp.
+
+Legacy `checkins.json` entries without `registration_timestamp` are conservatively
+ignored, not automatically assigned to whichever registration exists at upgrade.
+Staff must re-scan or manually check in those attendees after deployment. Historical
+entries can remain in storage; checkout removes only the current registration's
+check-ins. New writes use a same-directory temporary file, fsync, then atomic rename;
+failed writes still return `database_write_error` rather than success.
+
+Manual check-in/out API requests must include the displayed row's
+`registration_timestamp`; a replaced registration returns HTTP 409
+`registration_changed`. Event-switch guards reject actions on old visible rows and
+discard delayed mutation/scan responses. Existing QR token formats remain unchanged
+and scans resolve the current registration.
+
+Isolated regression smoke (no Discord or production data required), from `frontend/`:
+
+```bash
+node --experimental-strip-types --test app/api/checkin-integrity.test.ts app/api/checkin-event-switch.test.ts
+```
+
+These exercise actual routes against temporary JSON files and actual hook callbacks
+against deferred responses: solo arrival → replacement plus three guests → pending,
+new scan → arrived → checkout → pending, legacy invalidation, failed atomic rename,
+and event switches (including A → B → A) while mutations/scans are outstanding.
+
 ## Directory structure
 
 - `app/`: Next.js 15 App Router pages and layouts.

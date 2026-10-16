@@ -43,7 +43,7 @@ def mock_interaction():
     interaction.command = MagicMock(spec=app_commands.Command)
     interaction.command.name = "waitlist"
 
-    interaction.response = MagicMock()
+    interaction.response = MagicMock(defer=AsyncMock())
     interaction.response.send_message = AsyncMock()
     interaction.followup = MagicMock(send=AsyncMock())
 
@@ -95,7 +95,7 @@ async def test_waitlist_success(
         "2. UserA +1\n"
         "3. UserB"
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)
     mock_log.warning.assert_not_called()
 
 
@@ -136,7 +136,7 @@ async def test_waitlist_sort_success(
         "2. UserB\n"
         "3. UserC"
     )
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)
     mock_log.warning.assert_not_called()
 
 
@@ -176,7 +176,7 @@ async def test_waitlist_success_truncation(
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False, sort=False)
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_truncated_output, ephemeral=True)
 
 
 @patch("offkai_bot.cogs.events.calculate_waitlist")
@@ -203,7 +203,7 @@ async def test_waitlist_event_not_found(
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_waitlist.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.calculate_waitlist")
@@ -232,7 +232,7 @@ async def test_waitlist_no_entries_found(
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=False, sort=False)
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.calculate_waitlist")
@@ -263,4 +263,4 @@ async def test_waitlist_with_nicknames(
     mock_calculate_waitlist.assert_called_once_with(event_name_target, nicknames=True, sort=False)
 
     expected_output = f"**Waitlist for {event_name_target}**\n\nTotal Waitlisted: **2**\n\n1. foo (goo)\n2. bar"
-    mock_interaction.response.send_message.assert_awaited_once_with(expected_output, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(expected_output, ephemeral=True)

@@ -42,6 +42,17 @@ class SendMessageTask(Task):
     async def action(self):
         """Sends the defined message to the specified channel."""
         _log.debug("Executing SendMessageTask for channel %s", self.channel_id)
+        # Event-tagged messages are deadline countdowns: once the event has closed
+        # (manually or otherwise) or been archived, they would only mislead.
+        if self.event_name is not None:
+            try:
+                event = get_event(self.event_name)
+            except EventNotFoundError:
+                _log.info("SendMessageTask: event '%s' no longer exists. Skipping.", self.event_name)
+                return
+            if event.archived or not event.open:
+                _log.info("SendMessageTask: event '%s' is closed or archived. Skipping.", self.event_name)
+                return
         try:
             channel = self.client.get_channel(self.channel_id)
             # Use isinstance with a tuple for multiple types
@@ -98,6 +109,9 @@ class CloseOffkaiTask(Task):
             return
         if event.archived:
             _log.info("CloseOffkaiTask: event '%s' is archived. Skipping.", self.event_name)
+            return
+        if not event.open:
+            _log.info("CloseOffkaiTask: event '%s' is already closed. Skipping.", self.event_name)
             return
         if event.event_deadline and not event.is_past_deadline:
             _log.info(

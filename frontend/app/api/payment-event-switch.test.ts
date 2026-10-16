@@ -31,7 +31,11 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     const source = fs.readFileSync(path.join(process.cwd(), 'app/hooks/useAdminData.ts'), 'utf8')
     const code = ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    }).outputText.replaceAll("from 'react'", "from './react.js'")
+    }).outputText.replaceAll("from 'react'", "from './react.js'").replaceAll("from '../lib/checkin'", "from './checkin.js'")
+    fs.writeFileSync(path.join(dir, 'checkin.js'), ts.transpileModule(
+      fs.readFileSync('app/lib/checkin.ts', 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+      }).outputText)
     fs.writeFileSync(path.join(dir, 'hook.js'), code)
     const { begin, runEffects } = await import(pathToFileURL(path.join(dir, 'react.js')).href)
     const { useAdminData } = await import(pathToFileURL(path.join(dir, 'hook.js')).href)
@@ -54,7 +58,7 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     assert.equal(await loading.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(await loading.removeRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(await loading.promoteRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
-    assert.deepEqual(posts, [])
+    assert.equal(posts.length, 0)
     loading.changeEvent('Event A')
     begin()
     const loaded = useAdminData()

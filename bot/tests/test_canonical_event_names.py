@@ -87,7 +87,7 @@ def test_mixed_case_capacity_reduction_checks_existing_roster(stored_event, capa
 async def test_mixed_case_organizer_reports_read_real_roster(stored_event, command, expected):
     source = interaction()
     await getattr(EventsCog, command).callback(EventsCog(MagicMock(spec=commands.Bot)), source, "summer bash")
-    sent = source.followup.send if command == "attendance" else source.response.send_message
+    sent = source.followup.send
     assert expected in sent.call_args.args[0]
 
 

@@ -17,6 +17,7 @@ from offkai_bot.alerts.reminders import (
     unregister_deadline_reminders,
 )
 from offkai_bot.data.event import (
+    Event,
     add_event,
     archive_event,
     get_event,
@@ -28,6 +29,7 @@ from offkai_bot.data.event import (
 from offkai_bot.data.ranking import migrate_legacy_rank
 from offkai_bot.data.response import (
     AttendeeReportRow,
+    EventData,
     build_attendee_report_rows,
     calculate_attendance,
     calculate_drinks,
@@ -90,6 +92,47 @@ from offkai_bot.util import (
 )
 
 _log = logging.getLogger(__name__)
+
+
+def _event_in_guild(event: Event, guild: discord.Guild | None) -> bool:
+    """Resolve ownership from Discord's guild channel index, including legacy threads."""
+    return guild is not None and any(
+        channel_id is not None and guild.get_channel_or_thread(channel_id) is not None
+        for channel_id in (event.channel_id, event.thread_id)
+    )
+
+
+async def _require_guild_event(bot: commands.Bot, interaction: discord.Interaction, event_name: str) -> Event:
+    """Fail closed before accessing event data or performing Discord side effects."""
+    event = get_event(event_name)
+    if _event_in_guild(event, interaction.guild):
+        return event
+    if interaction.guild is not None:
+        # Other guilds' channels are absent from the invoking guild's index but
+        # normally present in the bot's global cache. Reject those without REST.
+        for channel_id in (event.channel_id, event.thread_id):
+            if channel_id is None:
+                continue
+            channel = bot.get_channel(channel_id)
+            guild_id = getattr(getattr(channel, "guild", None), "id", None)
+            if isinstance(guild_id, int):
+                if guild_id == interaction.guild.id:
+                    return event
+                raise EventNotFoundError(event_name)
+        # Archived threads can be absent from cache. Fetch before concluding that
+        # ownership cannot be established; never infer ownership from the invoker.
+        for channel_id in (event.channel_id, event.thread_id):
+            if channel_id is None:
+                continue
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except discord.HTTPException:
+                continue
+            if getattr(getattr(channel, "guild", None), "id", None) == interaction.guild.id:
+                return event
+    # The same error for missing and foreign events avoids disclosing their names.
+    raise EventNotFoundError(event_name)
+
 
 ATTENDANCE_FILE_THRESHOLD = 100
 DISCORD_MESSAGE_SOFT_LIMIT = 1900
@@ -504,7 +547,7 @@ class EventsCog(commands.Cog):
         # which fetches and DMs each of them — easily exceeding the 3-second window.
         await interaction.response.defer()
 
-        old_event = get_event(event_name)
+        old_event = await _require_guild_event(self.bot, interaction, event_name)
         old_capacity = old_event.max_capacity
 
         # Interest checks have no drink or capacity machinery to configure.
@@ -589,6 +632,7 @@ class EventsCog(commands.Cog):
     async def close_offkai(self, interaction: discord.Interaction, event_name: str, close_msg: str | None = None):
         validate_guild_context(interaction)
         await interaction.response.defer()
+        await _require_guild_event(self.bot, interaction, event_name)
         try:
             await perform_close_event(self.bot, event_name, close_msg)
             await interaction.followup.send(f"✅ Responses for '{event_name}' have been closed.")
@@ -609,6 +653,7 @@ class EventsCog(commands.Cog):
     async def reopen_offkai(self, interaction: discord.Interaction, event_name: str, reopen_msg: str | None = None):
         validate_guild_context(interaction)
         await interaction.response.defer()
+        await _require_guild_event(self.bot, interaction, event_name)
         reopened_event = set_event_open_status(event_name, target_open_status=True)
         clear_attendee_numbers(reopened_event.event_name)
         save_responses()
@@ -647,6 +692,7 @@ class EventsCog(commands.Cog):
     async def archive_offkai(self, interaction: discord.Interaction, event_name: str):
         validate_guild_context(interaction)
         await interaction.response.defer()
+        await _require_guild_event(self.bot, interaction, event_name)
         archived_event = archive_event(event_name)
         save_event_data()
         unregister_checkin_reminder(archived_event.event_name)
@@ -691,7 +737,7 @@ class EventsCog(commands.Cog):
     async def broadcast(self, interaction: discord.Interaction, event_name: str, message: str):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        event = get_event(event_name)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         thread = await fetch_thread_for_event(self.bot, event)
 
         try:
@@ -712,7 +758,7 @@ class EventsCog(commands.Cog):
     async def delete_response(self, interaction: discord.Interaction, event_name: str, member: discord.Member):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        event = get_event(event_name)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         result = await remove_registration(self.bot, event, member, interaction.guild)
         message = f"🚮 Deleted response from user {member.mention} for '{event_name}'."
         if result["promoted"]:
@@ -723,17 +769,20 @@ class EventsCog(commands.Cog):
 
     @app_commands.command(
         name="export_responses",
-        description="Downloads the raw responses data (all events) as a JSON file.",
+        description="Downloads this server's responses data as a JSON file.",
     )
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
     async def export_responses(self, interaction: discord.Interaction):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        exported = export_responses_json()
+        names = await self._guild_response_names(interaction, load_responses())
+        scoped = {name: entries for name, entries in load_responses().items() if name in names}
+        exported = export_responses_json(data=scoped)
         try:
             await interaction.user.send(
-                "Raw responses data is attached. Edit it and upload it with `/import_responses` to apply changes. "
+                "Responses data for this server is attached. "
+                "Edit it and upload it with `/import_responses` to apply changes. "
                 "Only the events you edit are changed; if one of them changes in the bot before you import, "
                 "the import is rejected and you'll need a fresh export. Keep the `_export` section as it is.",
                 file=_responses_file(exported, "responses"),
@@ -763,18 +812,22 @@ class EventsCog(commands.Cog):
         if file.size > MAX_RESPONSES_IMPORT_BYTES:
             raise ResponsesImportError("The file is too large.")
         upload = parse_responses_import(await file.read())
+        names = await self._guild_response_names(interaction, load_responses())
+        # Authorize every uploaded key before revealing canonical names or
+        # calculating conflicts/previews containing private registration data.
         for name in set(upload.events) | set(upload.baseline):
-            try:
-                canonical_name = get_event(name).event_name
-            except EventNotFoundError:
-                continue
-            if name != canonical_name:
+            event = await _require_guild_event(self.bot, interaction, name)
+            if name != event.event_name:
                 raise ResponsesImportError(
-                    f"Response key '{name}' does not match stored event name '{canonical_name}'. "
+                    f"Response key '{name}' does not match stored event name '{event.event_name}'. "
                     "Correct the event key and each registration's event_name in a fresh export; "
                     "existing differently capitalized records need organizer reconciliation."
                 )
-        current = load_responses()
+            names.add(name)
+        # Ownership fetches yield to signups. Take the data snapshot only after
+        # the last await, and merge/persist without yielding again.
+        all_current = load_responses()
+        current = {name: entries for name, entries in all_current.items() if name in names}
         new_data = merge_responses_import(current, upload)
         changes, changed_events = describe_responses_changes(current, new_data)
         if not changes:
@@ -791,7 +844,7 @@ class EventsCog(commands.Cog):
 
         # Importing this file undoes the import, as long as nothing else changes first.
         previous = export_responses_json(data=current, baseline=new_data)
-        backup_path = replace_responses(new_data)
+        backup_path = replace_responses({**all_current, **new_data})
         for event_name in changed_events:
             with contextlib.suppress(EventNotFoundError):
                 await update_event_message(self.bot, get_event(event_name))
@@ -824,7 +877,7 @@ class EventsCog(commands.Cog):
     ):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        event = get_event(event_name)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Resending confirmations")
         user_ids = None
@@ -871,7 +924,7 @@ class EventsCog(commands.Cog):
     async def promote(self, interaction: discord.Interaction, event_name: str, username: str):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        event = get_event(event_name)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Waitlist promotion")
 
@@ -942,7 +995,7 @@ class EventsCog(commands.Cog):
     ):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        event = get_event(event_name)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Attendance")
         total_count, attendee_list = calculate_attendance(
@@ -987,7 +1040,7 @@ class EventsCog(commands.Cog):
     async def attendance_report(self, interaction: discord.Interaction, event_name: str):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
-        event = get_event(event_name)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Attendance reports")
         if event.open or not has_complete_attendee_numbers(event.event_name):
@@ -1035,7 +1088,8 @@ class EventsCog(commands.Cog):
         self, interaction: discord.Interaction, event_name: str, sort: bool = False, nicknames: bool = False
     ):
         validate_guild_context(interaction)
-        event = get_event(event_name)
+        await interaction.response.defer(ephemeral=True)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "The waitlist")
         total_count, waitlisted_list = calculate_waitlist(event.event_name, nicknames=nicknames, sort=sort)
@@ -1048,7 +1102,7 @@ class EventsCog(commands.Cog):
         if len(output) > 1900:
             output = output[:1900] + "\n... (list truncated)"
 
-        await interaction.response.send_message(output, ephemeral=True)
+        await interaction.followup.send(output, ephemeral=True)
 
     @app_commands.command(
         name="drinks",
@@ -1059,7 +1113,8 @@ class EventsCog(commands.Cog):
     @log_command_usage
     async def drinks(self, interaction: discord.Interaction, event_name: str):
         validate_guild_context(interaction)
-        event = get_event(event_name)
+        await interaction.response.defer(ephemeral=True)
+        event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Drink tracking")
         total_count, drinks_count = calculate_drinks(event.event_name)
@@ -1077,7 +1132,17 @@ class EventsCog(commands.Cog):
         if len(output) > 1900:
             output = output[:1900] + "\n... (list truncated)"
 
-        await interaction.response.send_message(output, ephemeral=True)
+        await interaction.followup.send(output, ephemeral=True)
+
+    async def _guild_response_names(self, interaction: discord.Interaction, data: dict[str, EventData]) -> set[str]:
+        scoped = set()
+        for name in list(data):
+            try:
+                await _require_guild_event(self.bot, interaction, name)
+            except EventNotFoundError:
+                continue
+            scoped.add(name)
+        return scoped
 
     # --- Autocomplete Functions ---
     async def event_autocomplete_base(
@@ -1086,7 +1151,7 @@ class EventsCog(commands.Cog):
         events = load_event_data()
         choices = []
         for event in events:
-            if event.archived:
+            if event.archived or not _event_in_guild(event, interaction.guild):
                 continue
             if open_status is not None and event.open != open_status:
                 continue
@@ -1131,7 +1196,7 @@ class EventsCog(commands.Cog):
             return []
 
         try:
-            event = get_event(event_name)
+            event = await _require_guild_event(self.bot, interaction, event_name)
             waitlist = get_waitlist(event.event_name)
         except Exception:
             return []
