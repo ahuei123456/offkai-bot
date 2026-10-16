@@ -98,7 +98,12 @@ class OffkaiClient(commands.Bot):
         # Load Data
         load_event_data()
         load_responses()  # Loads both attendees and waitlist
-        load_rankings()
+        try:
+            load_rankings()
+        except (ValueError, TypeError, OSError):
+            # Rankings are optional. Leave their cache unloaded/write-disabled
+            # until repaired, rather than blocking attendance or overwriting it.
+            _log.exception("Rankings unavailable; continuing startup without ranking updates.")
         restore_payment_selections(self)
         _log.info("Initial data loaded into cache.")
 

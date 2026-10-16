@@ -32,7 +32,6 @@ from offkai_bot.data.response import (
     calculate_attendance,
     calculate_drinks,
     calculate_waitlist,
-    clear_attendee_numbers,
     format_organizer_name,
     get_responses,
     get_waitlist,
@@ -608,7 +607,6 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer()
         reopened_event = set_event_open_status(event_name, target_open_status=True)
-        clear_attendee_numbers(event_name)
         await update_event_message(self.bot, reopened_event)
 
         if reopen_msg:

@@ -14,6 +14,7 @@ from offkai_bot.data.response import (
     Response,
     add_response,
     assign_attendee_numbers,
+    clear_attendee_numbers,
     get_max_attendee_number,
     get_responses,
     get_waitlist,
@@ -548,6 +549,8 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
 
     # Handle closed_attendance_count
     if target_open_status:
+        # Keep the closed state retryable if clearing numbering cannot commit.
+        clear_attendee_numbers(event.event_name)
         # Reopening the event - clear the closed attendance count
         event.closed_attendance_count = None
         event.max_attendee_number = None

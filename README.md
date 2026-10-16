@@ -107,11 +107,13 @@ This bot replaces manual methods of collecting attendance such as:
   - Legacy response/event/ranking records remain readable; response format migration is written on the next successful mutation
   - Changes are staged, written by atomic file replacement, then published to the in-memory cache; write errors propagate
   - Missing data directories/files are created automatically. Invalid JSON, schema, or registration records fail loading without a writable partial/empty cache; originals remain in place and a best-effort `.corrupted-*.bak` copy is made
-  - Repair invalid data (including any legacy waitlist file) before restarting; a backup is not automatic recovery
+  - Repair invalid event/response data (including any legacy waitlist file) before restarting; a backup is not automatic recovery. Invalid optional rankings are logged and remain unloaded/write-disabled until repaired, without blocking attendance startup
   - Legacy defaults and existing optional payment-expiry metadata recovery remain supported; malformed registration records are not silently skipped
   - New events are saved before Discord publication. A failed announcement reports failure but leaves the event and thread identifiers available for recovery
+  - Announcement refresh after a committed state change is best-effort: deleted messages are replaced, transient/permission fetch errors never create duplicates, and replacement failure is logged without undoing the saved state
   - Atomicity is per JSON file only: responses, event numbering/status, rankings, and Discord notifications are separate commits, not a cross-file transaction. A later failure can leave earlier commits applied
   - Closing writes attendee numbering before committing the closed event/count. If either write fails the event remains open and closing can be retried; a failed final event write can leave numbering already saved
+  - Reopening clears numbering before committing the open state. A clearing or final event-write failure leaves the event closed and retryable; numbering can already be cleared if the final event write fails
 
 - **Responsibility System**
   - All registrations include clear warnings about post-deadline withdrawals

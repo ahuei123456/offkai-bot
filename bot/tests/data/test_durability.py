@@ -384,3 +384,134 @@ def test_invalid_close_does_not_change_attendee_numbers(durable_files, archived)
     with patch("offkai_bot.data.event.assign_attendee_numbers") as number, pytest.raises(error):
         event.set_event_open_status(current.event_name, False)
     number.assert_not_called()
+
+
+@pytest.mark.parametrize("send_fails", [False, True])
+async def test_deleted_announcement_is_replaced_without_losing_old_identity_on_failure(durable_files, send_fails):
+    current = stored_event()
+    current.thread_id = 456
+    current.message_id = 10
+    event.EVENT_DATA_CACHE = [current]
+    event.save_event_data()
+    path = Path(durable_files["EVENTS_FILE"])
+    original = path.read_bytes()
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 456
+    thread.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "deleted"))
+    message = MagicMock(spec=discord.Message)
+    message.id = 20
+    message.pin = AsyncMock()
+    thread.send = AsyncMock(return_value=message)
+    client = MagicMock(spec=discord.Client)
+    client.get_channel.return_value = thread
+    if send_fails:
+        thread.send.side_effect = discord.HTTPException(MagicMock(status=500), "replacement unavailable")
+        await event_actions.update_event_message(client, current)
+        assert current.message_id == 10
+        assert path.read_bytes() == original
+    else:
+        await event_actions.update_event_message(client, current)
+        assert current.message_id == 20
+        event.EVENT_DATA_CACHE = None
+        assert event.get_event(current.event_name).message_id == 20
+    thread.send.assert_awaited_once()
+
+
+@pytest.mark.parametrize("status", [403, 500])
+async def test_announcement_fetch_failure_never_creates_duplicate(durable_files, status):
+    current = stored_event()
+    current.thread_id = 456
+    current.message_id = 10
+    event.EVENT_DATA_CACHE = [current]
+    event.save_event_data()
+    path = Path(durable_files["EVENTS_FILE"])
+    original = path.read_bytes()
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 456
+    error = discord.Forbidden if status == 403 else discord.HTTPException
+    thread.fetch_message = AsyncMock(side_effect=error(MagicMock(status=status), "fetch unavailable"))
+    thread.send = AsyncMock()
+    client = MagicMock(spec=discord.Client)
+    client.get_channel.return_value = thread
+    await event_actions.update_event_message(client, current)
+    thread.send.assert_not_awaited()
+    assert current.message_id == 10
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("failed_file", ["RESPONSES_FILE", "EVENTS_FILE"])
+def test_reopen_write_failures_leave_event_closed_and_retryable(durable_files, failed_file):
+    current = stored_event()
+    current.open = False
+    current.closed_attendance_count = 2
+    current.max_attendee_number = 2
+    event.EVENT_DATA_CACHE = [current]
+    response.RESPONSE_DATA_CACHE = {
+        current.event_name: response.EventData(
+            attendees=[replace(registration(), extra_people=1, attendee_number=1, extras_attendee_numbers=[2])],
+            waitlist=[],
+        )
+    }
+    event.save_event_data()
+    response.save_responses()
+    event_path = Path(durable_files["EVENTS_FILE"])
+    response_path = Path(durable_files["RESPONSES_FILE"])
+    original_event = event_path.read_bytes()
+    original_responses = response_path.read_bytes()
+    real_replace = atomic.os.replace
+
+    def fail_selected_file(source, destination):
+        if str(destination) == durable_files[failed_file]:
+            raise OSError("reopen write failed")
+        real_replace(source, destination)
+
+    with (
+        patch("offkai_bot.data.atomic.os.replace", side_effect=fail_selected_file),
+        pytest.raises(OSError, match="reopen write failed"),
+    ):
+        event.set_event_open_status("gAtHeRiNg", True)
+    assert current.open is False
+    assert current.closed_attendance_count == current.max_attendee_number == 2
+    assert event_path.read_bytes() == original_event
+    if failed_file == "RESPONSES_FILE":
+        assert response_path.read_bytes() == original_responses
+        assert response.has_complete_attendee_numbers(current.event_name)
+    else:
+        assert not response.has_complete_attendee_numbers(current.event_name)
+
+    event.set_event_open_status("gAtHeRiNg", True)
+    event.EVENT_DATA_CACHE = None
+    response.RESPONSE_DATA_CACHE = None
+    recovered = event.get_event(current.event_name)
+    assert recovered.open is True
+    assert recovered.closed_attendance_count is None
+    assert recovered.max_attendee_number is None
+    assert not response.has_complete_attendee_numbers(current.event_name)
+
+
+async def test_invalid_optional_rankings_do_not_block_attendance_startup(durable_files, monkeypatch):
+    from offkai_bot import main
+
+    path = Path(durable_files["RANKING_FILE"])
+    path.parent.mkdir(parents=True)
+    path.write_text("invalid ranking data", encoding="utf-8")
+    original = path.read_bytes()
+    monkeypatch.setattr(main, "settings", {"GUILDS": []})
+    monkeypatch.setattr(main, "get_config", lambda: {})
+    monkeypatch.setattr(main, "start_alert_loop", MagicMock())
+    monkeypatch.setattr(main, "start_payment_selection_loop", MagicMock())
+    monkeypatch.setenv("ADMIN_API_PORT", "0")
+    client = main.OffkaiClient(intents=discord.Intents.none())
+    client.load_extension = AsyncMock()
+    try:
+        await client.setup_hook()
+        current = event.add_event("After startup", "V", "A", "M", datetime(3024, 1, 1, tzinfo=UTC), 1, 2, [])
+        response.add_response(current.event_name, replace(registration(), event_name=current.event_name))
+        assert response.get_responses(current.event_name)[0].user_id == 1
+        assert path.read_bytes() == original
+        assert ranking.RANKING_DATA_CACHE is None
+        assert list(path.parent.glob("rankings.json.corrupted-*.bak"))
+        with pytest.raises(RuntimeError):
+            ranking.save_rankings()
+    finally:
+        await client.close()

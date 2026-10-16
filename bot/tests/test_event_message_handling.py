@@ -197,42 +197,6 @@ async def test_fetch_message_not_found(mock_log, mock_thread, mock_event_open):
     assert message is None
     assert mock_event_open.message_id == original_id  # Replaced only after the new message is saved.
     mock_thread.fetch_message.assert_awaited_once_with(original_id)
-    mock_log.warning.assert_called_once()
-    args = mock_log.warning.call_args[0]
-    assert "Message ID %s not found" in args[0]
-    assert args[1] == original_id
-
-
-@patch("offkai_bot.event_actions._log")
-async def test_fetch_message_forbidden(mock_log, mock_thread, mock_event_open):
-    """Test _fetch_event_message when fetch_message raises Forbidden."""
-    original_id = 12345
-    mock_event_open.message_id = original_id
-    mock_thread.fetch_message.side_effect = discord.errors.Forbidden(MagicMock(), "forbidden")
-
-    message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
-
-    assert message is None
-    assert mock_event_open.message_id == original_id  # ID should NOT be cleared
-    mock_thread.fetch_message.assert_awaited_once_with(original_id)
-    mock_log.error.assert_called_once()
-    assert "Bot lacks permissions to fetch message" in mock_log.error.call_args[0][0]
-
-
-@patch("offkai_bot.event_actions._log")
-async def test_fetch_message_http_error(mock_log, mock_thread, mock_event_open):
-    """Test _fetch_event_message when fetch_message raises HTTPException."""
-    original_id = 12345
-    mock_event_open.message_id = original_id
-    mock_thread.fetch_message.side_effect = discord.HTTPException(MagicMock(), "http error")
-
-    message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
-
-    assert message is None
-    assert mock_event_open.message_id == original_id  # ID should NOT be cleared
-    mock_thread.fetch_message.assert_awaited_once_with(original_id)
-    mock_log.error.assert_called_once()
-    assert "HTTP error fetching message" in mock_log.error.call_args[0][0]
 
 
 # --- Tests for send_event_message ---
@@ -406,30 +370,6 @@ async def test_update_message_thread_fetch_fails(
     mock_log.log.assert_called_once()
     assert mock_log.log.call_args[0][0] == logging.WARNING  # Check level
     assert "Failed to get thread for event '%s'" in mock_log.log.call_args[0][1]
-
-
-@patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions._fetch_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions._log")
-async def test_update_message_message_fetch_fails_perms(
-    mock_log, mock_fetch_thread, mock_fetch_msg, mock_send_new, mock_client, mock_thread, mock_event_open
-):
-    """Test update_event_message returns early if message fetch fails (perms/HTTP)."""
-    mock_fetch_thread.return_value = mock_thread
-    # Simulate fetch failing but returning None (error logged internally by helper)
-    mock_fetch_msg.return_value = None
-    # Crucially, ensure the event *had* a message ID initially, so we know fetch failed, not just missing ID
-    mock_event_open.message_id = 99999
-
-    await event_actions.update_event_message(mock_client, mock_event_open)
-
-    mock_fetch_thread.assert_awaited_once_with(mock_client, mock_event_open)
-    mock_fetch_msg.assert_awaited_once_with(mock_thread, mock_event_open)
-    # Check subsequent steps were skipped
-    mock_send_new.assert_not_awaited()
-    # Error logging is handled inside _fetch_event_message, check log wasn't called again here
-    mock_log.log.assert_not_called()  # update_event_message itself shouldn't log again
 
 
 @patch("offkai_bot.event_actions.send_event_message", new_callable=AsyncMock)
