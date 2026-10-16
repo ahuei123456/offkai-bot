@@ -27,6 +27,7 @@ export type Attendee = {
 export type CheckinRecord = {
   user_id: string
   event_name: string
+  registration_timestamp: string
   checked_in_at: string
   name: string
 }

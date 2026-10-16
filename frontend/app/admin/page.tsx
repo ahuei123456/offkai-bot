@@ -14,6 +14,7 @@ export default function AdminPage() {
   const scanner = useScanner({
     adminKey: data.key,
     selectedEvent: data.selectedEvent,
+    eventName: data.eventName,
     attendees: data.attendees,
     onCheckedIn: data.applyScanCheckin,
   })

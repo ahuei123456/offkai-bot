@@ -17,8 +17,8 @@ export function AttendeeRow({
   onRemove: (userId: string, timestamp: string) => Promise<boolean>
   attendee: Attendee
   checkin?: CheckinRecord
-  onCheckin: (userId: string) => void
-  onCheckout: (userId: string) => void
+  onCheckin: (userId: string, timestamp: string) => void
+  onCheckout: (userId: string, timestamp: string) => void
 }) {
   const name = a.display_name || a.username
   const isIn = !!checkin
@@ -60,9 +60,10 @@ export function AttendeeRow({
               <span className="text-[9px] font-black text-[#8B2D1F]/60 uppercase tracking-widest">Pending</span>
             )}
           </div>
-          {/* Manual check-in — always tappable; emphasised when active */}
+          {/* Missing registration identities cannot safely mutate arrival. */}
           <button
-            onClick={() => onCheckin(a.user_id)}
+            onClick={() => a.registration_timestamp && onCheckin(a.user_id, a.registration_timestamp)}
+            disabled={!a.registration_timestamp}
             aria-label={`Check in ${name}`}
             title="Check in"
             className={`w-11 h-11 rounded-xl border-2 border-[#17120F] flex items-center justify-center shrink-0 active:translate-x-[1px] active:translate-y-[1px] transition ${isIn ? 'bg-green-600 text-white' : 'bg-[#FFD51B] text-[#17120F]'}`}
@@ -71,9 +72,10 @@ export function AttendeeRow({
               <path d="M20 6 9 17l-5-5" />
             </svg>
           </button>
-          {/* Manual check-out — always tappable */}
+          {/* Checkout targets the same displayed registration as check-in. */}
           <button
-            onClick={() => onCheckout(a.user_id)}
+            onClick={() => a.registration_timestamp && onCheckout(a.user_id, a.registration_timestamp)}
+            disabled={!a.registration_timestamp}
             aria-label={`Check out ${name}`}
             title="Check out"
             className="w-11 h-11 rounded-xl border-2 border-[#17120F] flex items-center justify-center shrink-0 bg-white text-[#E51F1F] active:translate-x-[1px] active:translate-y-[1px] transition"

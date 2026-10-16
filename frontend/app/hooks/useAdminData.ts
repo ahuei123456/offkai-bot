@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attendee, AdminFilter, CheckinRecord } from '../lib/types'
+import { matchesCheckin } from '../lib/checkin'
 
 const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
 
@@ -10,6 +11,7 @@ const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
 export function useAdminData() {
   const selectedEventRef = useRef('')
   const eventGeneration = useRef(0)
+  const attendeesRef = useRef<Attendee[]>([])
   const [key, setKey] = useState('')
   const [authed, setAuthed] = useState(false)
   const [keyInput, setKeyInput] = useState('')
@@ -25,6 +27,8 @@ export function useAdminData() {
   // filter so a mistaken action can be undone in place (e.g. on the Pending tab).
   const [stickyIds, setStickyIds] = useState<Set<string>>(new Set())
   const [actionWarnings, setActionWarnings] = useState<string[]>([])
+
+  useEffect(() => { attendeesRef.current = attendees }, [attendees])
 
   const loadCheckins = useCallback(async (adminKey: string, ev: string) => {
     const generation = eventGeneration.current
@@ -46,6 +50,7 @@ export function useAdminData() {
     const { event_name, attendees: att } = await res.json()
     if (generation !== eventGeneration.current || selectedEventRef.current !== ev) return false
     setEventName(event_name)
+    attendeesRef.current = att
     setAttendees(att)
     return true
   }, [])
@@ -110,38 +115,53 @@ export function useAdminData() {
   }, [])
 
   // Manual check-in (admin button) — no QR needed, admin is already authed.
-  const manualCheckin = useCallback(async (userId: string) => {
-    const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
-    const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
+  const manualCheckin = useCallback(async (userId: string, timestamp: string) => {
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName ||
+        !attendeesRef.current.some(a => a.status === 'attending' && a.user_id === userId && a.registration_timestamp === timestamp)) return
+    const generation = eventGeneration.current
+    const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, event_name: selectedEvent || undefined }),
+      body: JSON.stringify({ user_id: userId, event_name: eventName, registration_timestamp: timestamp }),
     })
     const data = await res.json().catch(() => ({}))
-    if (res.ok && data.record) {
-      setCheckins(prev => ({ ...prev, [data.record.user_id]: data.record }))
+    if (generation !== eventGeneration.current || selectedEventRef.current !== eventName) return
+    if (!attendeesRef.current.some(a => a.user_id === userId && a.registration_timestamp === timestamp)) return
+    if (res.ok && matchesCheckin(data.record, eventName, userId, timestamp)) {
+      setCheckins(prev => ({ ...prev, [userId]: data.record }))
       setStickyIds(prev => new Set(prev).add(userId))
+    } else if (res.status === 409) {
+      await loadAttendees(key, eventName)
+      await loadCheckins(key, eventName)
     }
-  }, [key, selectedEvent])
+  }, [key, selectedEvent, eventName, loadAttendees, loadCheckins])
 
   // Manual check-out (admin button) — removes the check-in for this event.
   // Uses POST with action=checkout because some proxies reject the DELETE method.
-  const manualCheckout = useCallback(async (userId: string) => {
-    const evParam = selectedEvent ? `&event=${encodeURIComponent(selectedEvent)}` : ''
-    const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}${evParam}`, {
+  const manualCheckout = useCallback(async (userId: string, timestamp: string) => {
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName ||
+        !attendeesRef.current.some(a => a.status === 'attending' && a.user_id === userId && a.registration_timestamp === timestamp)) return
+    const generation = eventGeneration.current
+    const res = await fetch(`/api/checkin?key=${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'checkout', user_id: userId, event_name: selectedEvent || undefined }),
+      body: JSON.stringify({ action: 'checkout', user_id: userId, event_name: eventName, registration_timestamp: timestamp }),
     })
+    if (generation !== eventGeneration.current || selectedEventRef.current !== eventName) return
+    if (!attendeesRef.current.some(a => a.user_id === userId && a.registration_timestamp === timestamp)) return
     if (res.ok) {
       setCheckins(prev => {
+        if (!matchesCheckin(prev[userId], eventName, userId, timestamp)) return prev
         const next = { ...prev }
         delete next[userId]
         return next
       })
       setStickyIds(prev => new Set(prev).add(userId))
+    } else if (res.status === 409) {
+      await loadAttendees(key, eventName)
+      await loadCheckins(key, eventName)
     }
-  }, [key, selectedEvent])
+  }, [key, selectedEvent, eventName, loadAttendees, loadCheckins])
 
   const updatePayment = useCallback(async (userId: string, paid: boolean, timestamp: string) => {
     // An event switch can leave the previous rows visible while the new list loads.
@@ -207,16 +227,24 @@ export function useAdminData() {
   // Record a successful camera scan into the check-in map (no sticky — scans
   // aren't undo-in-place like the manual buttons).
   const applyScanCheckin = useCallback((record: CheckinRecord) => {
+    if (eventName !== selectedEvent || selectedEventRef.current !== eventName ||
+        !attendeesRef.current.some(a => a.status === 'attending' &&
+          matchesCheckin(record, eventName, a.user_id, a.registration_timestamp))) return
     setCheckins(prev => ({ ...prev, [record.user_id]: record }))
-  }, [])
+  }, [eventName, selectedEvent])
 
   // Header counters reflect physical people, not RSVP records: each attending
   // record is the primary attendee plus their extra_people guests, who check in
   // as one group via the primary's single QR / manual action (issue #80).
   const attending = attendees.filter(a => a.status === 'attending')
+  // Polls and mutations can straddle a registration replacement independently.
+  // Never expose an old record to rows, filters, or group-size counters.
+  const currentCheckins = Object.fromEntries(attending
+    .filter(a => matchesCheckin(checkins[a.user_id], eventName, a.user_id, a.registration_timestamp))
+    .map(a => [a.user_id, checkins[a.user_id]]))
   const attendingCount = attending.reduce((total, a) => total + groupSize(a), 0)
   const checkedInCount = attending
-    .filter(a => checkins[a.user_id])
+    .filter(a => currentCheckins[a.user_id])
     .reduce((total, a) => total + groupSize(a), 0)
   const pendingCount = attendingCount - checkedInCount
   const waitlist = attendees.filter(a => a.status === 'waitlist')
@@ -224,8 +252,8 @@ export function useAdminData() {
   const filtered = attending
     .filter(a => {
       if (stickyIds.has(a.user_id)) return true
-      if (filter === 'checked') return !!checkins[a.user_id]
-      if (filter === 'pending') return !checkins[a.user_id]
+      if (filter === 'checked') return !!currentCheckins[a.user_id]
+      if (filter === 'pending') return !currentCheckins[a.user_id]
       return true
     })
     .filter(a => {
@@ -239,7 +267,7 @@ export function useAdminData() {
   return {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
-    updatePayment, attendees, checkins, applyScanCheckin, manualCheckin, manualCheckout,
+    updatePayment, attendees, checkins: currentCheckins, applyScanCheckin, manualCheckin, manualCheckout,
     removeRegistration, promoteRegistration, actionWarnings,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,

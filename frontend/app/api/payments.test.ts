@@ -31,6 +31,7 @@ function compileRoutes() {
     }
   }
   compile(apiDir, path.join(output, 'api'))
+  compile(path.join(process.cwd(), 'app', 'lib'), path.join(output, 'lib'))
   let instrumentation = ts.transpileModule(fs.readFileSync(path.join(process.cwd(), 'instrumentation.ts'), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText
