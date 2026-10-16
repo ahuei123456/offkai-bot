@@ -70,6 +70,8 @@ from offkai_bot.event_actions import (
     update_event_message,
 )
 from offkai_bot.interactions import (
+    build_promotion_message,
+    credit_promoted_attendance,
     notify_dm_failure,
     promote_waitlist_batch,
     resend_registration_details,
@@ -874,6 +876,7 @@ class EventsCog(commands.Cog):
 
         promoted_response = promote_waitlist_response(event, user_id)
         assert promoted_response is not None
+        await credit_promoted_attendance(self.bot, event, promoted_response)
 
         if event.role_id and interaction.guild:
             await assign_event_role(interaction.guild, user_id, event.role_id, event=event)
@@ -890,17 +893,7 @@ class EventsCog(commands.Cog):
                 event,
                 promoted_response,
                 "Attendance confirmed",
-                f"Great news! You've been manually promoted from the waitlist "
-                f"for **{event_name}**!\n"
-                f"You are now a confirmed attendee.\n\n"
-                f"朗報です！**{event_name}**のウェイトリストから手動で昇格されました！\n"
-                f"参加が確定しました。\n\n"
-                f"**Important:** Withdrawing after the deadline is strongly discouraged. "
-                f"If you withdraw late, you are fully responsible for any consequences, including "
-                f"payment requests from the event organizer and potential server moderation action.\n\n"
-                f"**重要:** 締め切り後の辞退は強くお勧めしません。"
-                f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-                f"すべての結果に対して、全責任を負います。",
+                build_promotion_message(event, promoted_response, manual=True),
                 promotion=True,
             )
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:

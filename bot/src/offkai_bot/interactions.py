@@ -391,6 +391,74 @@ async def resend_registration_details(
     return sent, failed
 
 
+LATE_WITHDRAWAL_WARNING = (
+    "⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
+    "If you withdraw late, you are fully responsible for any consequences, including "
+    "payment requests from the event organizer and potential server moderation action.\n\n"
+    "⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
+    "遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
+    "すべての結果に対して、全責任を負います。"
+)
+
+
+def build_promotion_message(event: Event, response: Response, *, manual: bool = False) -> str:
+    """Default (non-custom-form) DM body for an attendee promoted from the waitlist."""
+    rsvp_url = build_checkin_url(response.user_id, event.event_name)
+    rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
+    rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
+    if manual:
+        intro = (
+            f"🎉 Great news! You've been manually promoted from the waitlist for **{event.event_name}**!\n"
+            "You are now a confirmed attendee.\n"
+        )
+        intro_jp = (
+            f"🎉 朗報です！**{event.event_name}**のウェイトリストから手動で昇格されました！\n参加が確定しました。\n"
+        )
+    else:
+        intro = (
+            f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
+            "You've been automatically moved from the waitlist to confirmed attendees.\n"
+        )
+        intro_jp = (
+            f"🎉 朗報です！**{event.event_name}**に空きが出ました！\n"
+            "ウェイトリストから自動的に参加確定に移動されました。\n"
+        )
+    return f"{intro}{rsvp_link_msg}\n\n{intro_jp}{rsvp_link_msg_jp}\n\n{LATE_WITHDRAWAL_WARNING}"
+
+
+async def announce_rank_milestone(channel: object, user_id: int, username: str) -> None:
+    """Post the 1st/5th/10th-offkai message once per milestone, if the rank just reached one."""
+    rank = get_rank(user_id, username)
+    if rank not in MILESTONE_MESSAGES or not can_rank_message_sent(user_id):
+        return
+    if not isinstance(channel, discord.abc.Messageable):
+        return
+    try:
+        # Milestone messages congratulate the user by mention; opt in to
+        # user pings past the client-wide AllowedMentions.none() default.
+        await channel.send(
+            random.choice(MILESTONE_MESSAGES[rank]).format(user_id=user_id),
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
+        mark_achieved_rank(user_id)
+    except discord.HTTPException as e:
+        _log.error("Failed to send milestone message for user %s: %s", user_id, e)
+
+
+async def credit_promoted_attendance(client: discord.Client, event: Event, response: Response) -> None:
+    """Give a promotion the same rank credit as a direct confirmed signup.
+
+    Every way of leaving the attendee list decrements rank, so every way of joining it
+    must increment it. Failures here never undo the saved promotion.
+    """
+    try:
+        update_rank(response.user_id, response.username)
+        channel = client.get_channel(event.thread_id) if event.thread_id else None
+        await announce_rank_milestone(channel, response.user_id, response.username)
+    except Exception:
+        _log.exception("Rank update failed after promoting user %s in %r", response.user_id, event.event_name)
+
+
 async def promote_waitlist_batch(
     event: Event,
     client: discord.Client,
@@ -482,6 +550,7 @@ async def promote_waitlist_batch(
             break
         promoted_entry = promoted_response
         promoted_user_ids.append(promoted_entry.user_id)
+        await credit_promoted_attendance(client, event, promoted_response)
 
         # Assign event participant role
         if guild and event.role_id:
@@ -489,28 +558,13 @@ async def promote_waitlist_batch(
 
         # Notify the promoted user
         try:
-            rsvp_url = build_checkin_url(promoted_entry.user_id, event.event_name)
-            rsvp_link_msg = f"\n🔗 **RSVP Page / QR Code:** {rsvp_url}" if rsvp_url else ""
-            rsvp_link_msg_jp = f"\n🔗 **RSVPページ / QRコード:** {rsvp_url}" if rsvp_url else ""
-
             promoted_user = await client.fetch_user(promoted_entry.user_id)
             await send_signup_reply(
                 promoted_user.send,
                 event,
                 promoted_response,
                 "Attendance confirmed",
-                f"🎉 Great news! A spot has opened up for **{event.event_name}**!\n"
-                f"You've been automatically moved from the waitlist to confirmed attendees.\n"
-                f"{rsvp_link_msg}\n\n"
-                f"🎉 朗報です！**{event.event_name}**に空きが出ました！\n"
-                f"ウェイトリストから自動的に参加確定に移動されました。\n"
-                f"{rsvp_link_msg_jp}\n\n"
-                f"⚠️ **Important:** Withdrawing after the deadline is strongly discouraged. "
-                f"If you withdraw late, you are fully responsible for any consequences, including "
-                f"payment requests from the event organizer and potential server moderation action.\n\n"
-                f"⚠️ **重要:** 締め切り後の辞退は強くお勧めしません。"
-                f"遅れて辞退した場合、主催者からの支払い請求やサーバーのモデレーション措置を含む"
-                f"すべての結果に対して、全責任を負います。",
+                build_promotion_message(event, promoted_response),
                 promotion=True,
             )
             _log.info("Promoted user %s from waitlist for event '%s'.", promoted_entry.user_id, event.event_name)
@@ -772,28 +826,7 @@ class GatheringModal(ui.Modal):
 
         # Update rank and announce milestones regardless of whether the DM succeeded
         update_rank(context.user.id, context.user.name)
-        rank = get_rank(context.user.id, context.user.name)
-        if (
-            rank in MILESTONE_MESSAGES
-            and can_rank_message_sent(context.user.id)
-            and isinstance(context.channel, discord.abc.Messageable)
-        ):
-            try:
-                msg_template = random.choice(MILESTONE_MESSAGES[rank])
-                # Milestone messages congratulate the user by mention; opt in to
-                # user pings past the client-wide AllowedMentions.none() default.
-                await context.channel.send(
-                    msg_template.format(user_id=context.user.id),
-                    allowed_mentions=discord.AllowedMentions(users=True),
-                )
-                mark_achieved_rank(context.user.id)
-            except discord.HTTPException as e:
-                _log.error(
-                    "Failed to send milestone message for user %s in channel %s: %s",
-                    context.user.id,
-                    context.channel_id,
-                    e,
-                )
+        await announce_rank_milestone(context.channel, context.user.id, context.user.name)
 
     async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
         """Handles actions after a user is added to the waitlist."""
@@ -1232,6 +1265,111 @@ async def _refresh_interest_check_message(client: discord.Client, event: Event) 
         _log.error("Failed to refresh interest check message for '%s': %s", event.event_name, e, exc_info=True)
 
 
+async def withdraw_registration(event: Event, interaction: discord.Interaction, *, late_reason: str | None = None):
+    """Withdraw the clicking user from an event's attendees or waitlist.
+
+    The removal is saved first; every later step is attempted independently, so a failed
+    DM or interaction reply can never skip role/thread cleanup or waitlist promotion.
+    ``late_reason`` (e.g. "after the deadline") adds the late-withdrawal warning and
+    notifies the event creator.
+    """
+    user = interaction.user
+    if event.archived:
+        await error_message(interaction, f"**{event.event_name}** is archived, so registrations can no longer change.")
+        return
+
+    removed_response: Response | None = None
+    try:
+        try:
+            removed_response = remove_response(event.event_name, user.id)
+        except ResponseNotFoundError:
+            remove_from_waitlist(event.event_name, user.id)
+    except ResponseNotFoundError:
+        await error_message(interaction, f"You have not registered for **{event.event_name}**, so you cannot withdraw.")
+        return
+    except Exception as e:
+        _log.error("Unexpected error during withdrawal for %s by %s: %s", event.event_name, user.id, e, exc_info=True)
+        await error_message(interaction, "An internal error occurred while processing your withdrawal.")
+        return
+
+    async def attempt(step: str, action: Callable[[], Awaitable[Any]]) -> None:
+        try:
+            await action()
+        except Exception as e:
+            _log.error(
+                "Withdrawal step '%s' failed for %s by %s: %s", step, event.event_name, user.id, e, exc_info=True
+            )
+
+    if removed_response is not None:
+        try:
+            decrease_rank(user.id, user.name)
+        except Exception:
+            _log.exception("Rank update failed after withdrawal by %s from %r", user.id, event.event_name)
+
+    # 1. Tell the user first: the interaction must be answered promptly.
+    if late_reason:
+        withdrawal_message = (
+            f"👋 Your attendance for **{event.event_name}** has been withdrawn.\n\n"
+            f"⚠️ **Important:** Withdrawing {late_reason} is your full responsibility. "
+            f"You may be contacted by the event organizer for payment if needed. "
+            f"Failure to comply may result in server moderation action.\n\n"
+            f"👋 **{event.event_name}**への参加が取り消されました。\n\n"
+            f"⚠️ **重要:** 締め切り後の辞退はご自身の全責任となります。"
+            f"主催者から支払いについて連絡が来る場合があります。"
+            f"従わない場合、サーバーのモデレーション措置が取られる可能性があります。"
+        )
+    else:
+        withdrawal_message = (
+            f"👋 Your attendance for **{event.event_name}** has been withdrawn.\n"
+            f"👋 **{event.event_name}**への参加が取り消されました。"
+        )
+
+    async def notify_user() -> None:
+        try:
+            await user.send(withdrawal_message)
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.response.send_message(withdrawal_message, ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
+            )
+
+    await attempt("notify user", notify_user)
+
+    # 2. Required cleanup, independent of whether the user could be told.
+    async def leave_thread() -> None:
+        if isinstance(interaction.channel, discord.Thread):
+            await remove_event_thread_member(event, interaction.channel, user)
+        else:
+            _log.warning("Could not remove user %s from channel %s (not a thread?).", user.id, interaction.channel_id)
+
+    await attempt("leave thread", leave_thread)
+    if removed_response is not None:
+        guild = interaction.guild
+        role_id = event.role_id
+        if role_id and guild:
+            await attempt("remove role", lambda: remove_event_role(guild, user.id, role_id, event=event))
+        # Only an attendee withdrawal frees capacity.
+        freed_spots = 1 + removed_response.extra_people
+        await attempt(
+            "promote waitlist", lambda: promote_waitlist_batch(event, interaction.client, freed_spots=freed_spots)
+        )
+
+    # 3. Organizer notice for late withdrawals.
+    creator_id = event.creator_id
+    if late_reason and creator_id:
+
+        async def notify_creator() -> None:
+            creator = await interaction.client.fetch_user(creator_id)
+            await creator.send(
+                f"⚠️ **Withdrawal Notification**\n\n"
+                f"User {user.mention} ({user.name}) has withdrawn from **{event.event_name}**.\n"
+                f"This withdrawal occurred {late_reason}."
+            )
+
+        await attempt("notify creator", notify_creator)
+
+
 # --- Views ---
 class EventView(ui.View):
     def __init__(self, event: Event):  # Expect Event object
@@ -1277,95 +1415,7 @@ class OpenEvent(EventView):
         custom_id="withdraw_button",  # Use danger style
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        removed_from_responses = False
-        freed_spots = 0
-        try:
-            # Try to remove from responses first
-            removed_response = remove_response(self.event.event_name, interaction.user.id)
-            decrease_rank(interaction.user.id, interaction.user.name)
-            removed_from_responses = True
-            freed_spots = 1 + removed_response.extra_people
-
-        except ResponseNotFoundError:
-            # User not in responses, try waitlist
-            try:
-                remove_from_waitlist(self.event.event_name, interaction.user.id)
-                removed_from_responses = False
-            except ResponseNotFoundError:
-                # User not in responses or waitlist
-                await error_message(
-                    interaction,
-                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-                )
-                return
-
-        except Exception as e:
-            # Catch any other unexpected errors during removal
-            _log.error(
-                "Unexpected error during withdrawal for %s by %s: %s",
-                self.event.event_name,
-                interaction.user.id,
-                e,
-                exc_info=True,
-            )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
-            return
-
-        # --- Success Path (user was removed from either responses or waitlist) ---
-        try:
-            # 1. Create the withdrawal message string
-            withdrawal_message = (
-                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n"
-                f"👋 **{self.event.event_name}**への参加が取り消されました。"
-            )
-
-            # 2. Attempt to DM the user first
-            try:
-                await interaction.user.send(withdrawal_message)
-                # If DM succeeds, send a brief confirmation to the channel
-                await interaction.response.send_message(
-                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
-                )
-            except (discord.Forbidden, discord.HTTPException):
-                # 3. If DM fails, fall back to sending an ephemeral message in the channel
-                await interaction.response.send_message(withdrawal_message, ephemeral=True)
-
-            # 4. Remove user from the thread
-            try:
-                if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await remove_event_thread_member(self.event, interaction.channel, interaction.user)
-                else:
-                    _log.warning(
-                        "Could not remove user %s from channel %s (not a thread?).",
-                        interaction.user.id,
-                        interaction.channel_id,
-                    )
-            except discord.HTTPException as e:
-                _log.error(
-                    "Failed to remove user %s from thread %s: %s",
-                    interaction.user.id,
-                    interaction.channel_id,
-                    e,
-                )
-
-            # 5. Remove event participant role if removed from responses
-            if removed_from_responses and self.event.role_id and interaction.guild:
-                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id, event=self.event)
-
-            # 6. Promote users from the waitlist only if removed from responses
-            # (not from waitlist, since that doesn't free up capacity)
-            if removed_from_responses:
-                await promote_waitlist_batch(self.event, interaction.client, freed_spots=freed_spots)
-
-        except Exception as e:
-            # Catch any errors during notification/promotion
-            _log.error(
-                "Error during post-withdrawal actions for %s by %s: %s",
-                self.event.event_name,
-                interaction.user.id,
-                e,
-                exc_info=True,
-            )
+        await withdraw_registration(self.event, interaction)
 
 
 class ClosedEvent(EventView):
@@ -1401,125 +1451,7 @@ class ClosedEvent(EventView):
         custom_id="withdraw_button_closed",
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        removed_from_responses = False
-        freed_spots = 0
-        try:
-            # Try to remove from responses first
-            removed_response = remove_response(self.event.event_name, interaction.user.id)
-            decrease_rank(interaction.user.id, interaction.user.name)
-            removed_from_responses = True
-            freed_spots = 1 + removed_response.extra_people
-
-        except ResponseNotFoundError:
-            # User not in responses, try waitlist
-            try:
-                remove_from_waitlist(self.event.event_name, interaction.user.id)
-                removed_from_responses = False
-            except ResponseNotFoundError:
-                # User not in responses or waitlist
-                await error_message(
-                    interaction,
-                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-                )
-                return
-
-        except Exception as e:
-            # Catch any other unexpected errors during removal
-            _log.error(
-                "Unexpected error during withdrawal for %s by %s: %s",
-                self.event.event_name,
-                interaction.user.id,
-                e,
-                exc_info=True,
-            )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
-            return
-
-        # --- Success Path (user was removed from either responses or waitlist) ---
-        try:
-            # 1. Create the withdrawal message string
-            withdrawal_message = (
-                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
-                f"⚠️ **Important:** Withdrawing after responses are closed is your full responsibility. "
-                f"You may be contacted by the event organizer for payment if needed. "
-                f"Failure to comply may result in server moderation action.\n\n"
-                f"👋 **{self.event.event_name}**への参加が取り消されました。\n\n"
-                f"⚠️ **重要:** 締め切り後の辞退はご自身の全責任となります。"
-                f"主催者から支払いについて連絡が来る場合があります。"
-                f"従わない場合、サーバーのモデレーション措置が取られる可能性があります。"
-            )
-
-            # 2. Attempt to DM the user first
-            try:
-                await interaction.user.send(withdrawal_message)
-                # If DM succeeds, send a brief confirmation to the channel
-                await interaction.response.send_message(
-                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
-                )
-            except (discord.Forbidden, discord.HTTPException):
-                # 3. If DM fails, fall back to sending an ephemeral message in the channel
-                await interaction.response.send_message(withdrawal_message, ephemeral=True)
-
-            # 4. Remove user from the thread
-            try:
-                if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await remove_event_thread_member(self.event, interaction.channel, interaction.user)
-                else:
-                    _log.warning(
-                        "Could not remove user %s from channel %s (not a thread?).",
-                        interaction.user.id,
-                        interaction.channel_id,
-                    )
-            except discord.HTTPException as e:
-                _log.error(
-                    "Failed to remove user %s from thread %s: %s",
-                    interaction.user.id,
-                    interaction.channel_id,
-                    e,
-                )
-
-            # 4.5. Notify event creator about withdrawal (only after responses are closed)
-            if self.event.creator_id:
-                try:
-                    creator = await interaction.client.fetch_user(self.event.creator_id)
-                    await creator.send(
-                        f"⚠️ **Withdrawal Notification**\n\n"
-                        f"User {interaction.user.mention} ({interaction.user.name}) "
-                        f"has withdrawn from **{self.event.event_name}**.\n"
-                        f"This withdrawal occurred after responses were closed."
-                    )
-                    _log.info(
-                        "Notified creator %s about withdrawal by %s from closed event '%s'.",
-                        self.event.creator_id,
-                        interaction.user.id,
-                        self.event.event_name,
-                    )
-                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-                    _log.warning(
-                        "Could not notify creator %s about withdrawal from event '%s': %s",
-                        self.event.creator_id,
-                        self.event.event_name,
-                        e,
-                    )
-
-            # 5. Remove event participant role if removed from responses
-            if removed_from_responses and self.event.role_id and interaction.guild:
-                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id, event=self.event)
-
-            # 6. Promote users from the waitlist only if removed from responses
-            # (not from waitlist, since that doesn't free up capacity)
-            if removed_from_responses:
-                await promote_waitlist_batch(self.event, interaction.client, freed_spots=freed_spots)
-
-        except Exception as e:
-            # Catch any errors during notification/promotion
-            _log.error(
-                "Error during post-withdrawal actions for %s by %s: %s",
-                self.event.event_name,
-                interaction.user.id,
-                e,
-                exc_info=True,
-            )
+        await withdraw_registration(self.event, interaction, late_reason="after responses are closed")
 
 
 class InterestCheckEvent(EventView):
@@ -1625,125 +1557,7 @@ class PostDeadlineEvent(EventView):
         custom_id="withdraw_button_deadline",
     )
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        removed_from_responses = False
-        freed_spots = 0
-        try:
-            # Try to remove from responses first
-            removed_response = remove_response(self.event.event_name, interaction.user.id)
-            decrease_rank(interaction.user.id, interaction.user.name)
-            removed_from_responses = True
-            freed_spots = 1 + removed_response.extra_people
-
-        except ResponseNotFoundError:
-            # User not in responses, try waitlist
-            try:
-                remove_from_waitlist(self.event.event_name, interaction.user.id)
-                removed_from_responses = False
-            except ResponseNotFoundError:
-                # User not in responses or waitlist
-                await error_message(
-                    interaction,
-                    f"❌ You have not registered for **{self.event.event_name}**, so you cannot withdraw.",
-                )
-                return
-
-        except Exception as e:
-            # Catch any other unexpected errors during removal
-            _log.error(
-                "Unexpected error during withdrawal for %s by %s: %s",
-                self.event.event_name,
-                interaction.user.id,
-                e,
-                exc_info=True,
-            )
-            await error_message(interaction, "An internal error occurred while processing your withdrawal.")
-            return
-
-        # --- Success Path (user was removed from either responses or waitlist) ---
-        try:
-            # 1. Create the withdrawal message string
-            withdrawal_message = (
-                f"👋 Your attendance for **{self.event.event_name}** has been withdrawn.\n\n"
-                f"⚠️ **Important:** Withdrawing after the deadline is your full responsibility. "
-                f"You may be contacted by the event organizer for payment if needed. "
-                f"Failure to comply may result in server moderation action.\n\n"
-                f"👋 **{self.event.event_name}**への参加が取り消されました。\n\n"
-                f"⚠️ **重要:** 締め切り後の辞退はご自身の全責任となります。"
-                f"主催者から支払いについて連絡が来る場合があります。"
-                f"従わない場合、サーバーのモデレーション措置が取られる可能性があります。"
-            )
-
-            # 2. Attempt to DM the user first
-            try:
-                await interaction.user.send(withdrawal_message)
-                # If DM succeeds, send a brief confirmation to the channel
-                await interaction.response.send_message(
-                    "✅ Your withdrawal is confirmed. I've sent you a DM.", ephemeral=True
-                )
-            except (discord.Forbidden, discord.HTTPException):
-                # 3. If DM fails, fall back to sending an ephemeral message in the channel
-                await interaction.response.send_message(withdrawal_message, ephemeral=True)
-
-            # 4. Remove user from the thread
-            try:
-                if interaction.channel and isinstance(interaction.channel, discord.Thread):
-                    await remove_event_thread_member(self.event, interaction.channel, interaction.user)
-                else:
-                    _log.warning(
-                        "Could not remove user %s from channel %s (not a thread?).",
-                        interaction.user.id,
-                        interaction.channel_id,
-                    )
-            except discord.HTTPException as e:
-                _log.error(
-                    "Failed to remove user %s from thread %s: %s",
-                    interaction.user.id,
-                    interaction.channel_id,
-                    e,
-                )
-
-            # 4.5. Notify event creator about withdrawal (only after deadline)
-            if self.event.creator_id:
-                try:
-                    creator = await interaction.client.fetch_user(self.event.creator_id)
-                    await creator.send(
-                        f"⚠️ **Withdrawal Notification**\n\n"
-                        f"User {interaction.user.mention} ({interaction.user.name}) "
-                        f"has withdrawn from **{self.event.event_name}**.\n"
-                        f"This withdrawal occurred after the deadline."
-                    )
-                    _log.info(
-                        "Notified creator %s about withdrawal by %s from post-deadline event '%s'.",
-                        self.event.creator_id,
-                        interaction.user.id,
-                        self.event.event_name,
-                    )
-                except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-                    _log.warning(
-                        "Could not notify creator %s about withdrawal from event '%s': %s",
-                        self.event.creator_id,
-                        self.event.event_name,
-                        e,
-                    )
-
-            # 5. Remove event participant role if removed from responses
-            if removed_from_responses and self.event.role_id and interaction.guild:
-                await remove_event_role(interaction.guild, interaction.user.id, self.event.role_id, event=self.event)
-
-            # 6. Promote users from the waitlist only if removed from responses
-            # (not from waitlist, since that doesn't free up capacity)
-            if removed_from_responses:
-                await promote_waitlist_batch(self.event, interaction.client, freed_spots=freed_spots)
-
-        except Exception as e:
-            # Catch any errors during notification/promotion
-            _log.error(
-                "Error during post-withdrawal actions for %s by %s: %s",
-                self.event.event_name,
-                interaction.user.id,
-                e,
-                exc_info=True,
-            )
+        await withdraw_registration(self.event, interaction, late_reason="after the deadline")
 
 
 def render_custom_reply_sections(event: Event, entry: Response | WaitlistEntry, status: str) -> list[str]:
