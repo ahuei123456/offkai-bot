@@ -108,6 +108,17 @@ async def _require_guild_event(bot: commands.Bot, interaction: discord.Interacti
     if _event_in_guild(event, interaction.guild):
         return event
     if interaction.guild is not None:
+        # Other guilds' channels are absent from the invoking guild's index but
+        # normally present in the bot's global cache. Reject those without REST.
+        for channel_id in (event.channel_id, event.thread_id):
+            if channel_id is None:
+                continue
+            channel = bot.get_channel(channel_id)
+            guild_id = getattr(getattr(channel, "guild", None), "id", None)
+            if isinstance(guild_id, int):
+                if guild_id == interaction.guild.id:
+                    return event
+                raise EventNotFoundError(event_name)
         # Archived threads can be absent from cache. Fetch before concluding that
         # ownership cannot be established; never infer ownership from the invoker.
         for channel_id in (event.channel_id, event.thread_id):
@@ -770,7 +781,8 @@ class EventsCog(commands.Cog):
         exported = export_responses_json(data=scoped)
         try:
             await interaction.user.send(
-                "Raw responses data is attached. Edit it and upload it with `/import_responses` to apply changes. "
+                "Responses data for this server is attached. "
+                "Edit it and upload it with `/import_responses` to apply changes. "
                 "Only the events you edit are changed; if one of them changes in the bot before you import, "
                 "the import is rejected and you'll need a fresh export. Keep the `_export` section as it is.",
                 file=_responses_file(exported, "responses"),

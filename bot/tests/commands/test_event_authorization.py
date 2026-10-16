@@ -194,3 +194,15 @@ async def test_signup_during_ownership_fetch_survives_and_conflicts_with_old_exp
         await EventsCog.import_responses.callback(cog, interaction, attachment(payload), apply=True)
     replace.assert_not_called()
     assert response_data.RESPONSE_DATA_CACHE["Local"]["waitlist"] == [signup]
+
+
+async def test_known_foreign_guild_ownership_never_fetches_discord(scoped):
+    cog, interaction, _, _ = scoped
+    cog.bot.get_channel.return_value = MagicMock(guild=MagicMock(id=2))
+    with pytest.raises(EventNotFoundError):
+        await _require_guild_event(cog.bot, interaction, "Foreign")
+    cog.bot.fetch_channel.assert_not_awaited()
+    await EventsCog.export_responses.callback(cog, interaction)
+    cog.bot.fetch_channel.assert_not_awaited()
+    payload = json.loads(interaction.user.send.call_args.kwargs["file"].fp.read())
+    assert set(payload) == {"_export", "Local"}
