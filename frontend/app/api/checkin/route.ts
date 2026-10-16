@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, readCheckins, writeCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
-import type { CheckinRecord } from '../db'
+import type { CheckinRecord, EventLike } from '../db'
 import { verifyToken } from '../token'
 import { parseEventParam, parseUserId } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
@@ -120,7 +120,7 @@ function checkInResponse(outcome: CheckInOutcome) {
 
 function defaultEventName(): string | null {
   const src = MOCK_MODE ? MOCK_EVENTS : readEvents()
-  return getDefaultEvent(src)?.event_name ?? null
+  return getDefaultEvent<EventLike>(src)?.event_name ?? null
 }
 
 function isAvailableCheckinEvent(eventName: string): boolean {
