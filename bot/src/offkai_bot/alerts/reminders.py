@@ -61,7 +61,8 @@ def unregister_deadline_reminders(event_name: str) -> None:
 def register_deadline_reminders(client: discord.Client, event: Event, thread: discord.Thread):
     """Schedules the auto-close task, deadline reminder pings, and role deletion
     for an event. Replaces any existing deadline alerts for this event so editing
-    the deadline never leaves stale alerts. No-op for archived events."""
+    the deadline never leaves stale alerts. No-op for archived events; closed events
+    only keep their role deletion (a new deadline does not reopen them)."""
     _log.info("Registering deadline reminders for event '%s'.", event.event_name)
 
     # Drop any previously scheduled deadline alerts for this event first.
@@ -70,7 +71,7 @@ def register_deadline_reminders(client: discord.Client, event: Event, thread: di
     if event.archived:
         return
 
-    if event.event_deadline and not event.is_past_deadline:
+    if event.open and event.event_deadline and not event.is_past_deadline:
         with contextlib.suppress(AlertTimeInPastError):
             register_alert(event.event_deadline, CloseOffkaiTask(client=client, event_name=event.event_name))
             _log.info("Registered auto-close task for '%s'.", event.event_name)
