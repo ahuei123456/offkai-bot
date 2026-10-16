@@ -28,6 +28,7 @@ export interface MockAttendee {
   attendee_number?: number | null
   extras_attendee_numbers?: number[]
   status: 'attending' | 'waitlist'
+  registration_timestamp: string
 }
 
 // Three events relative to "today" so the default-selection logic is testable:
@@ -74,7 +75,7 @@ export const MOCK_EVENTS: MockEvent[] = [
 ]
 
 // Distinct attendees per event so cross-event scans can be rejected.
-export const MOCK_ATTENDEES: Record<string, MockAttendee[]> = {
+const mockAttendees: Record<string, Omit<MockAttendee, 'registration_timestamp'>[]> = {
   'Bandori 10th Offkai': [
     { user_id: '123', username: 'fadekyun', display_name: 'Fadekyun', drinks: ['Highball (L)'], extra_people: 1, extras_names: ['Senpai'], attendee_number: 1, extras_attendee_numbers: [2], status: 'attending' },
     { user_id: '124', username: 'sakichan', display_name: 'Sakichan', drinks: ['Oolong Tea (L)', 'Cream Soda (L)'], extra_people: 0, extras_names: [], attendee_number: 3, extras_attendee_numbers: [], status: 'attending' },
@@ -90,6 +91,12 @@ export const MOCK_ATTENDEES: Record<string, MockAttendee[]> = {
     { user_id: '301', username: 'anon', display_name: 'Anon', drinks: ['Fresh Lemon Sour (L)'], extra_people: 0, extras_names: [], attendee_number: 2, extras_attendee_numbers: [], status: 'attending' },
   ],
 }
+
+// Stable signup identities, just like responses.json timestamps in real mode.
+export const MOCK_ATTENDEES: Record<string, MockAttendee[]> = Object.fromEntries(
+  Object.entries(mockAttendees).map(([event, attendees]) => [event,
+    attendees.map(a => ({ ...a, registration_timestamp: '2026-05-01T00:00:00.000Z' }))]),
+)
 
 // Process-wide in-memory check-ins for mock mode (resets on server restart).
 export const mockCheckins: CheckinRecord[] = []

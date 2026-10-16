@@ -4,6 +4,7 @@ import { paymentFromSnapshot, readPaymentSnapshot, proofExpiry } from '../paymen
 import { paymentChoiceEnabled } from '../payment-access'
 import { verifyToken } from '../token'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
+import { matchesCheckin } from '../../lib/checkin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,7 +28,8 @@ export async function GET(request: NextRequest) {
     }
     const mockA = findMockAttendee(eventName, resolved.userId)
     if (!mockA) return NextResponse.json({ error: 'not_found' }, { status: 404 })
-    const isCheckedIn = mockCheckins.some(c => c.user_id === mockA.user_id && c.event_name === eventName)
+    const isCheckedIn = mockA.status === 'attending' && mockCheckins.some(
+      c => matchesCheckin(c, eventName, mockA.user_id, mockA.registration_timestamp))
     return NextResponse.json({
       attendee: {
         status: mockA.status,
@@ -76,8 +78,8 @@ export async function GET(request: NextRequest) {
   }
 
   const checkins = readCheckins()
-  const isCheckedIn = checkins.some(
-    c => c.user_id === attendee!.user_id && c.event_name === event.event_name
+  const isCheckedIn = !isWaitlist && checkins.some(
+    c => matchesCheckin(c, event.event_name, attendee!.user_id, attendee!.timestamp)
   )
 
   const enabled = !isWaitlist && paymentChoiceEnabled(event, attendee)
@@ -108,7 +110,7 @@ export async function GET(request: NextRequest) {
       attendee_number: isWaitlist ? null : (attendee.attendee_number ?? null),
       extras_attendee_numbers: isWaitlist ? [] : (attendee.extras_attendee_numbers || []),
       behavior_confirmed: attendee.behavior_confirmed || false,
-      arrival_confirmed: isCheckedIn || attendee.arrival_confirmed || false,
+      arrival_confirmed: isCheckedIn,
     },
     event: {
       event_name: event.event_name,
