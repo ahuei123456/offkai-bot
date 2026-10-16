@@ -54,7 +54,7 @@ test('payment event switch rejects stale actions and ignores delayed polls from 
     assert.equal(await loading.updatePayment(uid, true, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(await loading.removeRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
     assert.equal(await loading.promoteRegistration(uid, '2026-10-01T00:00:00.000Z'), false)
-    assert.deepEqual(posts, [])
+    assert.equal(posts.length, 0)
     loading.changeEvent('Event A')
     begin()
     const loaded = useAdminData()
