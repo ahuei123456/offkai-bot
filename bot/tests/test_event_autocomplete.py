@@ -27,7 +27,8 @@ def mock_interaction():
 
 
 @pytest.fixture
-def mock_cog():
+def mock_cog(prepopulated_event_cache):
+    prepopulated_event_cache[0].event_name = "Summer Party"
     """Fixture to create a mock EventsCog instance."""
     bot = MagicMock(spec=commands.Bot)
     return EventsCog(bot)

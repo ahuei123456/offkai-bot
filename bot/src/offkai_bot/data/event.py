@@ -534,9 +534,9 @@ def update_event_details(
     # Validate max_capacity changes
     if max_capacity is not None and event.max_capacity != max_capacity:
         # Get current attendee count and waitlist
-        responses = get_responses(event_name)
+        responses = get_responses(event.event_name)
         current_count = sum(1 + r.extra_people for r in responses)
-        waitlist = get_waitlist(event_name)
+        waitlist = get_waitlist(event.event_name)
 
         # If reducing capacity, validate constraints. An unlimited (None) old
         # capacity being set to any finite value counts as a reduction.
@@ -631,7 +631,7 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
         _log.info("Event '%s' reopened, cleared closed_attendance_count.", event_name)
     else:
         # Closing the event - capture current attendance count
-        responses = get_responses(event_name)
+        responses = get_responses(event.event_name)
         event.closed_attendance_count = sum(1 + r.extra_people for r in responses)
         _log.info("Event '%s' closed with %s attendees.", event_name, event.closed_attendance_count)
 
