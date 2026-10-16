@@ -77,7 +77,7 @@ def _response(
 
 
 def _key(dt: datetime) -> str:
-    return dt.astimezone(alerts.JST).strftime(alerts._TIME_KEY_FORMAT)
+    return alerts.alert_key(dt.astimezone(alerts.JST))
 
 
 # --- Scheduling: register / unregister ---

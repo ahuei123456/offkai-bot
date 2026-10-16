@@ -201,7 +201,7 @@ async def test_modify_offkai_reschedules_deadline_alerts(
     # Simulate the auto-close alert registered at event creation for the old deadline.
     old_deadline = datetime.now(UTC) + timedelta(days=3)
     register_alert(old_deadline, CloseOffkaiTask(client=mock_cog.bot, event_name=event_name_to_modify))
-    old_key = old_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    old_key = alerts.alert_key(old_deadline.astimezone(JST))
     assert old_key in alerts._scheduled_tasks
 
     mock_update_details.return_value = mock_modified_event
@@ -221,7 +221,7 @@ async def test_modify_offkai_reschedules_deadline_alerts(
     # Assert - the alert keyed to the old deadline is gone...
     assert old_key not in alerts._scheduled_tasks
     # ...and a new auto-close alert is scheduled at the new deadline.
-    new_key = mock_modified_event.event_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    new_key = alerts.alert_key(mock_modified_event.event_deadline.astimezone(JST))
     close_tasks = [t for t in alerts._scheduled_tasks.get(new_key, []) if isinstance(t, CloseOffkaiTask)]
     assert len(close_tasks) == 1
 
