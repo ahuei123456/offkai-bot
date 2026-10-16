@@ -30,6 +30,7 @@ def custom_event():
     responses.RESPONSE_DATA_CACHE = {}
     event = Event(
         event_name="Synthetic Waitlist Payment",
+        channel_id=1001,
         venue="Venue",
         address="Address",
         google_maps_link="",

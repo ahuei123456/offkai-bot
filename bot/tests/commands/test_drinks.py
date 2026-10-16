@@ -45,7 +45,7 @@ def mock_interaction():
     interaction.command = MagicMock(spec=app_commands.Command)
     interaction.command.name = "drinks"  # Specific to this command
 
-    interaction.response = MagicMock()
+    interaction.response = MagicMock(defer=AsyncMock())
     interaction.response.send_message = AsyncMock()
     interaction.followup = MagicMock(send=AsyncMock())
 
@@ -95,7 +95,7 @@ async def test_drinks_success(
     mock_calculate_drinks.assert_called_once_with(event_name_target)
 
     # Verify send_message was called, but don't check exact content
-    mock_interaction.response.send_message.assert_awaited_once_with(ANY, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(ANY, ephemeral=True)
     mock_log.warning.assert_not_called()
 
 
@@ -132,7 +132,7 @@ async def test_drinks_success_no_drinks_in_responses(
     mock_calculate_drinks.assert_called_once_with(event_name_target)
 
     # Verify send_message was called, but don't check exact content
-    mock_interaction.response.send_message.assert_awaited_once_with(ANY, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(ANY, ephemeral=True)
     mock_log.warning.assert_not_called()
 
 
@@ -164,7 +164,7 @@ async def test_drinks_success_truncation(
     # Assert
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_drinks.assert_called_once_with(event_name_target)
-    mock_interaction.response.send_message.assert_awaited_once_with(ANY, ephemeral=True)
+    mock_interaction.followup.send.assert_awaited_once_with(ANY, ephemeral=True)
 
 
 @patch("offkai_bot.cogs.events.calculate_drinks")
@@ -184,7 +184,7 @@ async def test_drinks_event_not_found(
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_drinks.assert_not_called()
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
 
 
 @patch("offkai_bot.cogs.events.calculate_drinks")
@@ -211,4 +211,4 @@ async def test_drinks_no_responses_found_for_event(
 
     mock_get_event.assert_called_once_with(event_name_target)
     mock_calculate_drinks.assert_called_once_with(event_name_target)
-    mock_interaction.response.send_message.assert_not_awaited()
+    mock_interaction.followup.send.assert_not_awaited()
