@@ -362,6 +362,7 @@ async def test_closed_count_is_min_of_closed_and_max_capacity():
         creator_id=999,
         closed_attendance_count=60,  # Somehow closed with 60 (higher than max)
     )
+    event_data.EVENT_DATA_CACHE = [event]
 
     # Add 49 people (1 below max capacity)
     for i in range(49):

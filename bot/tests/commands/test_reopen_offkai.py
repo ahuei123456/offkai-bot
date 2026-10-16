@@ -81,13 +81,13 @@ def mock_reopened_event(sample_event_list):
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_success_with_message(
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -119,7 +119,7 @@ async def test_reopen_offkai_success_with_message(
 
     # Assert
     mock_set_status.assert_called_once_with(event_name_to_reopen, target_open_status=True)
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_reopened_event)  # ANY for client
     # Check fetching the thread via helper
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_reopened_event)  # ANY for client
@@ -135,13 +135,13 @@ async def test_reopen_offkai_success_with_message(
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_success_no_message(
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -166,7 +166,7 @@ async def test_reopen_offkai_success_no_message(
 
     # Assert
     mock_set_status.assert_called_once_with(event_name_to_reopen, target_open_status=True)
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_reopened_event)
     # Check fetching the thread was NOT called (because reopen_msg is None)
     mock_fetch_thread.assert_not_awaited()
@@ -190,13 +190,13 @@ async def test_reopen_offkai_success_no_message(
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_data_layer_errors(
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -221,7 +221,7 @@ async def test_reopen_offkai_data_layer_errors(
         )
 
     mock_set_status.assert_called_once()
-    mock_save_data.assert_not_called()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
     mock_interaction.followup.send.assert_not_awaited()
@@ -230,13 +230,13 @@ async def test_reopen_offkai_data_layer_errors(
 # --- UPDATED TEST ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -263,7 +263,7 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
     # Assert
     # Steps up to fetching thread should succeed
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_reopened_event)
 
@@ -286,13 +286,13 @@ async def test_reopen_offkai_fetch_thread_not_found_error(  # Renamed test
 # --- NEW TEST ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_fetch_thread_missing_id_error(
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -317,7 +317,7 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
 
     # Assert
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_reopened_event)
 
@@ -339,13 +339,13 @@ async def test_reopen_offkai_fetch_thread_missing_id_error(
 # --- NEW TEST ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_fetch_thread_access_error(
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -370,7 +370,7 @@ async def test_reopen_offkai_fetch_thread_access_error(
 
     # Assert
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_reopened_event)
 
@@ -392,13 +392,13 @@ async def test_reopen_offkai_fetch_thread_access_error(
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.set_event_open_status")
 @patch("offkai_bot.cogs.events._log")
 async def test_reopen_offkai_send_reopen_msg_fails(
     mock_log,
     mock_set_status,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -429,7 +429,7 @@ async def test_reopen_offkai_send_reopen_msg_fails(
 
     # Assert
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_reopened_event)

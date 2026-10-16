@@ -86,13 +86,13 @@ def mock_archived_event_obj(sample_event_list):
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_success(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -123,7 +123,7 @@ async def test_archive_offkai_success(
 
     # Assert
     mock_archive_event_func.assert_called_once_with(event_name_to_archive)
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_archived_event_obj)  # ANY for client
     # Check fetching the thread via helper
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_archived_event_obj)  # ANY for client
@@ -137,13 +137,13 @@ async def test_archive_offkai_success(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_unregisters_deadline_alerts(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -189,13 +189,13 @@ async def test_archive_offkai_unregisters_deadline_alerts(
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_data_layer_errors(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -219,7 +219,7 @@ async def test_archive_offkai_data_layer_errors(
         )
 
     mock_archive_event_func.assert_called_once()
-    mock_save_data.assert_not_called()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
     mock_interaction.followup.send.assert_not_awaited()
@@ -228,13 +228,13 @@ async def test_archive_offkai_data_layer_errors(
 # --- UPDATED TEST ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -259,7 +259,7 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
     # Assert
     # Steps up to fetching thread should succeed
     mock_archive_event_func.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_archived_event_obj)
 
@@ -280,13 +280,13 @@ async def test_archive_offkai_fetch_thread_not_found_error(  # Renamed test
 # --- NEW TEST ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_fetch_thread_missing_id_error(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -309,7 +309,7 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
 
     # Assert
     mock_archive_event_func.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_archived_event_obj)
 
@@ -329,13 +329,13 @@ async def test_archive_offkai_fetch_thread_missing_id_error(
 # --- NEW TEST ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_fetch_thread_access_error(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -358,7 +358,7 @@ async def test_archive_offkai_fetch_thread_access_error(
 
     # Assert
     mock_archive_event_func.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_archived_event_obj)
 
@@ -378,13 +378,13 @@ async def test_archive_offkai_fetch_thread_access_error(
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_thread_already_archived(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -411,7 +411,7 @@ async def test_archive_offkai_thread_already_archived(
 
     # Assert
     mock_archive_event_func.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_archived_event_obj)
@@ -427,13 +427,13 @@ async def test_archive_offkai_thread_already_archived(
 # --- UPDATED PATCHES ---
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_thread_edit_fails(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -463,7 +463,7 @@ async def test_archive_offkai_thread_edit_fails(
 
     # Assert
     mock_archive_event_func.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     # Assert helper was called
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_archived_event_obj)
@@ -481,13 +481,13 @@ async def test_archive_offkai_thread_edit_fails(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_deletes_role(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -525,13 +525,13 @@ async def test_archive_offkai_deletes_role(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.archive_event")
 @patch("offkai_bot.cogs.events._log")
 async def test_archive_offkai_role_deletion_failure_non_fatal(
     mock_log,
     mock_archive_event_func,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,

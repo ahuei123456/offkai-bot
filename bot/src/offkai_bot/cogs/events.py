@@ -21,7 +21,7 @@ from offkai_bot.data.event import (
     archive_event,
     get_event,
     load_event_data,
-    save_event_data,
+    persist_event_changes,
     set_event_open_status,
     update_event_details,
 )
@@ -351,7 +351,7 @@ class EventsCog(commands.Cog):
         register_checkin_reminder(self.bot, new_event)
 
         # 6. Further Discord Interaction
-        await send_event_message(thread, new_event)  # Handles saving after message send
+        await send_event_message(thread, new_event)  # The event already exists durably; save its announcement ID.
 
         # 7. User Feedback
         announce_text = f"# Offkai Created: {event_name}\n\n"
@@ -450,7 +450,7 @@ class EventsCog(commands.Cog):
         register_deadline_reminders(self.bot, new_event, thread)
 
         # 6. Further Discord Interaction
-        await send_event_message(thread, new_event)  # Handles saving after message send
+        await send_event_message(thread, new_event)  # The event already exists durably; save its announcement ID.
 
         # 7. User Feedback
         announce_text = f"# Interest Check: {event_name}\n\n"
@@ -525,14 +525,12 @@ class EventsCog(commands.Cog):
         if modified_event.channel_id is None:
             assert isinstance(interaction.channel, discord.TextChannel)
             current_channel_id = interaction.channel.id
-            modified_event.channel_id = current_channel_id
+            persist_event_changes(modified_event, channel_id=current_channel_id)
             _log.info(
                 "Assigned current channel ID (%s) to event '%s' as it was missing.",
                 current_channel_id,
                 modified_event.event_name,
             )
-
-        save_event_data()
 
         # Re-schedule the check-in reminder in case the event time changed.
         register_checkin_reminder(self.bot, modified_event)
@@ -611,8 +609,6 @@ class EventsCog(commands.Cog):
         await interaction.response.defer()
         reopened_event = set_event_open_status(event_name, target_open_status=True)
         clear_attendee_numbers(event_name)
-        save_responses()
-        save_event_data()
         await update_event_message(self.bot, reopened_event)
 
         if reopen_msg:
@@ -648,7 +644,6 @@ class EventsCog(commands.Cog):
         validate_guild_context(interaction)
         await interaction.response.defer()
         archived_event = archive_event(event_name)
-        save_event_data()
         unregister_checkin_reminder(archived_event.event_name)
         unregister_deadline_reminders(archived_event.event_name)
         await update_event_message(self.bot, archived_event)

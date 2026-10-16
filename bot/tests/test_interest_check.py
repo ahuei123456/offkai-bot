@@ -411,22 +411,15 @@ def test_build_interest_check_tally_truncates_long_response_list(mock_get_respon
 @patch("offkai_bot.event_actions.get_responses")
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
-@patch("offkai_bot.event_actions.save_responses")
-@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 async def test_perform_close_event_posts_tally_for_interest_check(
     mock_set_status,
-    mock_assign_numbers,
-    mock_save_responses,
-    mock_save_event_data,
     mock_update_message,
     mock_fetch_thread,
     mock_get_responses,
 ):
     event = make_interest_event(open_=False)
     mock_set_status.return_value = event
-    mock_assign_numbers.return_value = None
     mock_get_responses.return_value = [make_response(1, "alice", extra_people=1)]
     mock_thread = MagicMock(spec=discord.Thread)
     mock_thread.send = AsyncMock()
@@ -435,7 +428,6 @@ async def test_perform_close_event_posts_tally_for_interest_check(
     client = MagicMock(spec=discord.Client)
     await perform_close_event(client, event.event_name)
 
-    mock_assign_numbers.assert_not_called()
     assert event.max_attendee_number is None
     mock_thread.send.assert_awaited_once()
     sent = mock_thread.send.call_args[0][0]
@@ -446,15 +438,9 @@ async def test_perform_close_event_posts_tally_for_interest_check(
 @patch("offkai_bot.event_actions.get_responses")
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
-@patch("offkai_bot.event_actions.save_responses")
-@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 async def test_perform_close_interest_check_truncates_long_close_message(
     mock_set_status,
-    mock_assign_numbers,
-    mock_save_responses,
-    mock_save_event_data,
     mock_update_message,
     mock_fetch_thread,
     mock_get_responses,
@@ -478,15 +464,9 @@ async def test_perform_close_interest_check_truncates_long_close_message(
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
-@patch("offkai_bot.event_actions.save_responses")
-@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 async def test_perform_close_event_regular_event_without_msg_sends_nothing(
     mock_set_status,
-    mock_assign_numbers,
-    mock_save_responses,
-    mock_save_event_data,
     mock_update_message,
     mock_fetch_thread,
 ):

@@ -826,7 +826,8 @@ async def test_custom_command_stays_draft_until_create(custom_event):
 
 
 @pytest.mark.parametrize("failure", ["rejected_thread", "unknown_thread", "after_thread"])
-async def test_draft_retry_only_before_resources_exist(custom_event, failure):
+async def test_draft_retry_only_before_resources_exist(custom_event, failure, tmp_path, monkeypatch):
+    monkeypatch.setattr(events, "get_config", lambda: {"EVENTS_FILE": str(tmp_path / "events.json")})
     source = interaction(42)
     source.channel.id = 456
     source.response.is_done.return_value = True

@@ -220,36 +220,6 @@ def _drink_for(response: Response, index: int) -> str:
     return "N/A"
 
 
-def _migrate_old_format_to_new(
-    old_responses: dict[str, list], old_waitlist: dict[str, list] | None
-) -> dict[str, EventData]:
-    """
-    Migrates old format (separate responses and waitlist dicts) to new unified format.
-
-    Args:
-        old_responses: Old responses dict format: {"event_name": [Response, ...]}
-        old_waitlist: Old waitlist dict format: {"event_name": [WaitlistEntry, ...]} or None
-
-    Returns:
-        New unified format: {"event_name": {"attendees": [...], "waitlist": [...]}}
-    """
-    new_data: dict[str, EventData] = {}
-
-    # Migrate responses to attendees
-    for event_name, responses in old_responses.items():
-        new_data[event_name] = EventData(attendees=responses, waitlist=[])
-
-    # Migrate waitlist if it exists
-    if old_waitlist:
-        for event_name, waitlist_entries in old_waitlist.items():
-            if event_name not in new_data:
-                new_data[event_name] = EventData(attendees=[], waitlist=waitlist_entries)
-            else:
-                new_data[event_name]["waitlist"] = waitlist_entries
-
-    return new_data
-
-
 def _parse_payment_selection_expiry(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -259,6 +229,42 @@ def _parse_payment_selection_expiry(value: str | None) -> datetime | None:
     except (ValueError, TypeError):
         _log.warning("Invalid payment selection expiry; leaving the registration intact with an expired choice.")
         return datetime.min.replace(tzinfo=UTC)
+
+
+def _validate_registration_record(record: dict, event_name: str) -> None:
+    """Reject malformed persisted fields without removing recoverable registrations."""
+    if "user_id" not in record:
+        raise ValueError(f"Missing user_id for {event_name}")
+    user_id = record["user_id"]
+    if isinstance(user_id, bool) or not isinstance(user_id, int | str) or int(user_id) <= 0:
+        raise ValueError(f"Invalid user_id for {event_name}")
+    for name in ("username", "event_name"):
+        if name in record and not isinstance(record[name], str):
+            raise ValueError(f"Invalid {name} for {event_name}")
+    for name in ("display_name", "payment_method"):
+        if record.get(name) is not None and not isinstance(record[name], str):
+            raise ValueError(f"Invalid {name} for {event_name}")
+    for name in ("drinks", "extras_names"):
+        value = record.get(name, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f"Invalid {name} for {event_name}")
+    extra_people = record.get("extra_people", 0)
+    if isinstance(extra_people, bool) or not isinstance(extra_people, int | str) or int(extra_people) < 0:
+        raise ValueError(f"Invalid extra_people for {event_name}")
+    if record.get("timestamp") not in (None, ""):
+        datetime.fromisoformat(record["timestamp"])
+    for name in ("behavior_confirmed", "arrival_confirmed"):
+        value = record.get(name, False)
+        if type(value) is not bool and not (isinstance(value, str) and value.casefold() in ("yes", "no")):
+            raise ValueError(f"Invalid {name} for {event_name}")
+    if "extras_attendee_numbers" in record and not isinstance(record["extras_attendee_numbers"], list):
+        raise ValueError(f"Invalid extras_attendee_numbers for {event_name}")
+    for name in ("no_show_agreed", "payment_selection_demotes"):
+        if name in record and type(record[name]) is not bool:
+            raise ValueError(f"Invalid {name} for {event_name}")
+    for number in [record.get("attendee_number"), *record.get("extras_attendee_numbers", [])]:
+        if number is not None and (isinstance(number, bool) or not isinstance(number, int | str)):
+            raise ValueError(f"Invalid attendee number for {event_name}")
 
 
 def _parse_response_from_dict(resp_dict: dict, event_name: str) -> Response | None:
@@ -357,170 +363,79 @@ def _parse_waitlist_entry_from_dict(entry_dict: dict, event_name: str) -> Waitli
 
 
 def _load_responses() -> dict[str, EventData]:
-    """
-    Loads response data from JSON, converts to Response dataclasses,
-    and handles missing or empty files. Supports both old and new formats. (Internal use)
-    """
+    """Load current/legacy event records without publishing or rewriting partial data."""
     global RESPONSE_DATA_CACHE
     settings = get_config()
-    responses_dict: dict[str, EventData] = {}
     file_path = settings["RESPONSES_FILE"]
+    if not os.path.exists(file_path):
+        atomic_write_json(file_path, {}, indent=4)
+
+    def parse_entries(raw: object, event_name: str, *, waitlist: bool) -> list:
+        if not isinstance(raw, list):
+            raise ValueError(f"Invalid roster list for {event_name}")
+        parsed = []
+        for record in raw:
+            if not isinstance(record, dict):
+                raise ValueError(f"Invalid registration record for {event_name}")
+            _validate_registration_record(record, event_name)
+            entry = (
+                _parse_waitlist_entry_from_dict(record, event_name)
+                if waitlist
+                else _parse_response_from_dict(record, event_name)
+            )
+            if entry is None:
+                raise ValueError(f"Invalid registration record for {event_name}")
+            parsed.append(entry)
+        return parsed
 
     try:
-        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-            raise FileNotFoundError
-
         with open(file_path, "r", encoding="utf-8") as file:
             raw_data = json.load(file)
-
         if not isinstance(raw_data, dict):
-            _log.error(
-                "Invalid format in %s: Expected a JSON object (dict), got %s. Loading empty responses.",
-                file_path,
-                type(raw_data),
-            )
-            raw_data = {}
-
-        # Detect format: new format has nested dict with "attendees"/"waitlist" keys
-        # Old format has lists directly
-        is_new_format = False
-        if raw_data:
-            first_value = next(iter(raw_data.values()))
-            is_new_format = isinstance(first_value, dict) and ("attendees" in first_value or "waitlist" in first_value)
-
-        if is_new_format:
-            # New format: {"event_name": {"attendees": [...], "waitlist": [...]}}
-            for event_name, event_data in raw_data.items():
-                if not isinstance(event_data, dict):
-                    _log.warning(
-                        "Invalid format for event '%s' in %s: "
-                        "Expected a dict with 'attendees'/'waitlist', got %s. Skipping.",
-                        event_name,
-                        file_path,
-                        type(event_data),
-                    )
-                    continue
-
-                # Parse attendees
-                attendees_list = []
-                attendees_raw = event_data.get("attendees", [])
-                if not isinstance(attendees_raw, list):
-                    _log.warning("Attendees for '%s' is not a list. Skipping attendees.", event_name)
-                else:
-                    for resp_dict in attendees_raw:
-                        if not isinstance(resp_dict, dict):
-                            _log.warning("Invalid attendee item in '%s': Expected dict. Skipping.", event_name)
-                            continue
-                        response = _parse_response_from_dict(resp_dict, event_name)
-                        if response:
-                            attendees_list.append(response)
-
-                # Parse waitlist
-                waitlist_list = []
-                waitlist_raw = event_data.get("waitlist", [])
-                if not isinstance(waitlist_raw, list):
-                    _log.warning("Waitlist for '%s' is not a list. Skipping waitlist.", event_name)
-                else:
-                    for entry_dict in waitlist_raw:
-                        if not isinstance(entry_dict, dict):
-                            _log.warning("Invalid waitlist item in '%s': Expected dict. Skipping.", event_name)
-                            continue
-                        entry = _parse_waitlist_entry_from_dict(entry_dict, event_name)
-                        if entry:
-                            waitlist_list.append(entry)
-
-                responses_dict[event_name] = EventData(attendees=attendees_list, waitlist=waitlist_list)
-                pending = _parse_payment_expiry_backfill(event_data.get("payment_expiry_backfill"))
+            raise ValueError("Responses data must be an object")
+        responses_dict: dict[str, EventData] = {}
+        legacy_names: set[str] = set()
+        # Detect the format per event, not from the first record in the file.
+        for event_name, raw in raw_data.items():
+            if not event_name:
+                raise ValueError("Response event name cannot be empty")
+            if isinstance(raw, list):
+                legacy_names.add(event_name)
+                responses_dict[event_name] = EventData(
+                    attendees=parse_entries(raw, event_name, waitlist=False), waitlist=[]
+                )
+            elif isinstance(raw, dict) and ("attendees" in raw or "waitlist" in raw):
+                data = EventData(
+                    attendees=parse_entries(raw.get("attendees", []), event_name, waitlist=False),
+                    waitlist=parse_entries(raw.get("waitlist", []), event_name, waitlist=True),
+                )
+                # Invalid optional recovery metadata retains #146's safe roster-only behavior.
+                pending = _parse_payment_expiry_backfill(raw.get("payment_expiry_backfill"))
                 if pending is not None:
-                    responses_dict[event_name]["payment_expiry_backfill"] = pending
+                    data["payment_expiry_backfill"] = pending
+                responses_dict[event_name] = data
+            else:
+                raise ValueError(f"Invalid responses data for {event_name}")
 
-        else:
-            # Old format: {"event_name": [Response, ...]}
-            # Need to migrate - also check for old waitlist file
-            _log.info("Detected old format responses file. Migrating to new format...")
-
-            old_responses: dict[str, list[Response]] = {}
-            for event_name, response_list in raw_data.items():
-                processed_responses = []
-                if not isinstance(response_list, list):
-                    _log.warning(
-                        "Invalid format for event '%s' in %s: Expected a list, got %s. Skipping.",
-                        event_name,
-                        file_path,
-                        type(response_list),
-                    )
-                    continue
-
-                for resp_dict in response_list:
-                    if not isinstance(resp_dict, dict):
-                        _log.warning(
-                            "Invalid response item for event '%s' in %s: Expected a dict. Skipping.",
-                            event_name,
-                            file_path,
-                        )
-                        continue
-                    response = _parse_response_from_dict(resp_dict, event_name)
-                    if response:
-                        processed_responses.append(response)
-
-                old_responses[event_name] = processed_responses
-
-            # Try to load old waitlist file if it exists
-            old_waitlist: dict[str, list[WaitlistEntry]] | None = None
-            waitlist_file = settings.get("WAITLIST_FILE")
-            if waitlist_file and os.path.exists(waitlist_file) and os.path.getsize(waitlist_file) > 0:
-                _log.info("Found old waitlist file at %s. Migrating...", waitlist_file)
-                try:
-                    with open(waitlist_file, "r", encoding="utf-8") as wf:
-                        waitlist_raw = json.load(wf)
-
-                    if isinstance(waitlist_raw, dict):
-                        old_waitlist = {}
-                        for event_name, waitlist_list in waitlist_raw.items():
-                            processed_entries = []
-                            if not isinstance(waitlist_list, list):
-                                continue
-
-                            for entry_dict in waitlist_list:
-                                if not isinstance(entry_dict, dict):
-                                    continue
-                                entry = _parse_waitlist_entry_from_dict(entry_dict, event_name)
-                                if entry:
-                                    processed_entries.append(entry)
-
-                            old_waitlist[event_name] = processed_entries
-                except Exception as e:
-                    _log.warning("Could not load old waitlist file: %s", e)
-
-            # Migrate to new format
-            responses_dict = _migrate_old_format_to_new(old_responses, old_waitlist)
-
-            # Save in new format immediately
-            RESPONSE_DATA_CACHE = responses_dict
-            save_responses()
-            _log.info("Migration complete. Saved to new format.")
-
-    except FileNotFoundError:
-        _log.warning("%s not found or empty. Creating default empty file.", file_path)
-        try:
-            with open(file_path, "w", encoding="utf-8") as file:
-                json.dump({}, file, indent=4)
-            _log.info("Created empty responses file at %s", file_path)
-        except OSError as e:
-            _log.error("Could not create default responses file at %s: %s", file_path, e)
-        RESPONSE_DATA_CACHE = {}
-        return {}
-    except json.JSONDecodeError:
-        _log.error(
-            "Error decoding JSON from %s. File might be corrupted or invalid. Loading empty responses.", file_path
-        )
+        waitlist_file = settings.get("WAITLIST_FILE")
+        if (legacy_names or not raw_data) and waitlist_file and os.path.exists(waitlist_file):
+            with open(waitlist_file, "r", encoding="utf-8") as file:
+                raw_waitlists = json.load(file)
+            if not isinstance(raw_waitlists, dict):
+                raise ValueError("Legacy waitlist data must be an object")
+            for event_name, raw in raw_waitlists.items():
+                entries = parse_entries(raw, event_name, waitlist=True)
+                if event_name not in responses_dict:
+                    responses_dict[event_name] = EventData(attendees=[], waitlist=entries)
+                elif event_name in legacy_names:
+                    responses_dict[event_name]["waitlist"] = entries
+        # Migration is serialized by the next successful mutation, never during a read.
+    except (ValueError, TypeError, OSError):
         backup_corrupted_file(file_path)
-        RESPONSE_DATA_CACHE = {}
-        return {}
-    except Exception as e:
-        _log.exception("An unexpected error occurred loading response data from %s: %s", file_path, e)
-        RESPONSE_DATA_CACHE = {}
-        return {}
+        if settings.get("WAITLIST_FILE"):
+            backup_corrupted_file(settings["WAITLIST_FILE"])
+        _log.exception("Cannot load responses from %s; original data preserved.", file_path)
+        raise
 
     RESPONSE_DATA_CACHE = responses_dict
     return responses_dict
@@ -534,26 +449,13 @@ def load_responses() -> dict[str, EventData]:
         return _load_responses()
 
 
-def save_responses():
-    """Saves the current state of RESPONSE_DATA_CACHE to the JSON file in new format."""
-    global RESPONSE_DATA_CACHE
-    settings = get_config()
-    if RESPONSE_DATA_CACHE is None:
-        _log.error("Attempted to save response data before loading.")
-        return
-
-    try:
-        atomic_write_json(
-            settings["RESPONSES_FILE"],
-            RESPONSE_DATA_CACHE,
-            indent=4,
-            cls=DataclassJSONEncoder,
-            ensure_ascii=False,
-        )
-    except OSError as e:
-        _log.error("Error writing response data to %s: %s", settings["RESPONSES_FILE"], e)
-    except Exception as e:
-        _log.exception("An unexpected error occurred saving response data: %s", e)
+def save_responses(data: dict[str, EventData] | None = None) -> None:
+    """Persist a supplied snapshot or the loaded cache; write failures propagate."""
+    if data is None:
+        data = RESPONSE_DATA_CACHE
+    if data is None:
+        raise RuntimeError("Attempted to save response data before loading")
+    atomic_write_json(get_config()["RESPONSES_FILE"], data, indent=4, cls=DataclassJSONEncoder, ensure_ascii=False)
 
 
 def get_responses(event_name: str) -> list[Response]:
@@ -626,9 +528,12 @@ def build_attendee_report_rows(event_name: str) -> list[AttendeeReportRow]:
 
 
 def assign_attendee_numbers(event_name: str) -> int:
-    """Assign close-time attendee numbers for confirmed attendees in the response cache."""
+    """Durably assign close-time numbers without mutating records before the write."""
     all_data = load_responses()
-    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    current = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    event_data = EventData(
+        attendees=[replace(response) for response in current["attendees"]], waitlist=current["waitlist"]
+    )
 
     next_number = 1
     for response in sorted(
@@ -637,7 +542,7 @@ def assign_attendee_numbers(event_name: str) -> int:
     ):
         next_number = _assign_group_numbers(response, next_number)
 
-    all_data[event_name] = event_data
+    _commit_event_data(event_name, event_data, all_data)
     _log.info("Assigned attendee numbers for event %s.", event_name)
     return next_number - 1
 
@@ -645,12 +550,15 @@ def assign_attendee_numbers(event_name: str) -> int:
 def clear_attendee_numbers(event_name: str) -> None:
     """Clear attendee numbers for an event so the next close can assign them from scratch."""
     all_data = load_responses()
-    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    current = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    event_data = EventData(
+        attendees=[replace(response) for response in current["attendees"]], waitlist=current["waitlist"]
+    )
 
     for response in event_data["attendees"]:
         _clear_group_numbers(response)
 
-    all_data[event_name] = event_data
+    _commit_event_data(event_name, event_data, all_data)
     _log.info("Cleared attendee numbers for event %s.", event_name)
 
 
@@ -681,13 +589,18 @@ def add_response(
 
     # If no duplicate, proceed with adding
     assigned_max_number = None
+    original_response = response
     if force_attendee_number or _event_has_attendee_numbers(event_data):
+        response = replace(response)
         start_number = attendee_number_start if attendee_number_start is not None else _next_attendee_number(event_data)
         assigned_max_number = _assign_group_numbers(response, start_number) - 1
 
     _commit_event_data(
         event_name, EventData(attendees=[*event_data["attendees"], response], waitlist=event_data["waitlist"]), all_data
     )
+    if assigned_max_number is not None:
+        original_response.attendee_number = response.attendee_number
+        original_response.extras_attendee_numbers = response.extras_attendee_numbers
     _log.info("Added response from user %s to event %s.", response.user_id, event_name)
     return assigned_max_number
 
@@ -768,7 +681,7 @@ def remove_from_waitlist(event_name: str, user_id: int) -> None:
 
 
 def _commit_event_data(event_name: str, staged: EventData, all_data: dict[str, EventData] | None = None) -> None:
-    """Publish the cache change only after the shared JSON transaction succeeds."""
+    """Publish the cache change only after the single-file replacement succeeds."""
     if all_data is None:
         all_data = load_responses()
     if "payment_expiry_backfill" not in staged:
@@ -799,7 +712,7 @@ def promote_waitlist_response(
     Validation and commit contain no await, so competing asyncio callers cannot
     promote the same entry twice or reset an already-confirmed user's deadline.
     """
-    from offkai_bot.data.event import save_event_data
+    from offkai_bot.data.event import persist_event_changes
 
     all_data = load_responses()
     event_data = all_data.get(event.event_name, EventData(attendees=[], waitlist=[]))
@@ -848,8 +761,7 @@ def promote_waitlist_response(
     )
     _commit_event_data(event.event_name, staged)
     if assigned_max_number is not None:
-        event.max_attendee_number = assigned_max_number
-        save_event_data()
+        persist_event_changes(event, max_attendee_number=assigned_max_number)
     return response
 
 
@@ -980,10 +892,10 @@ def promote_from_waitlist(event_name: str) -> WaitlistEntry | None:
     if not event_data["waitlist"]:
         return None
 
-    # Get the first entry (FIFO)
-    first_entry = event_data["waitlist"].pop(0)
-    all_data[event_name] = event_data
-    save_responses()
+    first_entry = event_data["waitlist"][0]
+    _commit_event_data(
+        event_name, EventData(attendees=event_data["attendees"], waitlist=event_data["waitlist"][1:]), all_data
+    )
     _log.info("Promoted user %s from waitlist for event %s.", first_entry.user_id, event_name)
 
     return first_entry
@@ -1011,9 +923,15 @@ def promote_specific_from_waitlist(event_name: str, user_id: int) -> tuple[Waitl
 
     for i, entry in enumerate(event_data["waitlist"]):
         if entry.user_id == user_id:
-            promoted_entry = event_data["waitlist"].pop(i)
-            all_data[event_name] = event_data
-            save_responses()
+            promoted_entry = entry
+            _commit_event_data(
+                event_name,
+                EventData(
+                    attendees=event_data["attendees"],
+                    waitlist=[*event_data["waitlist"][:i], *event_data["waitlist"][i + 1 :]],
+                ),
+                all_data,
+            )
             _log.info("Promoted specific user %s from waitlist for event %s.", user_id, event_name)
             return promoted_entry, i
 
@@ -1031,9 +949,9 @@ def restore_waitlist_entry(event_name: str, entry: WaitlistEntry, position: int 
     if any(e.user_id == entry.user_id for e in event_data["waitlist"]):
         return
 
-    event_data["waitlist"].insert(position, entry)
-    all_data[event_name] = event_data
-    save_responses()
+    staged_waitlist = list(event_data["waitlist"])
+    staged_waitlist.insert(position, entry)
+    _commit_event_data(event_name, EventData(attendees=event_data["attendees"], waitlist=staged_waitlist), all_data)
     _log.info("Restored user %s to waitlist for event %s after failed promotion.", entry.user_id, event_name)
 
 

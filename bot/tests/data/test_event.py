@@ -165,16 +165,11 @@ def test_load_event_data_converts_naive_jst_to_utc(mock_paths):
         patch("os.path.exists", return_value=True),
         patch("os.path.getsize", return_value=100),
         patch("builtins.open", mock_open(read_data=naive_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
     ):
         events = event_data._load_event_data()
         assert len(events) == 1
         assert events[0].event_datetime == expected_utc_dt
         assert events[0].event_deadline == expected_utc_dt
-        # Check debug logs if needed
-        assert mock_log.debug.call_count == 2  # Once for dt, once for deadline
-        assert "Converted naive datetime" in mock_log.debug.call_args_list[0][0][0]
-        assert "Converted naive deadline" in mock_log.debug.call_args_list[1][0][0]
 
 
 def test_load_event_data_converts_aware_other_tz_to_utc(mock_paths):
@@ -192,178 +187,43 @@ def test_load_event_data_converts_aware_other_tz_to_utc(mock_paths):
         patch("os.path.exists", return_value=True),
         patch("os.path.getsize", return_value=100),
         patch("builtins.open", mock_open(read_data=aware_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
     ):
         events = event_data._load_event_data()
         assert len(events) == 1
         assert events[0].event_datetime == expected_utc_dt
         assert events[0].event_deadline == expected_utc_dt
-        # Check debug logs if needed
-        assert mock_log.debug.call_count == 2
-        assert "Converted aware datetime" in mock_log.debug.call_args_list[0][0][0]
-        assert "Converted aware deadline" in mock_log.debug.call_args_list[1][0][0]
 
 
-def test_load_event_data_file_not_found(mock_paths):
-    """Test loading when the events file doesn't exist."""
-    # Mock os.path.exists to return False
-    # Mock open: first check (read) raises implicitly, second check (write) succeeds
-    m_open = mock_open()
-    with (
-        patch("os.path.exists", return_value=False),
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert events == []
-        assert event_data.EVENT_DATA_CACHE == []  # Cache should be empty list
-
-        # Check log message
-        mock_log.warning.assert_called_once()
-        mock_log.warning.assert_called_once_with(
-            "%s not found or empty. Creating default empty file.", mock_paths["events"]
-        )
-
-        # Check that the default empty file was created
-        mock_file_constructor.assert_called_with(mock_paths["events"], "w", encoding="utf-8")
-        handle = mock_file_constructor()
-        handle.write.assert_called_once_with("[]")  # Default is empty list for events
-        mock_log.info.assert_called_once_with("Created empty events file at %s", mock_paths["events"])
+def test_load_event_data_file_not_found(tmp_path):
+    path = tmp_path / "nested" / "events.json"
+    with patch("offkai_bot.data.event.get_config", return_value={"EVENTS_FILE": str(path)}):
+        assert event_data._load_event_data() == []
+    assert json.loads(path.read_text(encoding="utf-8")) == []
 
 
-def test_load_event_data_empty_file(mock_paths):
-    """Test loading when the events file exists but is empty."""
-    m_open = mock_open()
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=0),
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert events == []
-        assert event_data.EVENT_DATA_CACHE == []
-        mock_log.warning.assert_called_once_with(
-            "%s not found or empty. Creating default empty file.", mock_paths["events"]
-        )
-        # Check that the default empty file was created (overwritten)
-        mock_file_constructor.assert_called_with(mock_paths["events"], "w", encoding="utf-8")
-        handle = mock_file_constructor()
-        handle.write.assert_called_once_with("[]")
-        mock_log.info.assert_called_once_with("Created empty events file at %s", mock_paths["events"])
-
-
-def test_load_event_data_json_decode_error(mock_paths):
-    """Test loading with invalid JSON content."""
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data="invalid json")),
-        patch("offkai_bot.data.event._log") as mock_log,
-        patch("offkai_bot.data.event.backup_corrupted_file") as mock_backup,
-    ):
-        events = event_data._load_event_data()
-
-        assert events == []
-        assert event_data.EVENT_DATA_CACHE == []
-        mock_log.error.assert_called_once()
-        assert "Error decoding JSON" in mock_log.error.call_args[0][0]
-        mock_backup.assert_called_once_with(mock_paths["events"])
-
-
-def test_load_event_data_not_a_list(mock_paths):
-    """Test loading when JSON is valid but not a list."""
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data='{"key": "value"}')),
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert events == []
-        assert event_data.EVENT_DATA_CACHE == []
-        mock_log.error.assert_called_once()
-        assert "Expected a JSON list" in mock_log.error.call_args[0][0]
-
-
-def test_load_event_data_invalid_datetime(mock_paths):
-    """Test loading data with an invalid datetime string."""
-    base_dict = {"event_name": "Invalid DT", "venue": "V", "address": "A", "google_maps_link": "G"}
-    invalid_dt_event = {**base_dict, "event_datetime": "not-a-datetime"}
-    invalid_json = json.dumps([invalid_dt_event])
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=invalid_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert len(events) == 0
-        mock_log.warning.assert_called_once()
-        assert "Could not parse/convert ISO datetime" in mock_log.warning.call_args[0][0]
-        assert mock_log.warning.call_args[0][1] == "not-a-datetime"
-
-
-def test_load_event_data_missing_datetime(mock_paths):
-    """Test loading data where an entry is missing 'event_datetime' entirely.
-
-    Regression test: a missing datetime must not leave `event_datetime_utc`
-    unbound (NameError -> whole load fails) or stale from a prior iteration.
-    """
-    dt1 = datetime(2024, 8, 1, 19, 0, tzinfo=UTC)
-    missing_dt_event = {"event_name": "Missing DT", "venue": "V", "address": "A", "google_maps_link": "G"}
-    valid_event_dict = {
-        "event_name": "Valid Event",
-        "venue": "V",
-        "address": "A",
-        "google_maps_link": "G",
-        "event_datetime": dt1.isoformat(),
-    }
-    bad_json = json.dumps([missing_dt_event, valid_event_dict])
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert len(events) == 1
-        assert events[0].event_name == "Valid Event"
-        assert events[0].event_datetime == dt1
-        mock_log.error.assert_called_once()
-        assert "Skipping event entry due to missing or empty 'event_datetime'." in mock_log.error.call_args[0][0]
-
-
-def test_load_event_data_empty_datetime(mock_paths):
-    """Test loading data where 'event_datetime' is an empty string."""
-    empty_dt_event = {
-        "event_name": "Empty DT",
-        "venue": "V",
-        "address": "A",
-        "google_maps_link": "G",
-        "event_datetime": "",
-    }
-    bad_json = json.dumps([empty_dt_event])
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert events == []
-        assert event_data.EVENT_DATA_CACHE == []
-        mock_log.error.assert_called_once()
-        assert "Skipping event entry due to missing or empty 'event_datetime'." in mock_log.error.call_args[0][0]
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "invalid json",
+        '{"key": "value"}',
+        '[{"event_name": "Invalid DT", "event_datetime": "not-a-datetime"}]',
+        '[{"event_name": "Missing DT"}, {"event_name": "Valid", "event_datetime": "3024-01-01T00:00:00+00:00"}]',
+        '[{"event_name": "Empty DT", "event_datetime": ""}]',
+    ],
+)
+def test_load_event_data_invalid_file_fails_closed(tmp_path, monkeypatch, content):
+    mock_paths = {"events": str(tmp_path / "events.json")}
+    monkeypatch.setattr(event_data, "get_config", lambda: {"EVENTS_FILE": mock_paths["events"]})
+    with open(mock_paths["events"], "w", encoding="utf-8") as file:
+        file.write(content)
+    with pytest.raises(ValueError):
+        event_data.load_event_data()
+    assert event_data.EVENT_DATA_CACHE is None
+    with pytest.raises(RuntimeError):
+        event_data.save_event_data()
+    with open(mock_paths["events"], encoding="utf-8") as file:
+        assert file.read() == content
 
 
 def test_load_event_data_with_ping_role_id(mock_paths):
@@ -467,63 +327,25 @@ def test_load_event_data_old_format_missing_deadline(mock_paths):
         assert "Found old events.json format" in mock_log.info.call_args[0][0]
 
 
-def test_load_event_data_invalid_deadline(mock_paths):
-    """Test loading data with an invalid deadline string."""
-    base_dict = {
-        "event_name": "Invalid DL",
-        "venue": "V",
-        "address": "A",
-        "google_maps_link": "G",
-        "event_datetime": "2024-08-01T19:00:00",
-    }
-    invalid_dl_event = {**base_dict, "event_deadline": "not-a-deadline"}
-    invalid_json = json.dumps([invalid_dl_event])
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=invalid_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert len(events) == 1
-        assert events[0].event_deadline is None  # Deadline should be None
-        assert events[0].event_name == "Invalid DL"
-        mock_log.warning.assert_called_once()
-        assert "Could not parse/convert ISO deadline" in mock_log.warning.call_args[0][0]
-        assert mock_log.warning.call_args[0][1] == "not-a-deadline"
-
-
-def test_load_event_data_missing_required_field(mock_paths):
-    """Test loading data where a dict is missing a required Event field."""
-    bad_event_dict = {"venue": "V", "address": "A"}  # Missing event_name
-    # Use a valid event dict for comparison
-    valid_event_dict = {
-        "event_name": "Valid Event",
-        "venue": "V",
-        "address": "A",
-        "google_maps_link": "G",
-        "event_datetime": FUTURE_EVENT_DT.isoformat(),
-    }
-    valid_event_obj = Event(**valid_event_dict)
-    valid_event_obj.event_datetime = FUTURE_EVENT_DT
-    bad_json = json.dumps([bad_event_dict, valid_event_dict])
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        events = event_data._load_event_data()
-
-        assert len(events) == 1  # Only the valid event should be loaded
-        assert events[0] == valid_event_obj
-        mock_log.error.assert_called_once()
-        assert "Skipping event entry due to missing or empty 'event_name'." in mock_log.error.call_args[0][0]
-        # Check that the problematic dict is logged (or part of it)
-        assert "'venue': 'V'" in str(mock_log.error.call_args)
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"event_name": "Invalid DL", "event_datetime": FUTURE_EVENT_DT.isoformat(), "event_deadline": "not-a-deadline"},
+        {"venue": "V", "address": "A"},
+    ],
+)
+def test_load_event_data_invalid_record_preserves_file(tmp_path, monkeypatch, record):
+    mock_paths = {"events": str(tmp_path / "events.json")}
+    monkeypatch.setattr(event_data, "get_config", lambda: {"EVENTS_FILE": mock_paths["events"]})
+    valid = {"event_name": "Valid Event", "event_datetime": FUTURE_EVENT_DT.isoformat()}
+    original = json.dumps([valid, record])
+    with open(mock_paths["events"], "w", encoding="utf-8") as file:
+        file.write(original)
+    with pytest.raises(ValueError):
+        event_data.load_event_data()
+    assert event_data.EVENT_DATA_CACHE is None
+    with open(mock_paths["events"], encoding="utf-8") as file:
+        assert file.read() == original
 
 
 # == load_event_data Tests ==
@@ -664,34 +486,19 @@ def test_save_event_data_success(mock_paths, sample_event_list):
 
 
 def test_save_event_data_cache_is_none(mock_paths):
-    """Test saving when cache hasn't been loaded."""
-    assert event_data.EVENT_DATA_CACHE is None
-
-    with (
-        patch("offkai_bot.data.event.atomic_write_json") as mock_atomic_write,
-        patch("offkai_bot.data.event._log") as mock_log,
-    ):
-        event_data.save_event_data()
-
-        mock_atomic_write.assert_not_called()  # Should not attempt to write file
-        mock_log.error.assert_called_once()
-        assert "Attempted to save event data before loading" in mock_log.error.call_args[0][0]
+    with patch("offkai_bot.data.event.atomic_write_json") as writer:
+        with pytest.raises(RuntimeError, match="before loading"):
+            event_data.save_event_data()
+        writer.assert_not_called()
 
 
 def test_save_event_data_os_error(mock_paths, sample_event_list):
-    """Test handling OS error during file writing."""
-    event_data.EVENT_DATA_CACHE = sample_event_list  # Populate cache
-
+    event_data.EVENT_DATA_CACHE = sample_event_list
     with (
         patch("offkai_bot.data.event.atomic_write_json", side_effect=OSError("Disk full")),
-        patch("offkai_bot.data.event._log") as mock_log,
+        pytest.raises(OSError, match="Disk full"),
     ):
         event_data.save_event_data()
-
-        mock_log.error.assert_called_once()
-        assert "Error writing event data" in mock_log.error.call_args[0][0]
-        assert mock_log.error.call_args[0][1] == mock_paths["events"]
-        assert "Disk full" in str(mock_log.error.call_args)
 
 
 # == get_event Tests ==
@@ -814,11 +621,10 @@ def test_update_event_details_success_single_field():
     new_venue = "Updated Venue"
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.parse_event_datetime") as mock_parse_dt,
         patch("offkai_bot.data.event.parse_drinks") as mock_parse_drinks,
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.save_event_data"),
         patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
         patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
@@ -833,8 +639,6 @@ def test_update_event_details_success_single_field():
 
         mock_parse_dt.assert_not_called()
         mock_parse_drinks.assert_not_called()
-        mock_save.assert_not_called()
-        mock_log.info.assert_called_once_with("Event '%s' details updated in cache.", test_event.event_name)
 
 
 def test_update_event_details_success_multiple_fields():
@@ -851,11 +655,10 @@ def test_update_event_details_success_multiple_fields():
     expected_new_drinks = ["Coke", "Pepsi"]
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.parse_event_datetime") as mock_parse_dt,
         patch("offkai_bot.data.event.parse_drinks") as mock_parse_drinks,
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.save_event_data"),
         patch("offkai_bot.data.event.validate_event_datetime") as mock_validate_dt,
         patch("offkai_bot.data.event.validate_event_deadline") as mock_validate_dl,
     ):
@@ -884,8 +687,6 @@ def test_update_event_details_success_multiple_fields():
         mock_parse_dt.assert_any_call(new_deadline_str)
         assert mock_parse_dt.call_count == 2
         mock_parse_drinks.assert_called_once_with(new_drinks_str)
-        mock_save.assert_not_called()
-        mock_log.info.assert_called_once()
 
 
 def test_update_event_details_no_changes():
@@ -893,7 +694,7 @@ def test_update_event_details_no_changes():
     test_event = copy.deepcopy(BASE_EVENT_OBJ)
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.parse_event_datetime"),
         patch("offkai_bot.data.event.parse_drinks"),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
@@ -914,7 +715,7 @@ def test_update_event_details_no_changes_with_parsing():
     same_date_str, same_deadline_str, same_drinks_str = "same date", "same deadline", "same drinks"
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.parse_event_datetime") as mock_parse_dt,
         patch("offkai_bot.data.event.parse_drinks") as mock_parse_drinks,
         patch("offkai_bot.data.event.save_event_data") as mock_save,
@@ -948,7 +749,7 @@ def test_update_event_details_archived_event():
     test_event_archived = copy.deepcopy(EVENT_ARCHIVED)  # Use the specific state object
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event_archived),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event_archived]),
         patch("offkai_bot.data.event.parse_event_datetime"),
         patch("offkai_bot.data.event.parse_drinks"),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
@@ -983,7 +784,7 @@ def test_update_event_details_invalid_datetime_format():
     invalid_date_str = "invalid format"
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.parse_event_datetime") as mock_parse_dt,
         patch("offkai_bot.data.event.parse_drinks"),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
@@ -1005,7 +806,7 @@ def test_update_event_details_invalid_datetime_format():
 # *** NEW tests for update_event_details validation failures ***
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # Mock get
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])  # Mock get
 @patch("offkai_bot.data.event.parse_drinks", return_value=[])  # Mock drinks parse
 @patch("offkai_bot.data.event.save_event_data")  # Mock save
 @patch("offkai_bot.data.event._log")  # Mock log
@@ -1021,7 +822,7 @@ def test_update_event_details_fails_datetime_in_past(mock_log, mock_save, mock_p
         mock_save.assert_not_called()
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])
 @patch("offkai_bot.data.event.parse_drinks", return_value=[])
 @patch("offkai_bot.data.event.save_event_data")
 @patch("offkai_bot.data.event._log")
@@ -1038,7 +839,7 @@ def test_update_event_details_fails_deadline_in_past(mock_log, mock_save, mock_p
         mock_save.assert_not_called()
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])
 @patch("offkai_bot.data.event.parse_drinks", return_value=[])
 @patch("offkai_bot.data.event.save_event_data")
 @patch("offkai_bot.data.event._log")
@@ -1054,7 +855,7 @@ def test_update_event_details_fails_deadline_after_event(mock_log, mock_save, mo
         mock_save.assert_not_called()
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])
 @patch("offkai_bot.data.event.parse_drinks", return_value=[])
 @patch("offkai_bot.data.event.save_event_data")
 @patch("offkai_bot.data.event._log")
@@ -1079,7 +880,7 @@ def test_update_event_details_fails_deadline_after_new_event_time(mock_log, mock
     mock_save.assert_not_called()
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])
 @patch("offkai_bot.data.event.parse_drinks", return_value=[])
 @patch("offkai_bot.data.event.save_event_data")
 @patch("offkai_bot.data.event._log")
@@ -1113,7 +914,7 @@ def test_update_event_details_allows_new_event_time_with_past_deadline(mock_log,
     new_event_time = TEST_NOW_UTC + timedelta(hours=11)  # Later the same day, still after the deadline
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.parse_event_datetime", return_value=new_event_time) as mock_parse_dt,
     ):
         # Uses the real validators: the past deadline must not raise EventDeadlineInPastError
@@ -1125,10 +926,9 @@ def test_update_event_details_allows_new_event_time_with_past_deadline(mock_log,
     assert updated_event.event_datetime == new_event_time
     assert updated_event.event_deadline == PAST_DEADLINE  # Deadline untouched
     mock_parse_dt.assert_called_once_with("later-today")
-    mock_save.assert_not_called()
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # max_capacity=None
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])  # max_capacity=None
 @patch("offkai_bot.data.event.get_waitlist", return_value=[])
 @patch("offkai_bot.data.event.get_responses")
 @patch("offkai_bot.data.event.save_event_data")
@@ -1148,7 +948,7 @@ def test_update_event_details_fails_unlimited_to_limited_below_current_count(
     mock_save.assert_not_called()
 
 
-@patch("offkai_bot.data.event.get_event", return_value=copy.deepcopy(BASE_EVENT_OBJ))  # max_capacity=None
+@patch("offkai_bot.data.event.load_event_data", return_value=[copy.deepcopy(BASE_EVENT_OBJ)])  # max_capacity=None
 @patch("offkai_bot.data.event.get_waitlist")
 @patch("offkai_bot.data.event.get_responses", return_value=[])
 @patch("offkai_bot.data.event.save_event_data")
@@ -1176,17 +976,13 @@ def test_set_event_open_status_open_to_close():
     assert test_event.open is True
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
+        patch("offkai_bot.data.event.save_event_data"),
     ):
         updated_event = event_data.set_event_open_status(test_event.event_name, target_open_status=False)
 
         assert updated_event is test_event
         assert updated_event.open is False
-        mock_save.assert_not_called()
-        # Now logs twice: once for attendance count, once for status
-        mock_log.info.assert_any_call("Event '%s' marked as %s in cache.", test_event.event_name, "closed")
 
 
 def test_set_event_open_status_close_to_open():
@@ -1195,17 +991,13 @@ def test_set_event_open_status_close_to_open():
     assert test_event.open is False
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
+        patch("offkai_bot.data.event.save_event_data"),
     ):
         updated_event = event_data.set_event_open_status(test_event.event_name, target_open_status=True)
 
         assert updated_event is test_event
         assert updated_event.open is True
-        mock_save.assert_not_called()
-        # Now logs twice: once for clearing attendance count, once for status
-        mock_log.info.assert_any_call("Event '%s' marked as %s in cache.", test_event.event_name, "open")
 
 
 def test_set_event_open_status_already_open():
@@ -1213,7 +1005,7 @@ def test_set_event_open_status_already_open():
     test_event = copy.deepcopy(EVENT_OPEN_NOT_ARCHIVED)  # Starts open
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
     ):
@@ -1231,7 +1023,7 @@ def test_set_event_open_status_already_closed():
     test_event = copy.deepcopy(EVENT_CLOSED_NOT_ARCHIVED)  # Starts closed
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
     ):
@@ -1249,7 +1041,7 @@ def test_set_event_open_status_archived_event():
     test_event_archived = copy.deepcopy(EVENT_ARCHIVED)
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event_archived),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event_archived]),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
     ):
@@ -1288,19 +1080,14 @@ def test_archive_event_success_open_event():
     assert test_event.open is True and test_event.archived is False
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
+        patch("offkai_bot.data.event.save_event_data"),
     ):
         updated_event = event_data.archive_event(test_event.event_name)
 
         assert updated_event is test_event
         assert updated_event.archived is True
         assert updated_event.open is False  # Should be forced closed
-        mock_save.assert_not_called()
-        mock_log.info.assert_called_once_with(
-            "Event '%s' marked as archived (and closed) in cache.", test_event.event_name
-        )
 
 
 def test_archive_event_success_closed_event():
@@ -1309,19 +1096,14 @@ def test_archive_event_success_closed_event():
     assert test_event.open is False and test_event.archived is False
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event),
-        patch("offkai_bot.data.event.save_event_data") as mock_save,
-        patch("offkai_bot.data.event._log") as mock_log,
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event]),
+        patch("offkai_bot.data.event.save_event_data"),
     ):
         updated_event = event_data.archive_event(test_event.event_name)
 
         assert updated_event is test_event
         assert updated_event.archived is True
         assert updated_event.open is False  # Stays closed
-        mock_save.assert_not_called()
-        mock_log.info.assert_called_once_with(
-            "Event '%s' marked as archived (and closed) in cache.", test_event.event_name
-        )
 
 
 def test_archive_event_already_archived():
@@ -1329,7 +1111,7 @@ def test_archive_event_already_archived():
     test_event_archived = copy.deepcopy(EVENT_ARCHIVED)  # Starts archived
 
     with (
-        patch("offkai_bot.data.event.get_event", return_value=test_event_archived),
+        patch("offkai_bot.data.event.load_event_data", return_value=[test_event_archived]),
         patch("offkai_bot.data.event.save_event_data") as mock_save,
         patch("offkai_bot.data.event._log") as mock_log,
     ):

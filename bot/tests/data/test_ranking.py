@@ -155,12 +155,7 @@ def test_parse_ranking_from_dict_invalid_type():
     }
     with patch("offkai_bot.data.ranking._log"):
         result = ranking_data._parse_ranking_from_dict(invalid_dict)
-        # The function catches TypeError/ValueError and returns None
-        # However, the current implementation doesn't validate types before creation
-        # so it may still create an object. Let's check the actual behavior.
-        # Based on the code, it just assigns values directly, so no error occurs here.
-        # The error would occur if we try to do arithmetic on it later.
-        assert result is not None  # Current implementation doesn't validate types
+        assert result is None
 
 
 # == _load_rankings Tests ==
@@ -191,98 +186,29 @@ def test_load_rankings_success(mock_paths):
         mock_log.error.assert_not_called()
 
 
-def test_load_rankings_file_not_found(mock_paths):
-    """Test loading when the rankings file doesn't exist."""
-    m_open = mock_open()
-    with (
-        patch("os.path.exists", return_value=False),
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("offkai_bot.data.ranking._log") as mock_log,
-    ):
-        rankings = ranking_data._load_rankings()
-
-        assert rankings == {}
-        assert ranking_data.RANKING_DATA_CACHE == {}
-
-        mock_log.warning.assert_called_once()
-        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
-        assert mock_paths["ranking"] in log_msg
-        assert "not found or empty" in log_msg
-
-        # Check that the default empty file was created
-        mock_file_constructor.assert_called_with(mock_paths["ranking"], "w", encoding="utf-8")
-        handle = mock_file_constructor()
-        handle.write.assert_called()
+def test_load_rankings_file_not_found(tmp_path):
+    path = tmp_path / "nested" / "rankings.json"
+    with patch("offkai_bot.data.ranking.get_config", return_value={"RANKING_FILE": str(path)}):
+        assert ranking_data._load_rankings() == {}
+    assert json.loads(path.read_text(encoding="utf-8")) == {}
 
 
-def test_load_rankings_empty_file(mock_paths):
-    """Test loading when the rankings file exists but is empty."""
-    m_open = mock_open()
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=0),
-        patch("builtins.open", m_open),
-        patch("offkai_bot.data.ranking._log") as mock_log,
-    ):
-        rankings = ranking_data._load_rankings()
-
-        assert rankings == {}
-        assert ranking_data.RANKING_DATA_CACHE == {}
-        mock_log.warning.assert_called_once()
-        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
-        assert "not found or empty" in log_msg
-
-
-def test_load_rankings_json_decode_error(mock_paths):
-    """Test loading with invalid JSON content."""
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data="invalid json")),
-        patch("offkai_bot.data.ranking._log") as mock_log,
-        patch("offkai_bot.data.ranking.backup_corrupted_file") as mock_backup,
-    ):
-        rankings = ranking_data._load_rankings()
-
-        assert rankings == {}
-        assert ranking_data.RANKING_DATA_CACHE == {}
-        mock_log.error.assert_called_once()
-        assert "Error decoding JSON" in mock_log.error.call_args[0][0]
-        mock_backup.assert_called_once_with(mock_paths["ranking"])
-
-
-def test_load_rankings_not_a_dict(mock_paths):
-    """Test loading when JSON is valid but not a dict."""
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data='["list", "instead"]')),
-        patch("offkai_bot.data.ranking._log") as mock_log,
-    ):
-        rankings = ranking_data._load_rankings()
-
-        assert rankings == {}
-        assert ranking_data.RANKING_DATA_CACHE == {}
-        mock_log.error.assert_called_once()
-        assert "Expected a JSON object (dict)" in mock_log.error.call_args[0][0]
-
-
-def test_load_rankings_invalid_entry_not_dict(mock_paths):
-    """Test loading when a ranking entry is not a dict."""
-    bad_json = json.dumps({"User1": "not a dict", "User2": RANK_5_DICT})
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.ranking._log") as mock_log,
-    ):
-        rankings = ranking_data._load_rankings()
-
-        # User1 should be skipped, User2 should be loaded
-        assert "User1" not in rankings
-        assert "User2" in rankings
-        assert rankings["User2"].rank == 5
-        mock_log.warning.assert_called()
+@pytest.mark.parametrize(
+    "raw",
+    ["", "invalid json", '["list", "instead"]', json.dumps({"User1": "not a dict", "User2": RANK_5_DICT})],
+)
+def test_load_rankings_invalid_file_fails_closed(tmp_path, monkeypatch, raw):
+    mock_paths = {"ranking": str(tmp_path / "rankings.json")}
+    monkeypatch.setattr(ranking_data, "get_config", lambda: {"RANKING_FILE": mock_paths["ranking"]})
+    with open(mock_paths["ranking"], "w", encoding="utf-8") as file:
+        file.write(raw)
+    with pytest.raises(ValueError):
+        ranking_data.load_rankings()
+    assert ranking_data.RANKING_DATA_CACHE is None
+    with pytest.raises(RuntimeError):
+        ranking_data.save_rankings()
+    with open(mock_paths["ranking"], encoding="utf-8") as file:
+        assert file.read() == raw
 
 
 # == load_rankings Tests ==
@@ -335,28 +261,19 @@ def test_save_rankings_success(mock_paths):
 
 
 def test_save_rankings_cache_is_none(mock_paths):
-    """Test saving when cache hasn't been loaded."""
-    ranking_data.RANKING_DATA_CACHE = None
-    with (
-        patch("offkai_bot.data.ranking.atomic_write_json") as mock_atomic_write,
-        patch("offkai_bot.data.ranking._log") as mock_log,
-    ):
-        ranking_data.save_rankings()
-        mock_atomic_write.assert_not_called()
-        mock_log.error.assert_called_once()
-        assert "Attempted to save response data before loading" in mock_log.error.call_args[0][0]
+    with patch("offkai_bot.data.ranking.atomic_write_json") as writer:
+        with pytest.raises(RuntimeError, match="before loading"):
+            ranking_data.save_rankings()
+        writer.assert_not_called()
 
 
 def test_save_rankings_os_error(mock_paths):
-    """Test handling OS error during file writing."""
     ranking_data.RANKING_DATA_CACHE = {"User1": RANK_1_OBJ}
     with (
         patch("offkai_bot.data.ranking.atomic_write_json", side_effect=OSError("Permission denied")),
-        patch("offkai_bot.data.ranking._log") as mock_log,
+        pytest.raises(OSError, match="Permission denied"),
     ):
         ranking_data.save_rankings()
-        mock_log.error.assert_called_once()
-        assert "Error writing response data" in mock_log.error.call_args[0][0]
 
 
 # == update_rank Tests ==

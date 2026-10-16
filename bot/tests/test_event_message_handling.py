@@ -195,7 +195,7 @@ async def test_fetch_message_not_found(mock_log, mock_thread, mock_event_open):
     message = await event_actions._fetch_event_message(mock_thread, mock_event_open)
 
     assert message is None
-    assert mock_event_open.message_id is None  # Check ID was cleared
+    assert mock_event_open.message_id == original_id  # Replaced only after the new message is saved.
     mock_thread.fetch_message.assert_awaited_once_with(original_id)
     mock_log.warning.assert_called_once()
     args = mock_log.warning.call_args[0]
@@ -238,7 +238,7 @@ async def test_fetch_message_http_error(mock_log, mock_thread, mock_event_open):
 # --- Tests for send_event_message ---
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions._log")
 async def test_send_message_success_open(
@@ -257,12 +257,11 @@ async def test_send_message_success_open(
     assert call_args[0] == mock_content
     assert isinstance(call_kwargs["view"], event_actions.OpenEvent)
     # Check message ID was set and saved
-    assert mock_event_open.message_id == mock_message.id
-    mock_save.assert_called_once()
+    mock_save.assert_called_once_with(mock_event_open, message_id=mock_message.id)
     mock_log.info.assert_called_once()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions._log")
 async def test_send_message_success_closed(
@@ -281,12 +280,11 @@ async def test_send_message_success_closed(
     assert call_args[0] == mock_content
     assert isinstance(call_kwargs["view"], interactions.ClosedEvent)
     # Check message ID was set and saved
-    assert mock_event_closed.message_id == mock_message.id
-    mock_save.assert_called_once()
+    mock_save.assert_called_once_with(mock_event_closed, message_id=mock_message.id)
     mock_log.info.assert_called_once()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions._log")
 async def test_send_message_http_error(mock_log, mock_create_msg, mock_save, mock_thread, mock_event_open):
@@ -294,7 +292,8 @@ async def test_send_message_http_error(mock_log, mock_create_msg, mock_save, moc
     mock_create_msg.return_value = "Content"
     mock_thread.send.side_effect = discord.HTTPException(MagicMock(), "Send failed")
 
-    await event_actions.send_event_message(mock_thread, mock_event_open)
+    with pytest.raises(discord.HTTPException):
+        await event_actions.send_event_message(mock_thread, mock_event_open)
 
     mock_thread.send.assert_awaited_once()
     mock_save.assert_not_called()  # Save should not happen on error

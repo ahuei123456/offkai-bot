@@ -179,177 +179,36 @@ def test_load_responses_success(mock_paths):
         mock_log.error.assert_not_called()
 
 
-def test_load_responses_file_not_found(mock_paths):
-    """Test loading when the responses file doesn't exist."""
-    m_open = mock_open()
-    with (
-        patch("os.path.exists", return_value=False),
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        assert responses == {}
-        assert response_data.RESPONSE_DATA_CACHE == {}  # Cache should be empty dict
-
-        mock_log.warning.assert_called_once()
-        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
-        assert mock_paths["responses"] in log_msg
-        assert "not found or empty" in log_msg
-
-        # Check that the default empty file was created
-        mock_file_constructor.assert_called_with(mock_paths["responses"], "w", encoding="utf-8")
-        handle = mock_file_constructor()
-        handle.write.assert_called_once_with("{}")  # Default is empty dict for responses
-        mock_log.info.assert_called_once_with("Created empty responses file at %s", mock_paths["responses"])
+def test_load_responses_file_not_found(tmp_path):
+    path = tmp_path / "nested" / "responses.json"
+    with patch("offkai_bot.data.response.get_config", return_value={"RESPONSES_FILE": str(path)}):
+        assert response_data._load_responses() == {}
+    assert json.loads(path.read_text(encoding="utf-8")) == {}
 
 
-def test_load_responses_empty_file(mock_paths):
-    """Test loading when the responses file exists but is empty."""
-    m_open = mock_open()
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=0),
-        patch("builtins.open", m_open) as mock_file_constructor,
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        assert responses == {}
-        assert response_data.RESPONSE_DATA_CACHE == {}
-        mock_log.warning.assert_called_once()
-        log_msg = mock_log.warning.call_args[0][0] % mock_log.warning.call_args[0][1:]
-        assert "not found or empty" in log_msg
-        # Check that the default empty file was created (overwritten)
-        mock_file_constructor.assert_called_with(mock_paths["responses"], "w", encoding="utf-8")
-        handle = mock_file_constructor()
-        handle.write.assert_called_once_with("{}")
-        mock_log.info.assert_called_once_with("Created empty responses file at %s", mock_paths["responses"])
-
-
-def test_load_responses_json_decode_error(mock_paths):
-    """Test loading with invalid JSON content."""
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data="invalid json")),
-        patch("offkai_bot.data.response._log") as mock_log,
-        patch("offkai_bot.data.response.backup_corrupted_file") as mock_backup,
-    ):
-        responses = response_data._load_responses()
-
-        assert responses == {}
-        assert response_data.RESPONSE_DATA_CACHE == {}
-        mock_log.error.assert_called_once()
-        assert "Error decoding JSON" in mock_log.error.call_args[0][0]
-        mock_backup.assert_called_once_with(mock_paths["responses"])
-
-
-def test_load_responses_not_a_dict(mock_paths):
-    """Test loading when JSON is valid but not a dict."""
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data='["list", "instead"]')),
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        assert responses == {}
-        assert response_data.RESPONSE_DATA_CACHE == {}
-        mock_log.error.assert_called_once()
-        assert "Expected a JSON object (dict)" in mock_log.error.call_args[0][0]
-
-
-def test_load_responses_event_value_not_list(mock_paths):
-    """Test loading when an event's value in old format is not a list (triggers migration warning)."""
-    # Old format with bad data
-    bad_json = json.dumps({"Event A": "not a list", "Event B": [RESP_3_DICT]})
-    # Need to mock save_responses since migration will try to save
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.response.save_responses"),  # Mock save to avoid actual file write
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        # Event A should be skipped due to bad format in old-style data
-        assert "Event A" not in responses or len(responses["Event A"]["attendees"]) == 0
-        # Event B should be migrated successfully
-        assert "Event B" in responses
-        assert len(responses["Event B"]["attendees"]) == 1
-        assert responses["Event B"]["attendees"][0] == RESP_3_OBJ
-        mock_log.warning.assert_called()  # Should warn about bad data
-
-
-def test_load_responses_item_not_dict(mock_paths):
-    """Test loading when an item in a response list (old format) is not a dict."""
-    bad_json = json.dumps({"Event A": ["not a dict", RESP_2_DICT], "Event B": [RESP_3_DICT]})
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.response.save_responses"),  # Mock save since migration will save
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        assert "Event A" in responses
-        assert len(responses["Event A"]["attendees"]) == 1  # Only the valid dict should be loaded
-        assert responses["Event A"]["attendees"][0] == RESP_2_OBJ
-        assert "Event B" in responses  # Event B should load normally
-        assert len(responses["Event B"]["attendees"]) == 1
-        assert responses["Event B"]["attendees"][0] == RESP_3_OBJ
-
-        mock_log.warning.assert_called()
-        assert "Expected a dict" in str(mock_log.warning.call_args)
-
-
-@patch("offkai_bot.data.response.datetime")  # Mock the datetime class itself
-def test_load_responses_invalid_timestamp(mock_datetime, mock_paths):
-    """Test loading data with an invalid timestamp string."""
-    # Configure the mock datetime.now() before the test runs
-    mock_now_time = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-    mock_datetime.now.return_value = mock_now_time
-
-    def fromisoformat_side_effect(ts):
-        if ts == "invalid-ts":
-            raise ValueError("bad format")  # RAISE the exception
-        else:
-            # For valid strings, call the real fromisoformat (or simulate)
-            # Be careful here - calling the real one might bypass other mocks
-            # A safer approach might be to return a known valid datetime object
-            # For simplicity, let's assume we only test the invalid case path here
-            # and other tests cover valid paths. If you need valid paths in this
-            # specific test, return a fixed valid datetime object.
-            # return datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC) # Example fixed valid dt
-            # OR if you are sure the real one is okay to call:
-            return datetime.fromisoformat(ts)  # Call real one for valid strings
-
-    mock_datetime.fromisoformat.side_effect = fromisoformat_side_effect
-
-    invalid_ts_resp = RESP_1_DICT.copy()
-    invalid_ts_resp["timestamp"] = "invalid-ts"
-    invalid_json = json.dumps({"Event A": [invalid_ts_resp]})
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=invalid_json)),
-        patch("offkai_bot.data.response.save_responses"),  # Mock save since migration will save
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        assert len(responses["Event A"]["attendees"]) == 1
-        # Timestamp should default to the mocked datetime.now()
-        assert responses["Event A"]["attendees"][0].timestamp == mock_now_time
-        assert responses["Event A"]["attendees"][0].user_id == RESP_1_DICT["user_id"]  # Other fields loaded
-
-        mock_log.warning.assert_called()
-        assert "Could not parse ISO timestamp" in str(mock_log.warning.call_args)
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "invalid json",
+        '["list", "instead"]',
+        json.dumps({"Event A": "not a list", "Event B": [RESP_3_DICT]}),
+        json.dumps({"Event A": ["not a dict", RESP_2_DICT], "Event B": [RESP_3_DICT]}),
+        json.dumps({"Event A": [{**RESP_1_DICT, "timestamp": "invalid-ts"}]}),
+    ],
+)
+def test_load_responses_invalid_file_fails_closed(tmp_path, monkeypatch, raw):
+    mock_paths = {"responses": str(tmp_path / "responses.json")}
+    monkeypatch.setattr(response_data, "get_config", lambda: {"RESPONSES_FILE": mock_paths["responses"]})
+    with open(mock_paths["responses"], "w", encoding="utf-8") as file:
+        file.write(raw)
+    with pytest.raises(ValueError):
+        response_data.load_responses()
+    assert response_data.RESPONSE_DATA_CACHE is None
+    with pytest.raises(RuntimeError):
+        response_data.save_responses()
+    with open(mock_paths["responses"], encoding="utf-8") as file:
+        assert file.read() == raw
 
 
 def test_parse_fallback_timestamp_is_aware_utc():
@@ -367,26 +226,17 @@ def test_parse_fallback_timestamp_is_aware_utc():
     assert entry.timestamp.tzinfo is UTC
 
 
-def test_load_responses_invalid_numeric_field(mock_paths):
-    """Test loading data with non-numeric extra_people."""
-    bad_resp_dict = RESP_1_DICT.copy()
-    bad_resp_dict["extra_people"] = "two"  # Invalid integer
-    bad_json = json.dumps({"Event A": [bad_resp_dict, RESP_2_DICT]})
-
-    with (
-        patch("os.path.exists", return_value=True),
-        patch("os.path.getsize", return_value=100),
-        patch("builtins.open", mock_open(read_data=bad_json)),
-        patch("offkai_bot.data.response.save_responses"),  # Mock save since migration will save
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        responses = response_data._load_responses()
-
-        assert len(responses["Event A"]["attendees"]) == 1  # Only the valid response loaded
-        assert responses["Event A"]["attendees"][0] == RESP_2_OBJ
-        mock_log.error.assert_called_once()
-        assert "Error creating Response object" in mock_log.error.call_args[0][0]
-        assert "invalid literal for int()" in str(mock_log.error.call_args)  # Check specific error
+def test_load_responses_invalid_numeric_field(tmp_path, monkeypatch):
+    mock_paths = {"responses": str(tmp_path / "responses.json")}
+    monkeypatch.setattr(response_data, "get_config", lambda: {"RESPONSES_FILE": mock_paths["responses"]})
+    content = json.dumps({"Event A": [{**RESP_1_DICT, "extra_people": "two"}, RESP_2_DICT]})
+    with open(mock_paths["responses"], "w", encoding="utf-8") as file:
+        file.write(content)
+    with pytest.raises(ValueError):
+        response_data.load_responses()
+    assert response_data.RESPONSE_DATA_CACHE is None
+    with open(mock_paths["responses"], encoding="utf-8") as file:
+        assert file.read() == content
 
 
 # == load_responses Tests ==
@@ -444,29 +294,19 @@ def test_save_responses_success(mock_paths):
 
 
 def test_save_responses_cache_is_none(mock_paths):
-    """Test saving when cache hasn't been loaded."""
-    response_data.RESPONSE_DATA_CACHE = None
-    with (
-        patch("offkai_bot.data.response.atomic_write_json") as mock_atomic_write,
-        patch("offkai_bot.data.response._log") as mock_log,
-    ):
-        response_data.save_responses()
-        mock_atomic_write.assert_not_called()
-        mock_log.error.assert_called_once()
-        assert "Attempted to save response data before loading" in mock_log.error.call_args[0][0]
+    with patch("offkai_bot.data.response.atomic_write_json") as writer:
+        with pytest.raises(RuntimeError, match="before loading"):
+            response_data.save_responses()
+        writer.assert_not_called()
 
 
 def test_save_responses_os_error(mock_paths):
-    """Test handling OS error during file writing."""
     response_data.RESPONSE_DATA_CACHE = {"Event A": make_event_data([RESP_1_OBJ])}
     with (
         patch("offkai_bot.data.response.atomic_write_json", side_effect=OSError("Permission denied")),
-        patch("offkai_bot.data.response._log") as mock_log,
+        pytest.raises(OSError, match="Permission denied"),
     ):
         response_data.save_responses()
-        mock_log.error.assert_called_once()
-        assert "Error writing response data" in mock_log.error.call_args[0][0]
-        assert "Permission denied" in str(mock_log.error.call_args)
 
 
 def test_save_responses_includes_attendee_numbers(mock_paths):
@@ -728,7 +568,10 @@ def test_migration_old_format_responses_only(mock_paths):
     assert len(result["Event A"]["waitlist"]) == 0
     assert len(result["Event B"]["waitlist"]) == 0
 
-    # Verify file was saved in new format
+    # Reading leaves the original intact; explicit saves/mutations serialize the migrated snapshot.
+    with open(mock_paths["responses"], "r") as f:
+        assert json.load(f) == old_format_data
+    response_data.save_responses()
     with open(mock_paths["responses"], "r") as f:
         saved_data = json.load(f)
 
@@ -781,7 +624,8 @@ def test_migration_with_old_waitlist_file(mock_paths, mock_config):
     assert result["Event A"]["attendees"][0].user_id == 123
     assert result["Event A"]["waitlist"][0].user_id == 999
 
-    # Verify file was saved in new format
+    # Persisting the validated snapshot migrates both lists in one responses-file replacement.
+    response_data.save_responses()
     with open(mock_paths["responses"], "r") as f:
         saved_data = json.load(f)
 
@@ -931,20 +775,11 @@ def test_save_response_with_extras_names(mock_paths):
     """Test saving Response with extras_names to file."""
     response_data.RESPONSE_DATA_CACHE = {"Event A": make_event_data([RESP_4_OBJ])}
 
-    m_open = mock_open()
-    with (
-        patch("builtins.open", m_open),
-        patch("json.dump") as mock_json_dump,
-    ):
+    with patch("offkai_bot.data.response.atomic_write_json") as writer:
         response_data.save_responses()
-
-        # Verify json.dump was called
-        mock_json_dump.assert_called_once()
-        args, kwargs = mock_json_dump.call_args
-
-        # Check the data being saved includes extras_names
-        saved_data = args[0]
-        assert saved_data["Event A"]["attendees"][0].extras_names == ["Alice", "Bob"]
+    writer.assert_called_once()
+    saved_data = writer.call_args.args[1]
+    assert saved_data["Event A"]["attendees"][0].extras_names == ["Alice", "Bob"]
 
 
 def test_waitlist_entry_with_extras_names(mock_paths):
@@ -1653,6 +1488,7 @@ def test_assign_attendee_numbers_sorts_by_username_and_user_id_with_extras(mock_
     response_data.RESPONSE_DATA_CACHE = {"Event N": make_event_data([bob, alice_with_guests, alice_tie])}
 
     max_attendee_number = response_data.assign_attendee_numbers("Event N")
+    bob, alice_with_guests, alice_tie = response_data.get_responses("Event N")
 
     assert alice_tie.attendee_number == 1
     assert alice_with_guests.attendee_number == 2
@@ -1803,8 +1639,10 @@ def test_clear_attendee_numbers_removes_all_numbers(mock_paths):
 
     response_data.clear_attendee_numbers("Event N")
 
-    assert response.attendee_number is None
-    assert response.extras_attendee_numbers == []
+    response_data.RESPONSE_DATA_CACHE = None
+    cleared = response_data.get_responses("Event N")[0]
+    assert cleared.attendee_number is None
+    assert cleared.extras_attendee_numbers == []
 
 
 def test_calculate_attendance_uses_stored_number_order(mock_paths):
@@ -2018,5 +1856,6 @@ def test_assign_attendee_numbers_uses_effective_name_order(mock_paths):
 
     response_data.assign_attendee_numbers("Event Numbering")
 
-    assert alpha.attendee_number == 1
-    assert zeta.attendee_number == 2
+    response_data.RESPONSE_DATA_CACHE = None
+    numbers = {entry.user_id: entry.attendee_number for entry in response_data.get_responses("Event Numbering")}
+    assert numbers == {2: 1, 1: 2}

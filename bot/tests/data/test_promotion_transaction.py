@@ -10,6 +10,7 @@ import discord
 import pytest
 
 from offkai_bot.cogs.events import EventsCog
+from offkai_bot.data import event as event_data
 from offkai_bot.data import response as data
 from offkai_bot.data.encoders import DataclassJSONEncoder
 from offkai_bot.errors import DuplicateResponseError
@@ -20,6 +21,7 @@ from offkai_bot.interactions import promote_waitlist_batch
 @pytest.mark.parametrize("failure", [None, "encode", "replace"])
 async def test_promotion_snapshots_and_failure_rollback(manual, failure, sample_event_list, mock_config):
     event = sample_event_list[0]
+    event_data.EVENT_DATA_CACHE = [event]
     event.open = False
     event.closed_attendance_count = 10
     event.max_attendee_number = 15
@@ -142,6 +144,7 @@ def test_promotion_reuses_numbering_rules(
     sample_event_list, open_event, existing_number, closed_count, historic_max, expected
 ):
     event = sample_event_list[0]
+    event_data.EVENT_DATA_CACHE = [event]
     event.open = open_event
     event.closed_attendance_count = closed_count
     event.max_attendee_number = historic_max
@@ -162,6 +165,7 @@ def test_promotion_reuses_numbering_rules(
 
 def test_event_metadata_failure_keeps_committed_response_consistent(sample_event_list, mock_config):
     event = sample_event_list[0]
+    event_data.EVENT_DATA_CACHE = [event]
     event.open = False
     entry = data.WaitlistEntry(1, "waiting", 0, True, True, event.event_name, datetime.now(UTC))
     data.RESPONSE_DATA_CACHE = {event.event_name: data.EventData(attendees=[], waitlist=[entry])}
