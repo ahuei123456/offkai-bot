@@ -880,6 +880,15 @@ class GatheringModal(ui.Modal):
         await self._submit(interaction)
 
     async def _submit(self, interaction: discord.Interaction, *, final: bool = False):
+        if self.event.archived:
+            await modal_error_message(
+                interaction,
+                self.event_name,
+                "This event is archived and no longer accepts signups.",
+                in_dm=self.reply_in_dm,
+            )
+            return False
+
         # 1. Get Input Values. The final (post-payment) step reuses the answers
         # captured on the first submit rather than re-reading the input widgets.
         if final and self._submitted_answers is not None:
@@ -1153,7 +1162,7 @@ class InterestCheckModal(ui.Modal):
         try:
             # The modal can remain open in a user's client after the interest
             # check has been closed, so re-check its state at submission time.
-            if not self.event.open or self.event.is_past_deadline:
+            if self.event.archived or not self.event.open or self.event.is_past_deadline:
                 await error_message(interaction, "This interest check is no longer accepting responses.")
                 return
 
@@ -1254,6 +1263,10 @@ class EventView(ui.View):
             f"📝 Current registration count for **{self.event.event_name}**: {num}",
             ephemeral=True,
         )
+
+
+class ArchivedEvent(EventView):
+    """Archived events retain only the read-only attendance count."""
 
 
 class OpenEvent(EventView):
@@ -1535,6 +1548,9 @@ class InterestCheckEvent(EventView):
         custom_id="interest_button",
     )
     async def register_interest(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.event.archived:
+            await error_message(interaction, "This interest check is archived and no longer accepts responses.")
+            return
         await interaction.response.send_modal(InterestCheckModal(event=self.event))
 
     @discord.ui.button(
@@ -1544,6 +1560,9 @@ class InterestCheckEvent(EventView):
         custom_id="interest_withdraw_button",
     )
     async def withdraw_interest(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.event.archived:
+            await error_message(interaction, "This interest check is archived and cannot be changed.")
+            return
         try:
             remove_response(self.event.event_name, interaction.user.id)
         except ResponseNotFoundError:
@@ -1909,6 +1928,9 @@ async def send_signup_reply(
 
 
 async def start_signup(interaction: discord.Interaction, event: Event):
+    if event.archived:
+        await error_message(interaction, "This event is archived and no longer accepts signups.")
+        return
     await interaction.response.send_modal(GatheringModal(event=event))
 
 
@@ -2071,6 +2093,9 @@ class SignupContinuation(ui.View):
             await previous.finish(superseded=True)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.signup.event.archived:
+            await error_message(interaction, "This event is archived and no longer accepts signups.")
+            return False
         if interaction.user.id == self.owner_id and not self.finished:
             return True
         await error_message(interaction, "This signup is finished or belongs to another user.")

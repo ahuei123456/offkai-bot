@@ -48,6 +48,7 @@ def mock_event():
     # A bare MagicMock attribute is truthy, which would misroute get_event_view
     # into the interest-check branch.
     event.interest_check = False
+    event.archived = False
     return event
 
 
