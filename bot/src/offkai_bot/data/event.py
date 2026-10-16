@@ -2,14 +2,23 @@
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from typing import Any, cast
 
 # Use relative imports for sibling modules within the package
 from offkai_bot.config import get_config
 from offkai_bot.data.atomic import atomic_write_json, backup_corrupted_file
 from offkai_bot.data.encoders import DataclassJSONEncoder
-from offkai_bot.data.response import Response, add_response, get_max_attendee_number, get_responses, get_waitlist
+from offkai_bot.data.response import (
+    Response,
+    add_response,
+    assign_attendee_numbers,
+    clear_attendee_numbers,
+    get_max_attendee_number,
+    get_responses,
+    get_waitlist,
+)
 from offkai_bot.errors import (
     CapacityReductionError,
     CapacityReductionWithWaitlistError,
@@ -183,176 +192,76 @@ EVENT_DATA_CACHE: list[Event] | None = None
 
 
 def _load_event_data() -> list[Event]:
-    """
-    Loads event data from JSON, converts to Event dataclasses,
-    and handles missing or empty files. (Internal use)
-    """
-    settings = get_config()
+    """Load valid current or legacy records; never publish a partial database."""
     global EVENT_DATA_CACHE
-    events_list = []
-    file_path = settings["EVENTS_FILE"]
+    file_path = get_config()["EVENTS_FILE"]
+    if not os.path.exists(file_path):
+        atomic_write_json(file_path, [], indent=4)
 
     try:
-        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-            raise FileNotFoundError
-
         with open(file_path, "r", encoding="utf-8") as file:
             raw_data = json.load(file)
-
         if not isinstance(raw_data, list):
-            _log.error(
-                "Invalid format in %s: Expected a JSON list, got %s. Loading empty list.",
-                file_path,
-                type(raw_data),
-            )
-            raw_data = []
-
-        for event_dict in raw_data:
-            # --- Check for required 'event_name' BEFORE trying to create Event ---
-            if "event_name" not in event_dict or not event_dict["event_name"]:
-                _log.error("Skipping event entry due to missing or empty 'event_name'. Data: %s", event_dict)
-                continue  # Skip this dictionary and move to the next one
-
-            # --- Parse and Convert event_datetime ---
-            event_datetime_utc = None
-            raw_dt_str = event_dict.get("event_datetime")
-            if raw_dt_str:
-                try:
-                    dt_obj = datetime.fromisoformat(raw_dt_str)
-                    if dt_obj.tzinfo is None:
-                        # Assume naive datetime is JST, make aware, convert to UTC
-                        aware_jst = dt_obj.replace(tzinfo=JST)
-                        event_datetime_utc = aware_jst.astimezone(UTC)
-                        _log.debug(
-                            "Converted naive datetime '%s' (assumed JST) to UTC: %s",
-                            raw_dt_str,
-                            event_datetime_utc,
-                        )
-                    else:
-                        # Already aware, just convert to UTC
-                        event_datetime_utc = dt_obj.astimezone(UTC)
-                        _log.debug("Converted aware datetime '%s' to UTC: %s", raw_dt_str, event_datetime_utc)
-                except (ValueError, TypeError) as e:
-                    _log.warning(
-                        "Could not parse/convert ISO datetime '%s' for %s: %s",
-                        raw_dt_str,
-                        event_dict.get("event_name"),
-                        e,
-                    )
-
-            if event_datetime_utc is None:
-                _log.error("Skipping event entry due to missing or empty 'event_datetime'. Data: %s", event_dict)
-                continue
-            # --- End event_datetime Parsing ---
-
-            # --- Parse and Convert event_deadline ---
-            event_deadline_utc = None
-            raw_deadline_str = event_dict.get("event_deadline")
-            if raw_deadline_str:
-                try:
-                    dt_obj = datetime.fromisoformat(raw_deadline_str)
-                    if dt_obj.tzinfo is None:
-                        # Assume naive datetime is JST, make aware, convert to UTC
-                        aware_jst = dt_obj.replace(tzinfo=JST)
-                        event_deadline_utc = aware_jst.astimezone(UTC)
-                        _log.debug(
-                            "Converted naive deadline '%s' (assumed JST) to UTC: %s",
-                            raw_deadline_str,
-                            event_deadline_utc,
-                        )
-                    else:
-                        # Already aware, just convert to UTC
-                        event_deadline_utc = dt_obj.astimezone(UTC)
-                        _log.debug("Converted aware deadline '%s' to UTC: %s", raw_deadline_str, event_deadline_utc)
-                except (ValueError, TypeError) as e:
-                    _log.warning(
-                        "Could not parse/convert ISO deadline '%s' for %s: %s",
-                        raw_deadline_str,
-                        event_dict.get("event_name"),
-                        e,
-                    )
-                    event_deadline_utc = None  # Keep as None on error
-            # --- End event_deadline Parsing ---
-
-            drinks = event_dict.get("drinks", [])
-
-            try:
-                if "event_deadline" in event_dict:
-                    event = Event(
-                        event_name=event_dict["event_name"],
-                        venue=event_dict.get("venue", "Unknown Venue"),
-                        address=event_dict.get("address", "Unknown Address"),
-                        google_maps_link=event_dict.get("google_maps_link", ""),
-                        event_datetime=event_datetime_utc,
-                        event_deadline=event_deadline_utc,
-                        message=event_dict.get("message"),
-                        channel_id=event_dict.get("channel_id"),
-                        thread_id=event_dict.get("thread_id"),
-                        message_id=event_dict.get("message_id"),
-                        open=event_dict.get("open", False),
-                        archived=event_dict.get("archived", False),
-                        drinks=drinks,
-                        max_capacity=event_dict.get("max_capacity"),
-                        creator_id=event_dict.get("creator_id"),
-                        closed_attendance_count=event_dict.get("closed_attendance_count"),
-                        max_attendee_number=event_dict.get("max_attendee_number"),
-                        ping_role_id=event_dict.get("ping_role_id"),
-                        role_id=event_dict.get("role_id"),
-                        interest_check=event_dict.get("interest_check", False),
-                        signup_form=event_dict.get("signup_form"),
-                    )
-                else:
-                    # Old format, so we ignore channel_id and event_deadline
-                    event = Event(
-                        event_name=event_dict["event_name"],
-                        venue=event_dict.get("venue", "Unknown Venue"),
-                        address=event_dict.get("address", "Unknown Address"),
-                        google_maps_link=event_dict.get("google_maps_link", ""),
-                        event_datetime=event_datetime_utc,
-                        event_deadline=None,
-                        message=event_dict.get("message"),
-                        channel_id=None,  # No deadline, so no channel
-                        thread_id=event_dict.get("channel_id"),
-                        message_id=event_dict.get("message_id"),
-                        open=event_dict.get("open", False),
-                        archived=event_dict.get("archived", False),
-                        drinks=drinks,
-                        max_capacity=event_dict.get("max_capacity"),
-                        creator_id=event_dict.get("creator_id"),
-                        closed_attendance_count=event_dict.get("closed_attendance_count"),
-                        max_attendee_number=event_dict.get("max_attendee_number"),
-                        ping_role_id=event_dict.get("ping_role_id"),
-                        role_id=event_dict.get("role_id"),
-                        interest_check=event_dict.get("interest_check", False),
-                        signup_form=event_dict.get("signup_form"),
-                    )
-                    _log.info(
-                        "Found old events.json format for %s. Successfully converted to new format.",
-                        event.event_name,
-                    )
-                events_list.append(event)
-            except TypeError as e:
-                _log.error("Error creating Event object from dict %s: %s", event_dict, e)
-
-    except FileNotFoundError:
-        _log.warning("%s not found or empty. Creating default empty file.", file_path)
-        try:
-            with open(file_path, "w", encoding="utf-8") as file:
-                json.dump([], file, indent=4)
-            _log.info("Created empty events file at %s", file_path)
-        except OSError as e:
-            _log.error("Could not create default events file at %s: %s", file_path, e)
-        EVENT_DATA_CACHE = []
-        return []
-    except json.JSONDecodeError:
-        _log.error("Error decoding JSON from %s. File might be corrupted or invalid. Loading empty list.", file_path)
+            raise ValueError("Events data must be a list")
+        events_list: list[Event] = []
+        for index, raw_record in enumerate(raw_data):
+            if not isinstance(raw_record, dict):
+                raise ValueError(f"Invalid event record at index {index}")
+            record = cast(dict[str, Any], raw_record)
+            if not isinstance(record.get("event_name"), str) or not record["event_name"]:
+                raise ValueError(f"Invalid event record at index {index}")
+            values = dict(record)
+            for name in ("event_datetime", "event_deadline"):
+                raw = values.get(name)
+                if raw is None and name == "event_deadline":
+                    continue
+                if not isinstance(raw, str):
+                    raise ValueError(f"Invalid {name} for event {record['event_name']}")
+                parsed = datetime.fromisoformat(raw)
+                values[name] = (parsed if parsed.tzinfo else parsed.replace(tzinfo=JST)).astimezone(UTC)
+            for name in ("venue", "address", "google_maps_link"):
+                if name in values and not isinstance(values[name], str):
+                    raise ValueError(f"Invalid {name} for event {record['event_name']}")
+            for name in ("open", "archived", "interest_check"):
+                if name in values and type(values[name]) is not bool:
+                    raise ValueError(f"Invalid {name} for event {record['event_name']}")
+            for name in (
+                "channel_id",
+                "thread_id",
+                "message_id",
+                "max_capacity",
+                "creator_id",
+                "closed_attendance_count",
+                "max_attendee_number",
+                "ping_role_id",
+                "role_id",
+            ):
+                if values.get(name) is not None and type(values[name]) is not int:
+                    raise ValueError(f"Invalid {name} for event {record['event_name']}")
+            if not isinstance(values.get("drinks", []), list) or not all(
+                isinstance(drink, str) for drink in values.get("drinks", [])
+            ):
+                raise ValueError(f"Invalid drinks for event {record['event_name']}")
+            if values.get("signup_form") is not None and not isinstance(values["signup_form"], dict):
+                raise ValueError(f"Invalid signup form for event {record['event_name']}")
+            if values.get("message") is not None and not isinstance(values["message"], str):
+                raise ValueError(f"Invalid message for event {record['event_name']}")
+            if "event_deadline" not in record:
+                values["thread_id"] = record.get("channel_id")
+                values["channel_id"] = None
+                _log.info(
+                    "Found old events.json format for %s. Successfully converted to new format.", record["event_name"]
+                )
+            # Historical records omit descriptive fields; preserve their existing defaults.
+            values.setdefault("venue", "Unknown Venue")
+            values.setdefault("address", "Unknown Address")
+            values.setdefault("google_maps_link", "")
+            known = {name: value for name, value in values.items() if name in Event.__dataclass_fields__}
+            events_list.append(Event(**known))
+    except (ValueError, TypeError, OSError):
         backup_corrupted_file(file_path)
-        EVENT_DATA_CACHE = []
-        return []
-    except Exception as e:
-        _log.exception("An unexpected error occurred loading event data from %s: %s", file_path, e)
-        EVENT_DATA_CACHE = []
-        return []
+        _log.exception("Cannot load events from %s; original data preserved.", file_path)
+        raise
 
     EVENT_DATA_CACHE = events_list
     return events_list
@@ -366,26 +275,29 @@ def load_event_data() -> list[Event]:
         return _load_event_data()
 
 
-def save_event_data():
-    """Saves the current state of EVENT_DATA_CACHE to the JSON file."""
-    global EVENT_DATA_CACHE
-    settings = get_config()
-    if EVENT_DATA_CACHE is None:
-        _log.error("Attempted to save event data before loading.")
-        return
+def save_event_data(data: list[Event] | None = None) -> None:
+    """Persist a supplied snapshot or the loaded cache; write failures propagate."""
+    if data is None:
+        data = EVENT_DATA_CACHE
+    if data is None:
+        raise RuntimeError("Attempted to save event data before loading")
+    atomic_write_json(get_config()["EVENTS_FILE"], data, indent=4, cls=DataclassJSONEncoder, ensure_ascii=False)
 
-    try:
-        atomic_write_json(
-            settings["EVENTS_FILE"],
-            EVENT_DATA_CACHE,
-            indent=4,
-            cls=DataclassJSONEncoder,
-            ensure_ascii=False,
-        )
-    except OSError as e:
-        _log.error("Error writing event data to %s: %s", settings["EVENTS_FILE"], e)
-    except Exception as e:
-        _log.exception("An unexpected error occurred saving event data: %s", e)
+
+def persist_event_changes(event: Event, **changes: Any) -> Event:
+    """Commit one event's fields while preserving references held by views/modals.
+
+    A failed write leaves the shared event untouched. This commits only the events
+    file; response numbering, rankings, and Discord side effects are separate.
+    """
+    events = load_event_data()
+    staged = replace(event, **changes)
+    if not any(current is event for current in events):
+        raise EventNotFoundError(event.event_name)
+    save_event_data([staged if current is event else current for current in events])
+    for name in changes:
+        setattr(event, name, getattr(staged, name))
+    return event
 
 
 def add_response_for_event(event: Event, response: Response) -> int | None:
@@ -406,8 +318,7 @@ def add_response_for_event(event: Event, response: Response) -> int | None:
         attendee_number_start=attendee_number_start,
     )
     if assigned_max_number is not None:
-        event.max_attendee_number = assigned_max_number
-        save_event_data()
+        persist_event_changes(event, max_attendee_number=assigned_max_number)
     return assigned_max_number
 
 
@@ -439,7 +350,7 @@ def add_event(
     signup_form: dict | None = None,
     interest_check: bool = False,  # Lightweight interest gauge instead of a binding signup
 ) -> Event:
-    """Creates an Event object and adds it to the in-memory cache."""
+    """Create and durably store an event before any announcement is attempted."""
 
     # Step 1: Validation
     # validate_event_datetime(event_datetime)
@@ -468,14 +379,11 @@ def add_event(
         signup_form=signup_form,
     )
 
-    # Step 3: State Modification
-    events_cache = load_event_data()  # Get or load the cache
+    events_cache = load_event_data()
+    save_event_data([*events_cache, new_event])
     events_cache.append(new_event)
-    _log.info("Event '%s' added to cache.", event_name)
-
-    # DO NOT SAVE HERE - Saving is handled later
-
-    return new_event  # Return the created event object
+    _log.info("Event '%s' persisted.", event_name)
+    return new_event
 
 
 def update_event_details(
@@ -492,8 +400,7 @@ def update_event_details(
     Finds an event by name, validates inputs, applies modifications if changes exist,
     and returns the updated event object.
 
-    Modifies the event object directly within the EVENT_DATA_CACHE only after all
-    validations pass and changes are detected. Does NOT save the data to disk.
+    Persists the staged record before applying changes to the shared event.
 
     Raises:
         EventNotFoundError: If the event cannot be found.
@@ -570,6 +477,8 @@ def update_event_details(
     if not modified:
         raise NoChangesProvidedError()
 
+    original = event
+    event = replace(event)
     # 5. Apply Changes (only if validation passed and changes exist)
     if venue is not None:
         event.venue = venue
@@ -586,17 +495,30 @@ def update_event_details(
     if max_capacity is not None:  # Apply the max_capacity
         event.max_capacity = max_capacity
 
-    # 6. Log and Return
-    _log.info("Event '%s' details updated in cache.", event_name)
-    return event
+    changes = {
+        name: getattr(event, name)
+        for name in (
+            "venue",
+            "address",
+            "google_maps_link",
+            "event_datetime",
+            "event_deadline",
+            "drinks",
+            "max_capacity",
+        )
+        if getattr(event, name) != getattr(original, name)
+    }
+    return persist_event_changes(original, **changes)
 
 
 def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
     """
     Finds an event by name, validates its status, and sets its 'open' status.
 
-    Modifies the event object directly within the EVENT_DATA_CACHE.
-    Does NOT save the data to disk.
+    Persists the staged record before updating the shared event.
+    Closing saves attendee numbering first, then the closed event/count in one
+    events-file write. Either failure leaves the event open and retryable; an
+    events-file failure may leave numbers already saved in the responses file.
 
     Args:
         event_name: The name of the event.
@@ -620,24 +542,32 @@ def set_event_open_status(event_name: str, target_open_status: bool) -> Event:
     if not target_open_status and not event.open:
         raise EventAlreadyClosedError(event_name)
 
+    original = event
+    event = replace(event)
     # Apply the change
     event.open = target_open_status
 
     # Handle closed_attendance_count
     if target_open_status:
+        # Keep the closed state retryable if clearing numbering cannot commit.
+        clear_attendee_numbers(event.event_name)
         # Reopening the event - clear the closed attendance count
         event.closed_attendance_count = None
         event.max_attendee_number = None
         _log.info("Event '%s' reopened, cleared closed_attendance_count.", event_name)
     else:
-        # Closing the event - capture current attendance count
+        # Numbering must succeed before closing becomes visible or durable.
         responses = get_responses(event.event_name)
         event.closed_attendance_count = sum(1 + r.extra_people for r in responses)
-        _log.info("Event '%s' closed with %s attendees.", event_name, event.closed_attendance_count)
+        if not event.interest_check:
+            event.max_attendee_number = assign_attendee_numbers(event.event_name)
 
-    status_text = "open" if target_open_status else "closed"
-    _log.info("Event '%s' marked as %s in cache.", event_name, status_text)
-    return event
+    return persist_event_changes(
+        original,
+        open=event.open,
+        closed_attendance_count=event.closed_attendance_count,
+        max_attendee_number=event.max_attendee_number,
+    )
 
 
 def archive_event(event_name: str) -> Event:
@@ -645,8 +575,7 @@ def archive_event(event_name: str) -> Event:
     Finds an event by name, validates its status, and marks it as archived.
     Also ensures the event is marked as closed.
 
-    Modifies the event object directly within the EVENT_DATA_CACHE.
-    Does NOT save the data to disk.
+    Persists the staged record before updating the shared event.
 
     Raises:
         EventNotFoundError: If the event cannot be found.
@@ -658,7 +587,4 @@ def archive_event(event_name: str) -> Event:
         # Raise specific error even if just checking status
         raise EventAlreadyArchivedError(event_name)
 
-    event.archived = True
-    event.open = False  # Archiving always closes the event
-    _log.info("Event '%s' marked as archived (and closed) in cache.", event_name)
-    return event
+    return persist_event_changes(event, archived=True, open=False)

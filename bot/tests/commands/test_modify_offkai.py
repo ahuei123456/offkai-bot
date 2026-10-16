@@ -108,13 +108,13 @@ def mock_modified_event():
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_success(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,  # Renamed from mock_update_msg
     mock_fetch_thread,  # Renamed from mock_client
     mock_interaction,
@@ -166,7 +166,7 @@ async def test_modify_offkai_success(
         drinks_str=new_drinks_str,
         max_capacity=None,
     )
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()  # update_event_details owns the durable commit.
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_modified_event)
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
@@ -179,13 +179,13 @@ async def test_modify_offkai_success(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_reschedules_deadline_alerts(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -228,13 +228,13 @@ async def test_modify_offkai_reschedules_deadline_alerts(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_success_without_deadline_change(  # New test
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -287,7 +287,7 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
         max_capacity=None,
     )
     # 2. Check save data
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     # 3. Check update original message/view
     mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
     # 4. Check fetching the thread via helper
@@ -305,13 +305,13 @@ async def test_modify_offkai_success_without_deadline_change(  # New test
 # *** NEW TEST for assigning missing channel_id ***
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_assigns_channel_id_if_missing(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,  # Use the fixture
@@ -355,18 +355,14 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
         event_name_to_modify,
     )
 
-    mock_save_data.assert_called_once()  # Verify save was called
+    mock_persist_changes.assert_called_once_with(event_returned_by_update, channel_id=interaction_channel_id)
 
     # Verify update_event_message was called with the modified object
     # The object passed is the same one modified in place by the command
     mock_update_msg_view.assert_awaited_once_with(ANY, event_returned_by_update)
-    # Explicitly check the ID on the object *after* the call
-    assert event_returned_by_update.channel_id == interaction_channel_id
 
     # Verify fetch_thread_for_event was called with the modified object
     mock_fetch_thread.assert_awaited_once_with(ANY, event_returned_by_update)
-    # ID check again (redundant but safe)
-    assert event_returned_by_update.channel_id == interaction_channel_id
 
     # Verify thread message was sent
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
@@ -397,7 +393,7 @@ async def test_modify_offkai_assigns_channel_id_if_missing(
 # Patches updated to include fetch_thread_for_event
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -405,7 +401,7 @@ async def test_modify_offkai_data_layer_errors(
     mock_log,
     mock_get_event,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,  # Include new patch
     mock_interaction,
@@ -448,7 +444,7 @@ async def test_modify_offkai_data_layer_errors(
         mock_update_details.assert_called_once()
 
     # Assert subsequent steps were NOT called/awaited
-    mock_save_data.assert_not_called()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called
     mock_interaction.followup.send.assert_not_awaited()
@@ -465,13 +461,13 @@ async def test_modify_offkai_data_layer_errors(
 )
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_fetch_thread_errors(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -513,7 +509,7 @@ async def test_modify_offkai_fetch_thread_errors(
     # Assert
     # Steps up to fetching thread should succeed
     mock_update_details.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once_with(ANY, mock_modified_event)
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
 
@@ -532,13 +528,13 @@ async def test_modify_offkai_fetch_thread_errors(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_send_update_fails(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -570,7 +566,7 @@ async def test_modify_offkai_send_update_fails(
 
     # Assert
     mock_update_details.assert_called_once()
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(ANY, mock_modified_event)
     # Assert send was called
@@ -592,13 +588,13 @@ async def test_modify_offkai_send_update_fails(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_increase_capacity_success(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -638,7 +634,7 @@ async def test_modify_offkai_increase_capacity_success(
         drinks_str=None,
         max_capacity=50,
     )
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
     mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
@@ -649,13 +645,13 @@ async def test_modify_offkai_increase_capacity_success(
 
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events._log")
 async def test_modify_offkai_decrease_capacity_success(
     mock_log,
     mock_update_details,
-    mock_save_data,
+    mock_persist_changes,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_interaction,
@@ -695,7 +691,7 @@ async def test_modify_offkai_decrease_capacity_success(
         drinks_str=None,
         max_capacity=30,
     )
-    mock_save_data.assert_called_once()
+    mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_awaited_once_with(ANY, event_after_update)
     mock_fetch_thread.assert_awaited_once_with(ANY, event_after_update)
     mock_thread.send.assert_awaited_once_with(f"**Event Updated:**\n{update_text}")
@@ -763,7 +759,7 @@ async def test_modify_offkai_decrease_capacity_with_waitlist_fails(
 @patch("offkai_bot.cogs.events.save_responses")
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -814,7 +810,6 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
 
     # Assert
     mock_update_details.assert_called_once()
-    mock_save_event_data.assert_called_once()
 
     # Verify waitlist promotion was called
     mock_promote_waitlist_batch.assert_awaited_once_with(event_after_update, ANY)
@@ -835,7 +830,7 @@ async def test_modify_offkai_capacity_increase_promotes_waitlist(
 @patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -883,7 +878,6 @@ async def test_modify_offkai_capacity_increase_empty_waitlist(
 
     # Assert
     mock_update_details.assert_called_once()
-    mock_save_event_data.assert_called_once()
 
     # Verify waitlist promotion was called
     mock_promote_waitlist_batch.assert_awaited_once_with(event_after_update, ANY)
@@ -895,7 +889,7 @@ async def test_modify_offkai_capacity_increase_empty_waitlist(
 @patch("offkai_bot.cogs.events.promote_waitlist_batch", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.cogs.events.save_event_data")
+@patch("offkai_bot.cogs.events.persist_event_changes")
 @patch("offkai_bot.cogs.events.update_event_details")
 @patch("offkai_bot.cogs.events.get_event")
 @patch("offkai_bot.cogs.events._log")
@@ -940,7 +934,6 @@ async def test_modify_offkai_non_capacity_change_no_promotion(
 
     # Assert
     mock_update_details.assert_called_once()
-    mock_save_event_data.assert_called_once()
 
     # Verify waitlist promotion was NOT called (capacity didn't change)
     mock_promote_waitlist_batch.assert_not_awaited()

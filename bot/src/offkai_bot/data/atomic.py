@@ -20,6 +20,7 @@ def atomic_write_json(file_path: str, data: object, **json_kwargs) -> None:
     `file_path` truncated or partially written.
     """
     directory = os.path.dirname(file_path) or "."
+    os.makedirs(directory, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=f"{os.path.basename(file_path)}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as file:
@@ -35,11 +36,8 @@ def atomic_write_json(file_path: str, data: object, **json_kwargs) -> None:
 
 def backup_corrupted_file(file_path: str) -> None:
     """
-    Preserves a data file that failed to parse before it can be silently
-    overwritten by the next save.
-
-    Without this, a load failure resets the in-memory cache to empty and the
-    next save destroys the corrupted-but-possibly-recoverable file for good.
+    Preserves an invalid data file for operator repair. Loaders still fail closed
+    and leave the original in place, even if this best-effort backup cannot be made.
     """
     if not os.path.exists(file_path):
         return

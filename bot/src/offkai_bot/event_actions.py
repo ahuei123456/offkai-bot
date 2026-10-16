@@ -5,10 +5,10 @@ import discord
 from offkai_bot.data.event import (
     Event,
     create_event_message,
-    save_event_data,
+    persist_event_changes,
     set_event_open_status,
 )
-from offkai_bot.data.response import assign_attendee_numbers, get_effective_display_name, get_responses, save_responses
+from offkai_bot.data.response import get_effective_display_name, get_responses
 from offkai_bot.errors import (
     BotCommandError,
     MissingChannelIDError,
@@ -105,12 +105,6 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 
     # 1. Update status in data store (raises EventNotFoundError if not found)
     closed_event = set_event_open_status(event_name, target_open_status=False)
-    if not closed_event.interest_check:
-        closed_event.max_attendee_number = assign_attendee_numbers(closed_event.event_name)
-
-    # 2. Save the change
-    save_responses()
-    save_event_data()
     _log.info("Event '%s' status set to closed and data saved.", event_name)
 
     # 3. Update the message view
@@ -155,8 +149,7 @@ async def perform_close_event(client: discord.Client, event_name: str, close_msg
 async def send_event_message(channel: discord.Thread, event: Event):
     """Sends a new event message, pins it, and saves the message ID."""
     if not isinstance(event, Event):
-        _log.error("send_event_message received non-Event object: %s", type(event))
-        return
+        raise TypeError(f"send_event_message requires Event, got {type(event).__name__}")
 
     view = get_event_view(event)
     message = None
@@ -166,8 +159,7 @@ async def send_event_message(channel: discord.Thread, event: Event):
 
         # Update and save the event BEFORE trying to pin. This ensures the message
         # is tracked even if pinning fails.
-        event.message_id = message.id
-        save_event_data()
+        persist_event_changes(event, message_id=message.id)
         _log.info("Sent new event message for '%s' (ID: %s) in channel %s", event.event_name, message.id, channel.id)
 
         # Now, attempt to pin the message
@@ -184,8 +176,10 @@ async def send_event_message(channel: discord.Thread, event: Event):
     except discord.HTTPException as e:
         # Catch other HTTP errors from send or pin
         _log.error("Failed to send or pin event message for %s in channel %s: %s", event.event_name, channel.id, e)
+        raise
     except Exception as e:
         _log.exception("Unexpected error sending event message for %s: %s", event.event_name, e)
+        raise
 
 
 # --- REFACTORED fetch_thread_for_event ---
@@ -239,7 +233,7 @@ async def fetch_thread_for_event(client: discord.Client, event: Event) -> discor
 
 
 async def _fetch_event_message(thread: discord.Thread, event: Event) -> discord.Message | None:
-    """Fetches the existing event message. Returns None if not found/fetchable, clears event.message_id if not found."""
+    """Fetch the announcement without changing its saved identity until replacement succeeds."""
     if not event.message_id:
         return None  # No ID to fetch
 
@@ -254,7 +248,6 @@ async def _fetch_event_message(thread: discord.Thread, event: Event) -> discord.
             thread.id,
             event.event_name,
         )
-        event.message_id = None  # Clear invalid ID
         return None
     except discord.errors.Forbidden:
         _log.error(
@@ -263,7 +256,7 @@ async def _fetch_event_message(thread: discord.Thread, event: Event) -> discord.
             thread.id,
             event.event_name,
         )
-        return None  # Cannot proceed
+        raise
     except discord.HTTPException as e:
         _log.error(
             "HTTP error fetching message %s in thread %s for event '%s': %s",
@@ -272,10 +265,10 @@ async def _fetch_event_message(thread: discord.Thread, event: Event) -> discord.
             event.event_name,
             e,
         )
-        return None  # Avoid proceeding if fetch failed unexpectedly
+        raise
     except Exception as e:
         _log.exception("Unexpected error fetching message %s for event '%s': %s", event.message_id, event.event_name, e)
-        return None  # Avoid proceeding on unknown errors
+        raise
 
 
 # --- REFACTORED update_event_message ---
@@ -306,13 +299,11 @@ async def update_event_message(client: discord.Client, event: Event):
 
     # If fetch succeeded, thread is guaranteed to be a discord.Thread
 
-    # 2. Fetch Existing Message (if applicable)
-    message = await _fetch_event_message(thread, event)
-    # If fetching failed due to permissions/HTTP error, message will be None, and we stop.
-    # If message was not found (NotFound), message is None, and event.message_id is cleared.
-    if message is None and event.message_id is not None:
-        # This condition means fetching failed due to permissions/HTTP error, not just NotFound
-        # Error was already logged by _fetch_event_message, so just return
+    # None means no saved ID or confirmed NotFound. Other fetch failures are
+    # logged by the helper and must not create a duplicate announcement.
+    try:
+        message = await _fetch_event_message(thread, event)
+    except Exception:
         return
 
     # 3. Determine Action: Edit or Send New
@@ -338,4 +329,7 @@ async def update_event_message(client: discord.Client, event: Event):
     else:
         # Send a new message (handles missing ID or NotFound error during fetch)
         _log.info("Sending new event message for '%s' to thread %s.", event.event_name, thread.id)
-        await send_event_message(thread, event)
+        try:
+            await send_event_message(thread, event)
+        except Exception:
+            _log.exception("Event '%s' remains saved, but its announcement could not be replaced.", event.event_name)

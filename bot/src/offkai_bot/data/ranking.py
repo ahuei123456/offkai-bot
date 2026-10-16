@@ -2,7 +2,7 @@
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from offkai_bot.config import get_config
 from offkai_bot.data.atomic import atomic_write_json, backup_corrupted_file
@@ -33,6 +33,10 @@ def _parse_ranking_from_dict(rank_dict: dict) -> UserRank | None:
         achieved_rank_1 = rank_dict.get("achieved_rank_1", False)
         achieved_rank_5 = rank_dict.get("achieved_rank_5", False)
         achieved_rank_10 = rank_dict.get("achieved_rank_10", False)
+        if not isinstance(username, str) or type(rank) is not int or rank < 0:
+            raise ValueError("Invalid username or rank")
+        if not all(type(value) is bool for value in (achieved_rank_1, achieved_rank_5, achieved_rank_10)):
+            raise ValueError("Invalid ranking achievement flag")
 
         return UserRank(
             username=username,
@@ -50,61 +54,26 @@ def _parse_ranking_from_dict(rank_dict: dict) -> UserRank | None:
 
 def _load_rankings() -> dict[str, UserRank]:
     global RANKING_DATA_CACHE
-    settings = get_config()
-    ranking_dict: dict[str, UserRank] = {}
-    file_path = settings["RANKING_FILE"]
+    file_path = get_config()["RANKING_FILE"]
+    if not os.path.exists(file_path):
+        atomic_write_json(file_path, {}, indent=4)
     try:
-        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-            raise FileNotFoundError
-
         with open(file_path, "r", encoding="utf-8") as file:
             raw_data = json.load(file)
-
         if not isinstance(raw_data, dict):
-            _log.error(
-                "Invalid format in %s: Expected a JSON object (dict), got %s. Loading empty responses.",
-                file_path,
-                type(raw_data),
-            )
-            raw_data = {}
-
-        for username, ranking_data in raw_data.items():
-            if not isinstance(ranking_data, dict):
-                _log.warning(
-                    "Invalid format for ranking '%s' in %s: "
-                    "Expected a dict with 'attendees'/'waitlist', got %s. Skipping.",
-                    ranking_data,
-                    file_path,
-                    type(ranking_data),
-                )
-                continue
-
-            ranking = _parse_ranking_from_dict(ranking_data)
-            if ranking:
-                ranking_dict[username] = ranking
-
-    except FileNotFoundError:
-        _log.warning("%s not found or empty. Creating default empty file.", file_path)
-        try:
-            with open(file_path, "w", encoding="utf-8") as file:
-                json.dump({}, file, indent=4)
-            _log.info("Created empty responses file at %s", file_path)
-        except OSError as e:
-            _log.error("Could not create default responses file at %s: %s", file_path, e)
-        RANKING_DATA_CACHE = {}
-        return {}
-    except json.JSONDecodeError:
-        _log.error(
-            "Error decoding JSON from %s. File might be corrupted or invalid. Loading empty responses.", file_path
-        )
+            raise ValueError("Rankings data must be an object")
+        ranking_dict: dict[str, UserRank] = {}
+        for key, record in raw_data.items():
+            if not isinstance(record, dict):
+                raise ValueError(f"Invalid ranking record for {key}")
+            ranking = _parse_ranking_from_dict(record)
+            if ranking is None:
+                raise ValueError(f"Invalid ranking record for {key}")
+            ranking_dict[key] = ranking
+    except (ValueError, TypeError, OSError):
         backup_corrupted_file(file_path)
-        RANKING_DATA_CACHE = {}
-        return {}
-    except Exception as e:
-        _log.exception("An unexpected error occurred loading response data from %s: %s", file_path, e)
-        RANKING_DATA_CACHE = {}
-        return {}
-
+        _log.exception("Cannot load rankings from %s; original data preserved.", file_path)
+        raise
     RANKING_DATA_CACHE = ranking_dict
     return ranking_dict
 
@@ -116,26 +85,20 @@ def load_rankings() -> dict[str, UserRank]:
         return _load_rankings()
 
 
-def save_rankings():
-    """Saves the current state of RANKING_DATA_CACHE to the JSON file in new format."""
-    global RANKING_DATA_CACHE
-    settings = get_config()
-    if RANKING_DATA_CACHE is None:
-        _log.error("Attempted to save response data before loading.")
-        return
+def save_rankings(data: dict[str, UserRank] | None = None) -> None:
+    """Persist a supplied snapshot or the loaded cache; write failures propagate."""
+    if data is None:
+        data = RANKING_DATA_CACHE
+    if data is None:
+        raise RuntimeError("Attempted to save ranking data before loading")
+    atomic_write_json(get_config()["RANKING_FILE"], data, indent=4, cls=DataclassJSONEncoder, ensure_ascii=False)
 
-    try:
-        atomic_write_json(
-            settings["RANKING_FILE"],
-            RANKING_DATA_CACHE,
-            indent=4,
-            cls=DataclassJSONEncoder,
-            ensure_ascii=False,
-        )
-    except OSError as e:
-        _log.error("Error writing response data to %s: %s", settings["RANKING_FILE"], e)
-    except Exception as e:
-        _log.exception("An unexpected error occurred saving response data: %s", e)
+
+def _commit_rankings(staged: dict[str, UserRank]) -> None:
+    current = load_rankings()
+    save_rankings(staged)
+    current.clear()
+    current.update(staged)
 
 
 def _registered_identities() -> list[tuple[int, str]]:
@@ -176,6 +139,8 @@ def _get_user_rank(all_data: dict[str, UserRank], user_id: int, username: str) -
     key = str(user_id)
     user_data = all_data.get(key)
     if user_data is not None:
+        user_data = replace(user_data)
+        all_data[key] = user_data
         return user_data
 
     # Once every entry is ID-keyed there is nothing left to migrate.
@@ -191,14 +156,13 @@ def _get_user_rank(all_data: dict[str, UserRank], user_id: int, username: str) -
             continue
         del all_data[legacy_key]
         if migrated is None:
-            migrated = legacy_entry
+            migrated = replace(legacy_entry)
         else:
             _merge_rank_entries(migrated, legacy_entry)
         _log.info("Migrated legacy ranking entry '%s' to user ID %s (%s).", legacy_key, user_id, username)
     if migrated is not None:
         migrated.username = username
         all_data[key] = migrated
-        save_rankings()
     return migrated
 
 
@@ -209,7 +173,7 @@ def migrate_legacy_rank(user_id: int, username: str, legacy_key: str) -> int:
     Raises:
         LegacyRankEntryNotFoundError: If no legacy entry exists under legacy_key.
     """
-    all_data = load_rankings()
+    all_data = load_rankings().copy()
     entry = all_data.get(legacy_key)
     # Long digit-only keys are ID-keyed entries, not legacy usernames; refuse to move them.
     if entry is None or (legacy_key.isdigit() and len(legacy_key) >= 15):
@@ -218,18 +182,20 @@ def migrate_legacy_rank(user_id: int, username: str, legacy_key: str) -> int:
     del all_data[legacy_key]
     user_data = all_data.get(str(user_id))
     if user_data is None:
-        user_data = entry
+        user_data = replace(entry)
         all_data[str(user_id)] = user_data
     else:
+        user_data = replace(user_data)
+        all_data[str(user_id)] = user_data
         _merge_rank_entries(user_data, entry)
     user_data.username = username
-    save_rankings()
+    _commit_rankings(all_data)
     _log.info("Manually migrated legacy ranking entry '%s' to user ID %s (%s).", legacy_key, user_id, username)
     return user_data.rank
 
 
 def update_rank(user_id: int, username: str) -> None:
-    all_data = load_rankings()
+    all_data = load_rankings().copy()
     user_data = _get_user_rank(all_data, user_id, username)
     if user_data is None:
         user_data = UserRank(
@@ -238,30 +204,36 @@ def update_rank(user_id: int, username: str) -> None:
         all_data[str(user_id)] = user_data
     user_data.username = username
     user_data.rank += 1
-    save_rankings()
+    _commit_rankings(all_data)
     _log.info("Updated %s rank to %s.", username, user_data.rank)
 
 
 def decrease_rank(user_id: int, username: str) -> None:
-    all_data = load_rankings()
+    all_data = load_rankings().copy()
+    had_id_entry = str(user_id) in all_data
     user_data = _get_user_rank(all_data, user_id, username)
     if user_data and user_data.rank > 0:
         user_data.rank -= 1
-        save_rankings()
+        _commit_rankings(all_data)
         _log.info("Updated %s rank to %s.", username, user_data.rank)
+    elif user_data is not None and not had_id_entry:
+        _commit_rankings(all_data)
 
 
 def get_rank(user_id: int, username: str) -> int:
-    all_data = load_rankings()
+    all_data = load_rankings().copy()
+    had_id_entry = str(user_id) in all_data
     user_data = _get_user_rank(all_data, user_id, username)
     if user_data:
+        if not had_id_entry:
+            _commit_rankings(all_data)
         return user_data.rank
     else:
         user_data = UserRank(
             username=username, rank=0, achieved_rank_1=False, achieved_rank_5=False, achieved_rank_10=False
         )
         all_data[str(user_id)] = user_data
-        save_rankings()
+        _commit_rankings(all_data)
         _log.info("Created user rank for %s.", username)
         return 0
 
@@ -281,9 +253,11 @@ def can_rank_message_sent(user_id: int) -> bool:
 
 
 def mark_achieved_rank(user_id: int) -> None:
-    all_data = load_rankings()
+    all_data = load_rankings().copy()
     user_data = all_data.get(str(user_id))
     if user_data:
+        user_data = replace(user_data)
+        all_data[str(user_id)] = user_data
         match user_data.rank:
             case 1:
                 user_data.achieved_rank_1 = True
@@ -291,4 +265,4 @@ def mark_achieved_rank(user_id: int) -> None:
                 user_data.achieved_rank_5 = True
             case 10:
                 user_data.achieved_rank_10 = True
-        save_rankings()
+        _commit_rankings(all_data)

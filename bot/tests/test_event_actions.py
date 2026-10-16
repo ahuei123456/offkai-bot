@@ -70,7 +70,7 @@ def mock_closed_event(sample_event_list):
 # --- Tests for send_event_message ---
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.get_event_view")
 @patch("offkai_bot.event_actions._log")
@@ -99,12 +99,11 @@ async def test_send_event_message_sends_and_pins_for_open_event(
     mock_get_event_view.assert_called_once_with(mock_event)
     mock_thread.send.assert_awaited_once_with(message_content, view=mock_get_event_view.return_value)
     mock_message.pin.assert_awaited_once_with(reason="New event message.")
-    assert mock_event.message_id == mock_message.id
-    mock_save_data.assert_called_once()
+    mock_save_data.assert_called_once_with(mock_event, message_id=mock_message.id)
     mock_log.info.assert_called_once()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.ClosedEvent")
 @patch("offkai_bot.event_actions.OpenEvent")
@@ -136,12 +135,11 @@ async def test_send_event_message_sends_and_pins_for_closed_event(
     mock_open_event_view.assert_not_called()
     mock_thread.send.assert_awaited_once_with(message_content, view=mock_closed_event_view.return_value)
     mock_message.pin.assert_awaited_once_with(reason="New event message.")
-    assert mock_event.message_id == mock_message.id
-    mock_save_data.assert_called_once()
+    mock_save_data.assert_called_once_with(mock_event, message_id=mock_message.id)
     mock_log.info.assert_called_once()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.event_actions._log")
@@ -163,19 +161,20 @@ async def test_send_event_message_http_error_on_send(
     mock_event.message_id = None
 
     # Act
-    await send_event_message(mock_thread, mock_event)
+    with pytest.raises(discord.HTTPException):
+        await send_event_message(mock_thread, mock_event)
 
     # Assert
     mock_thread.send.assert_awaited_once()
     assert mock_event.message_id is None
-    mock_save_data.assert_not_called()
+
     mock_log.error.assert_called_once()
     # This assertion is now corrected to match the updated log message
     assert "Failed to send or pin event message" in mock_log.error.call_args[0][0]
     mock_log.info.assert_not_called()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.event_actions._log")
@@ -206,8 +205,7 @@ async def test_send_event_message_raises_on_pin_failure(
     assert exc_info.value.original_exception is forbidden_error
     mock_thread.send.assert_awaited_once()
     mock_message.pin.assert_awaited_once()
-    assert mock_event.message_id == mock_message.id
-    mock_save_data.assert_called_once()
+    mock_save_data.assert_called_once_with(mock_event, message_id=mock_message.id)
     mock_log.info.assert_called_once()
     mock_log.error.assert_not_called()
 
@@ -217,15 +215,11 @@ async def test_send_event_message_raises_on_pin_failure(
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
-@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_success_with_message(
     mock_log,
     mock_set_status,
-    mock_assign_attendee_numbers,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -238,7 +232,6 @@ async def test_perform_close_event_success_with_message(
     event_name_to_close = "Summer Bash"
     close_text = "Responses are now closed!"
     mock_set_status.return_value = mock_closed_event
-    mock_assign_attendee_numbers.return_value = 42
     mock_fetch_thread.return_value = mock_thread
     mock_thread.id = mock_closed_event.thread_id
     mock_thread.mention = f"<#{mock_thread.id}>"
@@ -253,9 +246,6 @@ async def test_perform_close_event_success_with_message(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
-    mock_assign_attendee_numbers.assert_called_once_with(event_name_to_close)
-    assert mock_closed_event.max_attendee_number == 42
-    mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
@@ -265,15 +255,11 @@ async def test_perform_close_event_success_with_message(
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
-@patch("offkai_bot.event_actions.assign_attendee_numbers")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_success_no_message(
     mock_log,
     mock_set_status,
-    mock_assign_attendee_numbers,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -285,7 +271,6 @@ async def test_perform_close_event_success_no_message(
     # Arrange
     event_name_to_close = "Summer Bash"
     mock_set_status.return_value = mock_closed_event
-    mock_assign_attendee_numbers.return_value = 42
 
     # Act
     result = await perform_close_event(
@@ -297,9 +282,6 @@ async def test_perform_close_event_success_no_message(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
-    mock_assign_attendee_numbers.assert_called_once_with(event_name_to_close)
-    assert mock_closed_event.max_attendee_number == 42
-    mock_save_data.assert_called_once()
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_fetch_thread.assert_not_awaited()
     mock_thread.send.assert_not_awaited()
@@ -315,13 +297,11 @@ async def test_perform_close_event_success_no_message(
 )
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_set_status_errors(
     mock_log,
     mock_set_status,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -343,20 +323,18 @@ async def test_perform_close_event_set_status_errors(
         )
 
     mock_set_status.assert_called_once_with(event_name, target_open_status=False)
-    mock_save_data.assert_not_called()
+
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()
 
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_update_message_error(
     mock_log,
     mock_set_status,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -379,7 +357,7 @@ async def test_perform_close_event_update_message_error(
         )
 
     mock_set_status.assert_called_once_with(event_name_to_close, target_open_status=False)
-    mock_save_data.assert_called_once()
+
     mock_update_msg_view.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_fetch_thread.assert_not_awaited()
 
@@ -394,13 +372,11 @@ async def test_perform_close_event_update_message_error(
 )
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_fetch_thread_errors_handled(
     mock_log,
     mock_set_status,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -429,7 +405,7 @@ async def test_perform_close_event_fetch_thread_errors_handled(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_not_awaited()
@@ -446,13 +422,11 @@ async def test_perform_close_event_fetch_thread_errors_handled(
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_send_close_msg_fails_handled(
     mock_log,
     mock_set_status,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -480,7 +454,7 @@ async def test_perform_close_event_send_close_msg_fails_handled(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")
@@ -495,13 +469,11 @@ async def test_perform_close_event_send_close_msg_fails_handled(
 
 @patch("offkai_bot.event_actions.fetch_thread_for_event", new_callable=AsyncMock)
 @patch("offkai_bot.event_actions.update_event_message", new_callable=AsyncMock)
-@patch("offkai_bot.event_actions.save_event_data")
 @patch("offkai_bot.event_actions.set_event_open_status")
 @patch("offkai_bot.event_actions._log")
 async def test_perform_close_event_unexpected_send_error_handled(
     mock_log,
     mock_set_status,
-    mock_save_data,
     mock_update_msg_view,
     mock_fetch_thread,
     mock_client,
@@ -529,7 +501,7 @@ async def test_perform_close_event_unexpected_send_error_handled(
     # Assert
     assert result == mock_closed_event
     mock_set_status.assert_called_once()
-    mock_save_data.assert_called_once()
+
     mock_update_msg_view.assert_awaited_once()
     mock_fetch_thread.assert_awaited_once_with(mock_client, mock_closed_event)
     mock_thread.send.assert_awaited_once_with(f"**Responses Closed:**\n{close_text}")

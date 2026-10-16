@@ -63,7 +63,7 @@ async def test_foreign_event_rejected_before_side_effects(scoped, command, kwarg
         patch("offkai_bot.cogs.events.fetch_thread_for_event", new_callable=AsyncMock) as fetch,
         patch("offkai_bot.cogs.events.perform_close_event", new_callable=AsyncMock) as close,
         patch("offkai_bot.cogs.events.remove_registration", new_callable=AsyncMock) as remove,
-        patch("offkai_bot.cogs.events.save_event_data") as save,
+        patch("offkai_bot.cogs.events.persist_event_changes") as save,
         pytest.raises(EventNotFoundError),
     ):
         await getattr(EventsCog, command).callback(cog, interaction, event_name="Foreign", **kwargs)

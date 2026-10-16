@@ -113,7 +113,7 @@ def mock_created_event():
 
 
 # Patches are updated to test the internals of send_event_message
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.cogs.events.register_deadline_reminders")
@@ -187,8 +187,7 @@ async def test_create_offkai_success_sends_and_pins_message(
     # Assert: Verify the logic within send_event_message was executed
     mock_thread.send.assert_awaited_once()
     mock_message.pin.assert_awaited_once_with(reason="New event message.")  # <-- CORRECTED
-    assert mock_created_event.message_id == mock_message.id
-    mock_save_event_data.assert_called_once()
+    mock_save_event_data.assert_called_once_with(mock_created_event, message_id=mock_message.id)
 
     # Assert: Verify the main command logic completed
     mock_add_event.assert_called_once()
@@ -196,7 +195,7 @@ async def test_create_offkai_success_sends_and_pins_message(
     mock_interaction.followup.send.assert_awaited_once()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.cogs.events.register_deadline_reminders")
@@ -268,8 +267,7 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     # Assert: Verify the logic within send_event_message was executed
     mock_thread.send.assert_awaited_once()
     mock_message.pin.assert_awaited_once_with(reason="New event message.")  # <-- CORRECTED
-    assert event_without_deadline.message_id == mock_message.id
-    mock_save_event_data.assert_called_once()
+    mock_save_event_data.assert_called_once_with(event_without_deadline, message_id=mock_message.id)
 
     # Assert: Verify the main command logic completed
     mock_add_event.assert_called_once()
@@ -277,7 +275,7 @@ async def test_create_offkai_success_without_deadline_and_pins_message(
     mock_interaction.followup.send.assert_awaited_once()
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.cogs.events.register_deadline_reminders")
@@ -334,7 +332,7 @@ async def test_create_offkai_with_ping_role(
     assert kwargs["ping_role_id"] == 99887766
 
 
-@patch("offkai_bot.event_actions.save_event_data")
+@patch("offkai_bot.event_actions.persist_event_changes")
 @patch("offkai_bot.event_actions.create_event_message")
 @patch("offkai_bot.event_actions.OpenEvent")
 @patch("offkai_bot.cogs.events.register_deadline_reminders")

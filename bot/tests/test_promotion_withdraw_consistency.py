@@ -164,7 +164,10 @@ async def test_manual_promote_command_dm_contains_rsvp_link_and_credits_rank():
     bot.fetch_user = AsyncMock(return_value=promoted_user)
     bot.get_channel.return_value = None
     interaction = MagicMock(spec=discord.Interaction)
-    interaction.guild = None
+    interaction.guild = MagicMock(spec=discord.Guild)
+    interaction.guild.get_channel_or_thread.side_effect = lambda channel_id: (
+        MagicMock() if channel_id in (event.channel_id, event.thread_id) else None
+    )
     interaction.channel = MagicMock(spec=discord.Thread)
     interaction.response = MagicMock(defer=AsyncMock())
     interaction.followup = MagicMock(send=AsyncMock())

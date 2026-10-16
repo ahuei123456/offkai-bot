@@ -240,7 +240,7 @@ def replace_responses(new: dict[str, EventData]) -> str | None:
     if os.path.exists(file_path):
         backup_path = f"{file_path}.{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.pre-import.bak"
         shutil.copy2(file_path, backup_path)
+    save_responses(new)
     response_data.RESPONSE_DATA_CACHE = new
-    save_responses()
     _log.warning("Responses data replaced by import (%d events). Backup: %s", len(new), backup_path)
     return backup_path

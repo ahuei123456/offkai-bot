@@ -103,11 +103,17 @@ This bot replaces manual methods of collecting attendance such as:
 ### Data Architecture
 
 - **Unified Storage Model**
-  - Attendees and waitlist stored together in a single file per event
-  - Each event contains separate `attendees` and `waitlist` arrays
-  - Automatic migration from legacy separate-file format
-  - Thread-safe operations with in-memory caching
-  - JSON-based persistence for easy inspection and backup
+  - Attendees and waitlists share one responses JSON file, with separate arrays per event
+  - Legacy response/event/ranking records remain readable; response format migration is written on the next successful mutation
+  - Changes are staged, written by atomic file replacement, then published to the in-memory cache; write errors propagate
+  - Missing data directories/files are created automatically. Invalid JSON, schema, or registration records fail loading without a writable partial/empty cache; originals remain in place and a best-effort `.corrupted-*.bak` copy is made
+  - Repair invalid event/response data (including any legacy waitlist file) before restarting; a backup is not automatic recovery. Invalid optional rankings are logged and remain unloaded/write-disabled until repaired, without blocking attendance startup
+  - Legacy defaults and existing optional payment-expiry metadata recovery remain supported; malformed registration records are not silently skipped
+  - New events are saved before Discord publication. A failed announcement reports failure but leaves the event and thread identifiers available for recovery
+  - Announcement refresh after a committed state change is best-effort: deleted messages are replaced, transient/permission fetch errors never create duplicates, and replacement failure is logged without undoing the saved state
+  - Atomicity is per JSON file only: responses, event numbering/status, rankings, and Discord notifications are separate commits, not a cross-file transaction. A later failure can leave earlier commits applied
+  - Closing writes attendee numbering before committing the closed event/count. If either write fails the event remains open and closing can be retried; a failed final event write can leave numbering already saved
+  - Reopening clears numbering before committing the open state. A clearing or final event-write failure leaves the event closed and retryable; numbering can already be cleared if the final event write fails
 
 - **Responsibility System**
   - All registrations include clear warnings about post-deadline withdrawals
@@ -280,7 +286,9 @@ The `bot/config.json` file inside the `bot` folder is tracked in Git and pre-con
 | `EVENTS_FILE` | string | ✅ | Path to events data file inside container (e.g., `data/events.json`) |
 | `RESPONSES_FILE` | string | ✅ | Path to responses data file (includes both attendees and waitlist) |
 | `RANKING_FILE` | string | ✅ | Path to ranking data file (e.g., `data/ranking.json`) |
-| `WAITLIST_FILE` | string | ❌ | Path to waitlist data file (optional; waitlist is migrated to responses on first run) |
+| `WAITLIST_FILE` | string | ❌ | Legacy waitlist file; loaded alongside list-valued legacy responses and migrated on the next successful save |
+
+After checking and saving migrated responses, remove `WAITLIST_FILE` from configuration or archive the old waitlist file. For legacy compatibility, an empty responses object (`{}`) still loads that file; leaving it configured can restore stale waitlist entries after an empty import/reset. The bot cannot distinguish legacy-empty and modern-empty files automatically.
 
 3. **Data Directory:**
 

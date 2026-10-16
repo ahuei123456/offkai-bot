@@ -67,10 +67,13 @@ async def test_mixed_case_close_records_real_attendance_and_numbers_then_reopen_
         await perform_close_event(bot, "summer bash")
     assert event.closed_attendance_count == 2
     assert event.max_attendee_number == 2
+    # Durable commits stage replacement records, so re-read the stored attendee.
+    attendee = next(r for r in response_data.get_responses("Summer Bash") if r.user_id == attendee.user_id)
     assert attendee.attendee_number == 1 and attendee.extras_attendee_numbers == [2]
     assert set(response_data.load_responses()) == {"Summer Bash"}
     with patch("offkai_bot.cogs.events.update_event_message", new_callable=AsyncMock):
         await EventsCog.reopen_offkai.callback(EventsCog(bot), interaction(), "SUMMER BASH")
+    attendee = next(r for r in response_data.get_responses("Summer Bash") if r.user_id == attendee.user_id)
     assert attendee.attendee_number is None and attendee.extras_attendee_numbers == []
     assert set(response_data.load_responses()) == {"Summer Bash"}
 
