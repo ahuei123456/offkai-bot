@@ -157,6 +157,488 @@ button, a, input {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+.nametag-sheet {
+  box-sizing: border-box;
+  box-shadow: 0 14px 40px rgba(23, 18, 15, 0.22);
+  overflow: hidden;
+}
+
+.nametag-grid {
+  display: grid;
+  align-content: start;
+  justify-content: start;
+}
+
+.nametag-screen-preview {
+  width: max-content;
+  zoom: 0.58;
+  margin: 0 auto;
+}
+
+.nametag-card {
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  border: 0.45mm solid #17120f;
+  border-radius: 2.2mm;
+  background: #fffdf4;
+  color: #17120f;
+  font-family: var(--font-noto-sans), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  break-inside: avoid;
+}
+
+.nametag-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.08;
+  background-image:
+    linear-gradient(45deg, transparent 0 46%, #17120f 46% 48%, transparent 48%),
+    radial-gradient(circle at 12% 82%, #e51f1f 0 1.2mm, transparent 1.3mm),
+    radial-gradient(circle at 88% 18%, #ffd51b 0 1.3mm, transparent 1.4mm);
+  background-size: 7mm 7mm, 11mm 11mm, 13mm 13mm;
+}
+
+.nametag-card__header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.4mm;
+  min-height: 6.8mm;
+  padding: 0.8mm 1.4mm 0.7mm;
+  background: #e51f1f;
+  color: white;
+}
+
+.nametag-card__hello {
+  font-size: clamp(8px, 2.5mm, 12px);
+  font-weight: 1000;
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+}
+
+.nametag-card__my-name {
+  margin-top: 0.25mm;
+  font-size: clamp(4px, 1.35mm, 7px);
+  font-weight: 1000;
+  line-height: 1;
+  letter-spacing: 0.16em;
+}
+
+.nametag-card__number {
+  display: grid;
+  place-items: center;
+  min-width: 8.5mm;
+  border: 0.35mm solid #17120f;
+  border-radius: 999px;
+  background: #ffd51b;
+  color: #17120f;
+  padding: 0.45mm 0.9mm;
+  line-height: 1;
+}
+
+.nametag-card__number span {
+  font-size: clamp(3px, 1.1mm, 5px);
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+}
+
+.nametag-card__number strong {
+  font-size: clamp(7px, 2.4mm, 11px);
+  font-weight: 1000;
+}
+
+.nametag-card__body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0.7mm 1.5mm 0.6mm;
+  text-align: center;
+}
+
+.nametag-card__name {
+  font-size: clamp(10px, 4mm, 19px);
+  font-weight: 1000;
+  line-height: 0.96;
+  letter-spacing: 0.02em;
+  text-wrap: balance;
+}
+
+.nametag-card__discord {
+  margin-top: 0.4mm;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(5px, 1.55mm, 8px);
+  font-weight: 900;
+  color: #8b2d1f;
+}
+
+.nametag-card__meta-row {
+  margin-top: 0.35mm;
+  display: flex;
+  justify-content: center;
+  gap: 0.8mm;
+  font-size: clamp(3px, 1.1mm, 5px);
+  font-weight: 1000;
+  letter-spacing: 0.1em;
+  color: rgba(23, 18, 15, 0.7);
+  text-transform: uppercase;
+}
+
+.nametag-card__footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2mm;
+  border-top: 0.35mm solid #17120f;
+  background: #ffd51b;
+  padding: 0.45mm 1.4mm;
+  font-size: clamp(4px, 1.15mm, 6px);
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.nametag-card__footer span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nametag-card__footer strong {
+  color: #e51f1f;
+  font-family: var(--font-noto-sans), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  letter-spacing: 0.1em;
+}
+
+.nametag-card--chibachan .nametag-card__header {
+  background:
+    radial-gradient(circle at 0 100%, rgba(255, 213, 27, 0.65) 0 20%, transparent 21%),
+    repeating-conic-gradient(from -18deg at 50% 130%, #e51f1f 0deg 11deg, #ffd51b 11deg 22deg);
+  color: white;
+}
+
+.nametag-card--plain {
+  grid-template-rows: 10.5mm minmax(0, 1fr) 7mm;
+  border: 0;
+  border-radius: 2.4mm;
+  background: white;
+  color: #111;
+  padding: 2.4mm;
+}
+
+.nametag-card--plain::before {
+  content: "";
+  position: absolute;
+  inset: 2.4mm;
+  z-index: 0;
+  border: 0.55mm solid #111;
+  border-radius: 1.5mm;
+  background: none;
+  opacity: 1;
+  pointer-events: none;
+}
+
+.nametag-card--plain::after {
+  content: none;
+  display: none;
+}
+
+.nametag-card--plain .nametag-card__header {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  background: #111;
+  color: white;
+  padding: 0.65mm 2mm 0.75mm;
+  border-radius: 0.6mm 0.6mm 0 0;
+}
+
+.nametag-card--plain .nametag-card__header > div:first-child {
+  min-width: 0;
+  max-width: 61mm;
+}
+
+.nametag-card--plain .nametag-card__hello {
+  font-family: var(--font-display), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(16px, 4.45mm, 22px);
+  letter-spacing: 0;
+  line-height: 1.02;
+}
+
+.nametag-card--plain .nametag-card__my-name {
+  margin-top: 0.2mm;
+  font-size: clamp(8px, 2.05mm, 10px);
+  letter-spacing: 0.16em;
+}
+
+.nametag-card--plain .nametag-card__number {
+  min-width: 16mm;
+  border: 0;
+  border-radius: 0;
+  background: #111;
+  padding: 0.15mm 0 0.25mm;
+  color: white;
+  box-shadow: none;
+}
+
+.nametag-card--plain .nametag-card__number span {
+  font-size: clamp(8px, 2.2mm, 10px);
+}
+
+.nametag-card--plain .nametag-card__number strong {
+  font-size: clamp(26px, 7.2mm, 35px);
+}
+
+.nametag-card--plain .nametag-card__body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: minmax(0, var(--nametag-name-row-mm, 25mm)) minmax(var(--nametag-meta-row-mm, 8mm), auto);
+  align-content: center;
+  align-items: center;
+  gap: 1.4mm;
+  padding: 1mm 4.2mm 1.1mm;
+  overflow: hidden;
+}
+
+.nametag-card--plain .nametag-card__stamp {
+  position: absolute;
+  left: 3mm;
+  top: 2.3mm;
+  z-index: 1;
+  border: 0.45mm solid #111;
+  border-radius: 1.5mm;
+  background: #111;
+  color: white;
+  padding: 0.65mm 1.6mm;
+  font-family: var(--font-brush), var(--font-display), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  font-size: clamp(7px, 1.95mm, 9px);
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  transform: rotate(-3deg);
+}
+
+.nametag-card--plain .nametag-card__name {
+  display: block;
+  align-self: center;
+  justify-self: center;
+  width: 100%;
+  max-width: 72mm;
+  background: white;
+  padding: 0 1.4mm 0.8mm;
+  box-decoration-break: clone;
+  font-family: var(--font-noto-sans), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  font-weight: 1000;
+  font-size: var(--nametag-name-mm, 10mm);
+  letter-spacing: 0;
+  line-height: 1;
+  box-shadow: none;
+  max-height: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  white-space: normal;
+}
+
+.nametag-card--plain.nametag-card--name-long .nametag-card__name {
+  font-size: calc(var(--nametag-name-mm, 10mm) * 0.93);
+  line-height: 0.94;
+  transform: translateY(1.1mm);
+}
+
+.nametag-card--plain.nametag-card--name-xlong .nametag-card__name {
+  font-size: calc(var(--nametag-name-mm, 10mm) * 0.93);
+  line-height: 0.94;
+  transform: translateY(1.1mm);
+}
+
+.nametag-card--plain.nametag-card--with-meta.nametag-card--name-long .nametag-card__name,
+.nametag-card--plain.nametag-card--with-meta.nametag-card--name-xlong .nametag-card__name {
+  line-height: 0.94;
+}
+
+.nametag-card--plain.nametag-card--guest .nametag-card__body {
+  grid-template-rows: minmax(0, var(--nametag-name-row-mm, 22mm)) minmax(var(--nametag-meta-row-mm, 8mm), auto);
+  gap: 1.15mm;
+}
+
+.nametag-card--plain.nametag-card--guest .nametag-card__stamp,
+.nametag-card--plain.nametag-card--name-long .nametag-card__stamp,
+.nametag-card--plain.nametag-card--name-xlong .nametag-card__stamp {
+  left: 2.4mm;
+  top: 0.65mm;
+  padding: 0.42mm 1.1mm;
+  font-size: clamp(5px, 1.45mm, 7px);
+}
+
+.nametag-card--plain.nametag-card--guest .nametag-card__name {
+  max-width: 68mm;
+  line-height: 0.98;
+  justify-self: center;
+}
+
+.nametag-card--plain.nametag-card--guest.nametag-card--dense .nametag-card__name,
+.nametag-card--plain.nametag-card--guest.nametag-card--name-long .nametag-card__name,
+.nametag-card--plain.nametag-card--guest.nametag-card--name-xlong .nametag-card__name {
+  max-width: 68mm;
+  font-size: calc(var(--nametag-name-mm, 10mm) * 0.93);
+  line-height: 0.94;
+  transform: translateY(1.1mm);
+}
+
+.nametag-card--plain .nametag-card__identity {
+  display: grid;
+  justify-items: center;
+  gap: 0.55mm;
+  min-height: 8.8mm;
+  width: min(100%, 64mm);
+  justify-self: center;
+  padding: 0.6mm 1.8mm;
+  border: 0.45mm solid #111;
+  border-radius: 1.2mm;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.nametag-card--plain .nametag-card__discord {
+  align-self: center;
+  margin-top: 0;
+  max-width: 100%;
+  background: transparent;
+  color: #111;
+  padding: 0;
+  font-size: var(--nametag-discord-mm, 3.8mm);
+  line-height: 1.1;
+  font-weight: 1000;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.nametag-card--plain.nametag-card--with-meta.nametag-card--name-long .nametag-card__discord,
+.nametag-card--plain.nametag-card--with-meta.nametag-card--name-xlong .nametag-card__discord {
+  font-size: var(--nametag-discord-mm, 2.4mm);
+}
+
+.nametag-card--plain.nametag-card--guest.nametag-card--dense .nametag-card__discord {
+  max-width: 60mm;
+  font-size: var(--nametag-discord-mm, 2.55mm);
+  line-height: 1.05;
+}
+
+.nametag-card--plain .nametag-card__meta-row {
+  align-self: center;
+  margin: 0;
+  color: #111;
+  font-size: var(--nametag-meta-mm, 2.7mm);
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.nametag-card--plain.nametag-card--with-meta.nametag-card--name-long .nametag-card__meta-row,
+.nametag-card--plain.nametag-card--with-meta.nametag-card--name-xlong .nametag-card__meta-row {
+  font-size: var(--nametag-meta-mm, 1.8mm);
+}
+
+.nametag-card--plain.nametag-card--guest.nametag-card--dense .nametag-card__meta-row {
+  max-width: 60mm;
+  font-size: var(--nametag-meta-mm, 1.85mm);
+  line-height: 1.05;
+  letter-spacing: 0.035em;
+}
+
+.nametag-card--plain .nametag-card__footer {
+  position: relative;
+  z-index: 1;
+  background: #111;
+  color: white;
+  padding: 0.75mm 2.3mm;
+  border-radius: 0 0 0.6mm 0.6mm;
+  font-size: clamp(10px, 2.85mm, 13px);
+}
+
+.nametag-card--plain .nametag-card__footer span {
+  color: white;
+}
+
+.nametag-card--plain .nametag-card__footer strong {
+  color: white;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__body {
+  grid-row: 2;
+  grid-template-rows: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  justify-items: stretch;
+  padding: 8.2mm 7.2mm 0;
+  background: transparent;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__stamp {
+  display: block;
+  left: 3mm;
+  top: 2mm;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__blank-lines {
+  display: grid;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  justify-self: stretch;
+  align-content: center;
+  justify-items: stretch;
+  gap: 7.2mm;
+  padding: 0 2mm;
+  border: 0;
+  background: transparent;
+}
+
+.nametag-card--plain.nametag-card--blank .nametag-card__blank-lines span {
+  display: block;
+  min-height: 1mm;
+  width: 78%;
+  justify-self: center;
+  border-bottom: 1mm solid #111;
+}
+
+.nametag-card--classic .nametag-card__header,
+.nametag-card--classic .nametag-card__footer {
+  background: #ef2018;
+  color: white;
+}
+
+.nametag-card--classic .nametag-card__footer strong { color: white; }
+
+.nametag-card--ink {
+  background: #fff;
+}
+
+.nametag-card--ink .nametag-card__header,
+.nametag-card--ink .nametag-card__footer {
+  background: #17120f;
+  color: white;
+}
+
+.nametag-card--ink .nametag-card__number {
+  background: white;
+}
+
+.nametag-card--ink .nametag-card__footer strong { color: #ffd51b; }
+
 @keyframes slideUp {
   from { transform: translateY(100%); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
