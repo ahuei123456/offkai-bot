@@ -50,7 +50,11 @@ async def remove_registration(
         remove_from_waitlist(event.event_name, member.id)
 
     if freed_spots and not event.interest_check:
-        decrease_rank(member.id, member.name)
+        # The removal is already saved; a ranking failure must not skip cleanup or promotion.
+        try:
+            decrease_rank(member.id, member.name)
+        except Exception:
+            _log.exception("Rank update failed after removing user %s from %r", member.id, event.event_name)
 
     if freed_spots and event.role_id and guild:
         try:

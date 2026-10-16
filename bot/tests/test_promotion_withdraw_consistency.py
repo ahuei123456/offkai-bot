@@ -223,3 +223,21 @@ async def test_withdraw_error_message_has_single_prefix():
 
     message = interaction.response.send_message.await_args.args[0]
     assert message.startswith("❌ ") and not message.startswith("❌ ❌")
+
+
+async def test_admin_removal_still_promotes_when_rank_write_fails():
+    from offkai_bot.registration_removal import remove_registration
+
+    event = _event("Rank Fail Event")
+    add_response(event.event_name, _response(event, 1000, "UserJ", extra=1))
+    add_to_waitlist(event.event_name, _waitlisted(event, 1100, "UserK"))
+    member = MagicMock(spec=discord.Member)
+    member.id, member.name = 1000, "UserJ"
+    client = MagicMock()
+    client.get_channel.return_value = None
+    client.fetch_user = AsyncMock(return_value=MagicMock(send=AsyncMock()))
+
+    with patch("offkai_bot.registration_removal.decrease_rank", side_effect=OSError("disk full")):
+        result = await remove_registration(client, event, member, None)
+
+    assert result["promoted"] == [1100]

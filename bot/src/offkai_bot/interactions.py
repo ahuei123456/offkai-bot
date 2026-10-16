@@ -825,8 +825,12 @@ class GatheringModal(ui.Modal):
             await assign_event_role(context.guild, context.user.id, self.event.role_id, event=self.event)
 
         # Update rank and announce milestones regardless of whether the DM succeeded
-        update_rank(context.user.id, context.user.name)
-        await announce_rank_milestone(context.channel, context.user.id, context.user.name)
+        # The signup is already saved; a ranking failure must not report the registration as failed.
+        try:
+            update_rank(context.user.id, context.user.name)
+            await announce_rank_milestone(context.channel, context.user.id, context.user.name)
+        except Exception:
+            _log.exception("Rank update failed after signup by %s for %r", context.user.id, self.event.event_name)
 
     async def _handle_waitlist_submission(self, interaction: discord.Interaction, entry: WaitlistEntry):
         """Handles actions after a user is added to the waitlist."""
