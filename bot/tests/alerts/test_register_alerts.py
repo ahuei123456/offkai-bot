@@ -194,15 +194,14 @@ def test_register_alert_multiple_tasks_same_time(mock_log):
 
 
 @patch("offkai_bot.alerts.alerts._log")
-def test_register_alert_ignores_seconds(mock_log):
-    """Test that register_alert groups tasks with different seconds within the same minute."""
+def test_register_alert_rounds_seconds_up_to_next_minute(mock_log):
+    """Tasks within the same minute share a bucket keyed by the *next* minute, so they never fire early."""
     # Arrange
     time1 = datetime(3024, 8, 15, 11, 5, 15, tzinfo=JST)  # 11:05:15
     time2 = datetime(3024, 8, 15, 11, 5, 45, tzinfo=JST)  # 11:05:45
 
-    # Expected key ignores seconds
-    expected_key = time1.strftime(alerts._TIME_KEY_FORMAT)  # Should be "2024-08-15T11:05"
-    assert expected_key == time2.strftime(alerts._TIME_KEY_FORMAT)  # Verify key generation is same
+    expected_key = "3024-08-15T11:06"
+    assert alerts.alert_key(time1) == alerts.alert_key(time2) == expected_key
 
     task1 = MagicMock(spec=Task)
     task1.__class__.__name__ = "TaskSeconds15"
@@ -542,7 +541,7 @@ def test_register_deadline_reminders_replaces_existing_alerts(mock_client, mock_
     """Test that re-registering after a deadline change leaves no alerts at the old deadline."""
     # Arrange
     register_deadline_reminders(mock_client, future_event, mock_thread)
-    old_close_key = future_event.event_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    old_close_key = alerts.alert_key(future_event.event_deadline.astimezone(JST))
     assert old_close_key in alerts._scheduled_tasks
 
     # Act - extend the deadline and re-register
@@ -551,7 +550,7 @@ def test_register_deadline_reminders_replaces_existing_alerts(mock_client, mock_
     register_deadline_reminders(mock_client, future_event, mock_thread)
 
     # Assert - no alerts remain at the old deadline; close task is at the new deadline
-    new_close_key = future_event.event_deadline.astimezone(JST).strftime(alerts._TIME_KEY_FORMAT)
+    new_close_key = alerts.alert_key(future_event.event_deadline.astimezone(JST))
     assert old_close_key not in alerts._scheduled_tasks
     assert any(isinstance(task, CloseOffkaiTask) for task in alerts._scheduled_tasks[new_close_key])
     assert len(_all_scheduled_tasks()) == 4

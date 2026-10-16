@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { Attendee, CheckinRecord, ScanResult } from '../lib/types'
 import { POPUP_MS } from '../lib/scan'
+import { matchesCheckin } from '../lib/checkin'
 
 const SCANNER_DIV_ID = 'qr-scanner-container'
 
 type ScannerArgs = {
   adminKey: string
   selectedEvent: string
+  eventName: string
   attendees: Attendee[]
   onCheckedIn: (record: CheckinRecord) => void
 }
@@ -16,7 +18,7 @@ type ScannerArgs = {
 // Owns the html5-qrcode camera scanner and the confirmation-popup lifecycle.
 // Reads the live admin key / event / attendees through refs so the long-lived
 // decode callback never goes stale.
-export function useScanner({ adminKey, selectedEvent, attendees, onCheckedIn }: ScannerArgs) {
+export function useScanner({ adminKey, selectedEvent, eventName, attendees, onCheckedIn }: ScannerArgs) {
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [popupMsLeft, setPopupMsLeft] = useState(0)
@@ -27,10 +29,16 @@ export function useScanner({ adminKey, selectedEvent, attendees, onCheckedIn }: 
   const selectedEventRef = useRef('')
   const attendeesRef = useRef<Attendee[]>([])
   const onCheckedInRef = useRef(onCheckedIn)
+  const eventGeneration = useRef(0)
+  const displayedEventRef = useRef('')
 
   // Keep refs in sync so the scan callback always reads current values.
   useEffect(() => { keyRef.current = adminKey }, [adminKey])
-  useEffect(() => { selectedEventRef.current = selectedEvent }, [selectedEvent])
+  useEffect(() => {
+    selectedEventRef.current = selectedEvent
+    eventGeneration.current += 1
+  }, [selectedEvent])
+  useEffect(() => { displayedEventRef.current = eventName }, [eventName])
   useEffect(() => { attendeesRef.current = attendees }, [attendees])
   useEffect(() => { onCheckedInRef.current = onCheckedIn }, [onCheckedIn])
 
@@ -84,7 +92,10 @@ export function useScanner({ adminKey, selectedEvent, attendees, onCheckedIn }: 
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         async (decodedText: string) => {
+          const generation = eventGeneration.current
+          const ev = selectedEventRef.current
           await stopScanner()
+          if (generation !== eventGeneration.current || ev !== selectedEventRef.current || displayedEventRef.current !== ev) return
 
           // Extract the token. Only accept QR codes whose URL is the SAME ORIGIN
           // as this admin page, so a malicious QR can't smuggle in a foreign
@@ -112,7 +123,7 @@ export function useScanner({ adminKey, selectedEvent, attendees, onCheckedIn }: 
             return
           }
 
-          const ev = selectedEventRef.current
+          if (generation !== eventGeneration.current || ev !== selectedEventRef.current) return
           const evParam = ev ? `&event=${encodeURIComponent(ev)}` : ''
           const res = await fetch(`/api/checkin?key=${encodeURIComponent(keyRef.current)}${evParam}`, {
             method: 'POST',
@@ -120,9 +131,12 @@ export function useScanner({ adminKey, selectedEvent, attendees, onCheckedIn }: 
             body: JSON.stringify({ token, event_name: ev || undefined }),
           })
           const data = await res.json().catch(() => ({}))
+          if (generation !== eventGeneration.current || ev !== selectedEventRef.current || displayedEventRef.current !== ev) return
 
           if (res.ok && data.record) {
-            const att = attendeesRef.current.find(a => a.user_id === data.record.user_id)
+            const att = attendeesRef.current.find(a => a.status === 'attending' &&
+              matchesCheckin(data.record, ev, a.user_id, a.registration_timestamp))
+            if (!att) return
             presentScan({
               kind: data.already_checked_in ? 'already_checked_in' : 'checked_in',
               name: data.record.name || 'Guest',
@@ -190,7 +204,10 @@ export function useScanner({ adminKey, selectedEvent, attendees, onCheckedIn }: 
     if (wasScan) startScanner()
   }, [scanResult, startScanner])
 
-  const clearResult = useCallback(() => setScanResult(null), [])
+  const clearResult = useCallback(() => {
+    eventGeneration.current += 1
+    setScanResult(null)
+  }, [])
 
   return {
     scannerDivId: SCANNER_DIV_ID,

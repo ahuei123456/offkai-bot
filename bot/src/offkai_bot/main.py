@@ -13,6 +13,7 @@ from offkai_bot import config
 from offkai_bot.admin_api import start_admin_api
 from offkai_bot.alerts.alerts import start_alert_loop
 from offkai_bot.alerts.reminders import register_checkin_reminder, register_deadline_reminders
+from offkai_bot.alerts.task import CloseOffkaiTask
 from offkai_bot.config import get_config
 
 # Import only necessary data loaders for initial cache population
@@ -52,8 +53,12 @@ async def load_and_update_events(client: discord.Client):
     for event in events:
         if not event.archived:
             try:
-                # Pass only the client and event
-                await update_event_message(client, event)
+                if event.open and event.is_past_deadline:
+                    # The deadline passed while the bot was offline, so its close task
+                    # never ran. Close now (this also refreshes the event message).
+                    await CloseOffkaiTask(client=client, event_name=event.event_name).action()
+                else:
+                    await update_event_message(client, event)
 
                 # Register check-in reminder first — it needs no thread, so a
                 # fetch_thread_for_event failure below cannot prevent it from running.

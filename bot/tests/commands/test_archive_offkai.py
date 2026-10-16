@@ -218,7 +218,10 @@ async def test_archive_offkai_data_layer_errors(
             event_name=event_name,
         )
 
-    mock_archive_event_func.assert_called_once()
+    if error_type is EventNotFoundError:
+        mock_archive_event_func.assert_not_called()
+    else:
+        mock_archive_event_func.assert_called_once()
     mock_persist_changes.assert_not_called()
     mock_update_msg_view.assert_not_awaited()
     mock_fetch_thread.assert_not_awaited()  # Check helper wasn't called

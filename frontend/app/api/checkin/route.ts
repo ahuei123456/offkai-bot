@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { readEvents, readResponses, readCheckins, writeCheckins, getDefaultEvent, isSelectableForCheckin } from '../db'
-import type { CheckinRecord } from '../db'
+import type { CheckinRecord, EventLike } from '../db'
 import { verifyToken } from '../token'
 import { parseEventParam, parseUserId } from '../validation'
 import { MOCK_EVENTS, MOCK_ATTENDEES, mockCheckins, findMockAttendee } from '../mock'
+import { registrationTimestamp } from '../payments'
+import { matchesCheckin } from '../../lib/checkin'
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true'
 const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
@@ -14,7 +16,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY ?? ''
 // manual "Check Out" button calls checkOutAttendee(). Both validate identically:
 //   - the event exists and is not archived
 //   - the attendee is registered (attending, not waitlist) for that event
-//   - records are scoped by (user_id, event_name)
+//   - records are scoped by (user_id, event_name, registration_timestamp)
 // ---------------------------------------------------------------------------
 
 type CheckInOutcome =
@@ -23,6 +25,7 @@ type CheckInOutcome =
   | { kind: 'event_not_found' }
   | { kind: 'event_archived' }
   | { kind: 'attendee_not_in_event' }
+  | { kind: 'registration_changed' }
   | { kind: 'write_error' }
 
 type CheckOutOutcome =
@@ -31,12 +34,13 @@ type CheckOutOutcome =
   | { kind: 'event_archived' }
   | { kind: 'attendee_not_in_event' }
   | { kind: 'not_checked_in' }
+  | { kind: 'registration_changed' }
   | { kind: 'write_error' }
 
 // Resolves an *attending* attendee for an event (works in mock + real mode).
 // Returns the display name, or an error kind.
 function resolveAttendee(eventName: string, userId: string):
-  | { ok: true; user_id: string; name: string }
+  | { ok: true; user_id: string; name: string; registration_timestamp: string }
   | { ok: false; kind: 'event_not_found' | 'event_archived' | 'attendee_not_in_event' } {
   if (MOCK_MODE) {
     const ev = MOCK_EVENTS.find(e => e.event_name === eventName)
@@ -45,7 +49,8 @@ function resolveAttendee(eventName: string, userId: string):
     if (!isSelectableForCheckin(ev)) return { ok: false, kind: 'event_not_found' }
     const a = findMockAttendee(eventName, userId)
     if (!a || a.status !== 'attending') return { ok: false, kind: 'attendee_not_in_event' }
-    return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
+    return { ok: true, user_id: a.user_id, name: a.display_name || a.username,
+      registration_timestamp: registrationTimestamp(a.registration_timestamp) }
   }
 
   const ev = readEvents().find(e => e.event_name === eventName)
@@ -55,54 +60,37 @@ function resolveAttendee(eventName: string, userId: string):
   const er = readResponses()[eventName]
   const a = (er?.attendees || []).find(x => x.user_id === userId)
   if (!a) return { ok: false, kind: 'attendee_not_in_event' }
-  return { ok: true, user_id: a.user_id, name: a.display_name || a.username }
+  return { ok: true, user_id: a.user_id, name: a.display_name || a.username,
+    registration_timestamp: registrationTimestamp(a.timestamp) }
 }
 
-function checkInAttendee(eventName: string, userId: string): CheckInOutcome {
+function checkInAttendee(eventName: string, userId: string, expectedTimestamp?: string): CheckInOutcome {
   const found = resolveAttendee(eventName, userId)
   if (!found.ok) return { kind: found.kind }
-
-  if (MOCK_MODE) {
-    const existing = mockCheckins.find(c => c.user_id === found.user_id && c.event_name === eventName)
-    if (existing) return { kind: 'already_checked_in', record: existing }
-    const record: CheckinRecord = {
-      user_id: found.user_id, event_name: eventName,
-      checked_in_at: new Date().toISOString(), name: found.name,
-    }
-    mockCheckins.push(record)
-    return { kind: 'checked_in', record }
+  if (expectedTimestamp && registrationTimestamp(expectedTimestamp) !== found.registration_timestamp) {
+    return { kind: 'registration_changed' }
   }
-
-  const checkins = readCheckins()
-  const existing = checkins.find(c => c.user_id === found.user_id && c.event_name === eventName)
+  const checkins = MOCK_MODE ? mockCheckins : readCheckins()
+  const existing = checkins.find(c => matchesCheckin(c, eventName, found.user_id, found.registration_timestamp))
   if (existing) return { kind: 'already_checked_in', record: existing }
-  const record: CheckinRecord = {
-    user_id: found.user_id, event_name: eventName,
+  const record: CheckinRecord & { registration_timestamp: string } = {
+    user_id: found.user_id, event_name: eventName, registration_timestamp: found.registration_timestamp,
     checked_in_at: new Date().toISOString(), name: found.name,
   }
   checkins.push(record)
-  if (!writeCheckins(checkins)) return { kind: 'write_error' }
+  if (!MOCK_MODE && !writeCheckins(checkins)) return { kind: 'write_error' }
   return { kind: 'checked_in', record }
 }
 
-function checkOutAttendee(eventName: string, userId: string): CheckOutOutcome {
-  // Same validation as check-in (owner request): event exists, not archived,
-  // attendee belongs to the event.
+function checkOutAttendee(eventName: string, userId: string, expectedTimestamp: string): CheckOutOutcome {
   const found = resolveAttendee(eventName, userId)
   if (!found.ok) return { kind: found.kind }
-
-  if (MOCK_MODE) {
-    const idx = mockCheckins.findIndex(c => c.user_id === found.user_id && c.event_name === eventName)
-    if (idx === -1) return { kind: 'not_checked_in' }
-    mockCheckins.splice(idx, 1)
-    return { kind: 'checked_out', user_id: found.user_id, event_name: eventName }
-  }
-
-  const checkins = readCheckins()
-  const idx = checkins.findIndex(c => c.user_id === found.user_id && c.event_name === eventName)
-  if (idx === -1) return { kind: 'not_checked_in' }
-  checkins.splice(idx, 1)
-  if (!writeCheckins(checkins)) return { kind: 'write_error' }
+  if (registrationTimestamp(expectedTimestamp) !== found.registration_timestamp) return { kind: 'registration_changed' }
+  const checkins = MOCK_MODE ? mockCheckins : readCheckins()
+  const remaining = checkins.filter(c => !matchesCheckin(c, eventName, found.user_id, found.registration_timestamp))
+  if (remaining.length === checkins.length) return { kind: 'not_checked_in' }
+  if (MOCK_MODE) mockCheckins.splice(0, mockCheckins.length, ...remaining)
+  else if (!writeCheckins(remaining)) return { kind: 'write_error' }
   return { kind: 'checked_out', user_id: found.user_id, event_name: eventName }
 }
 
@@ -114,13 +102,14 @@ function checkInResponse(outcome: CheckInOutcome) {
     case 'event_not_found': return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
     case 'event_archived': return NextResponse.json({ error: 'event_archived' }, { status: 400 })
     case 'attendee_not_in_event': return NextResponse.json({ error: 'attendee_not_in_event' }, { status: 404 })
+    case 'registration_changed': return NextResponse.json({ error: 'registration_changed' }, { status: 409 })
     case 'write_error': return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
   }
 }
 
 function defaultEventName(): string | null {
   const src = MOCK_MODE ? MOCK_EVENTS : readEvents()
-  return getDefaultEvent(src)?.event_name ?? null
+  return getDefaultEvent<EventLike>(src)?.event_name ?? null
 }
 
 function isAvailableCheckinEvent(eventName: string): boolean {
@@ -129,7 +118,7 @@ function isAvailableCheckinEvent(eventName: string): boolean {
 }
 
 // Shared check-out entry point used by both POST(action=checkout) and DELETE.
-function performCheckout(rawUserId: unknown, rawBodyEvent: unknown, rawQueryEvent: string | null) {
+function performCheckout(rawUserId: unknown, rawBodyEvent: unknown, rawQueryEvent: string | null, timestamp: unknown) {
   const userId = parseUserId(rawUserId)
   if (userId === null) return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
 
@@ -140,14 +129,18 @@ function performCheckout(rawUserId: unknown, rawBodyEvent: unknown, rawQueryEven
 
   const eventName = bodyEvent || queryEvent || defaultEventName()
   if (!eventName) return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
+  if (typeof timestamp !== 'string' || !Number.isFinite(Date.parse(timestamp))) {
+    return NextResponse.json({ error: 'invalid_registration_timestamp' }, { status: 400 })
+  }
 
-  const outcome = checkOutAttendee(eventName, userId)
+  const outcome = checkOutAttendee(eventName, userId, timestamp)
   switch (outcome.kind) {
     case 'checked_out': return NextResponse.json({ removed: true, user_id: outcome.user_id, event_name: outcome.event_name })
     case 'event_not_found': return NextResponse.json({ error: 'event_not_found' }, { status: 404 })
     case 'event_archived': return NextResponse.json({ error: 'event_archived' }, { status: 400 })
     case 'attendee_not_in_event': return NextResponse.json({ error: 'attendee_not_in_event' }, { status: 404 })
     case 'not_checked_in': return NextResponse.json({ removed: false, error: 'not_checked_in' }, { status: 404 })
+    case 'registration_changed': return NextResponse.json({ error: 'registration_changed' }, { status: 409 })
     case 'write_error': return NextResponse.json({ error: 'database_write_error' }, { status: 500 })
   }
 }
@@ -171,13 +164,16 @@ export async function GET(request: NextRequest) {
   }
 
   const checkins = MOCK_MODE ? mockCheckins : readCheckins()
-  return NextResponse.json(checkins.filter(c => c.event_name === eventName))
+  const registrations = new Map((MOCK_MODE
+    ? (MOCK_ATTENDEES[eventName] || []).filter(a => a.status === 'attending').map(a => [a.user_id, a.registration_timestamp] as const)
+    : (readResponses()[eventName]?.attendees || []).map(a => [a.user_id, a.timestamp] as const)))
+  return NextResponse.json(checkins.filter(c => matchesCheckin(c, eventName, c.user_id, registrations.get(c.user_id))))
 }
 
 // POST /api/checkin?key=<admin_key>
 //   QR check-in : { token, event_name? }  (event from token; event_name guards mismatch)
-//   manual      : { user_id, event_name? }
-//   manual out  : { action: 'checkout', user_id, event_name? }
+//   manual      : { user_id, event_name?, registration_timestamp }
+//   manual out  : { action: 'checkout', user_id, event_name?, registration_timestamp }
 export async function POST(request: NextRequest) {
   try {
     const key = request.nextUrl.searchParams.get('key')
@@ -195,7 +191,7 @@ export async function POST(request: NextRequest) {
 
     // Manual check-out routed over POST (some proxies reject DELETE).
     if (body?.action === 'checkout') {
-      return performCheckout(body?.user_id, body?.event_name, request.nextUrl.searchParams.get('event'))
+      return performCheckout(body?.user_id, body?.event_name, request.nextUrl.searchParams.get('event'), body?.registration_timestamp)
     }
 
     // Resolve user id + (optional) token-bound event.
@@ -204,6 +200,9 @@ export async function POST(request: NextRequest) {
     if (body?.user_id !== undefined && body?.user_id !== null) {
       // Manual admin check-in — already admin-key authenticated, no token needed.
       const parsed = parseUserId(body.user_id)
+      if (typeof body?.registration_timestamp !== 'string' || !Number.isFinite(Date.parse(body.registration_timestamp))) {
+        return NextResponse.json({ error: 'invalid_registration_timestamp' }, { status: 400 })
+      }
       if (parsed === null) return NextResponse.json({ error: 'invalid_user_id' }, { status: 400 })
       userId = parsed
     } else {
@@ -229,14 +228,14 @@ export async function POST(request: NextRequest) {
     }
     if (!targetEvent) return NextResponse.json({ error: 'no_active_event' }, { status: 400 })
 
-    return checkInResponse(checkInAttendee(targetEvent, userId))
+    return checkInResponse(checkInAttendee(targetEvent, userId, body?.registration_timestamp))
   } catch (e) {
     console.error('Error in checkin POST:', e)
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
 }
 
-// DELETE /api/checkin?key=<admin_key>  body: { user_id, event_name? }
+// DELETE /api/checkin?key=<admin_key> body: { user_id, event_name?, registration_timestamp }
 // Kept for API completeness; the UI uses POST(action=checkout) because some
 // reverse proxies (openresty/NPM) reject the DELETE method.
 export async function DELETE(request: NextRequest) {
@@ -246,7 +245,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
     const body = await request.json().catch(() => ({}))
-    return performCheckout(body?.user_id, body?.event_name, request.nextUrl.searchParams.get('event'))
+    return performCheckout(body?.user_id, body?.event_name, request.nextUrl.searchParams.get('event'), body?.registration_timestamp)
   } catch (e) {
     console.error('Error in checkin DELETE:', e)
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })

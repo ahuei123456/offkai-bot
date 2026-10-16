@@ -17,6 +17,7 @@ from offkai_bot.errors import (
     ThreadNotFoundError,
 )
 from offkai_bot.interactions import (
+    ArchivedEvent,
     ClosedEvent,
     InterestCheckClosedEvent,
     InterestCheckEvent,
@@ -30,6 +31,8 @@ _DISCORD_MESSAGE_LIMIT = 2000
 
 def get_event_view(event: Event):
     """Determines the appropriate view for an event based on its state."""
+    if event.archived:
+        return ArchivedEvent(event)
     if event.interest_check:
         if not event.open or event.is_past_deadline:
             return InterestCheckClosedEvent(event)

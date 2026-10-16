@@ -26,6 +26,7 @@ def make_event(**overrides) -> Event:
         google_maps_link="",
         event_datetime=datetime.now(UTC) + timedelta(days=7),
         open=False,
+        channel_id=1001,
     )
     fields.update(overrides)
     return Event(**fields)

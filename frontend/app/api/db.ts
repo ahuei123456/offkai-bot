@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import crypto from 'node:crypto'
 
 export interface Event {
   event_name: string
@@ -51,6 +52,8 @@ export interface BotResponses {
 export interface CheckinRecord {
   user_id: string
   event_name: string
+  // Missing only on legacy records, which cannot establish current arrival.
+  registration_timestamp?: string
   checked_in_at: string
   name: string
 }
@@ -134,12 +137,19 @@ export function readCheckins(): CheckinRecord[] {
 
 export function writeCheckins(checkins: CheckinRecord[]): boolean {
   const filePath = getCheckinsFilePath()
+  const temporary = `${filePath}.${crypto.randomUUID()}.tmp`
   try {
-    const dir = path.dirname(filePath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    try {
+      const fd = fs.openSync(temporary, 'w', 0o600)
+      try {
+        fs.writeFileSync(fd, JSON.stringify(checkins, null, 2))
+        fs.fsyncSync(fd)
+      } finally { fs.closeSync(fd) }
+      fs.renameSync(temporary, filePath)
+    } finally {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary)
     }
-    fs.writeFileSync(filePath, JSON.stringify(checkins, null, 2), 'utf8')
     return true
   } catch (e) {
     console.error('Error writing checkins:', e)

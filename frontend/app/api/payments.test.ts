@@ -31,6 +31,7 @@ function compileRoutes() {
     }
   }
   compile(apiDir, path.join(output, 'api'))
+  compile(path.join(process.cwd(), 'app', 'lib'), path.join(output, 'lib'))
   let instrumentation = ts.transpileModule(fs.readFileSync(path.join(process.cwd(), 'instrumentation.ts'), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText
@@ -193,7 +194,7 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     const oversizedRequest = new NextRequest('http://localhost/api/payment-proof', {
       method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=synthetic' },
       body: stream, duplex: 'half',
-    } as RequestInit)
+    } as ConstructorParameters<typeof NextRequest>[1])
     assert.equal(oversizedRequest.headers.get('content-length'), null)
     assert.equal((await proofRoute.POST(oversizedRequest)).status, 413)
     assert.equal(cancelled, true)

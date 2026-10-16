@@ -25,6 +25,7 @@ from offkai_bot.interactions import (
     SignupContext,
     _add_user_to_event_thread,
     build_confirmation_message,
+    credit_promoted_attendance,
     send_signup_reply,
 )
 from offkai_bot.payment_proof import payment_event_enabled
@@ -69,7 +70,7 @@ def create_admin_app(client: discord.Client) -> web.Application:
         entry = next(
             (
                 entry
-                for entry in [*get_responses(event_name), *get_waitlist(event_name)]
+                for entry in [*get_responses(event.event_name), *get_waitlist(event.event_name)]
                 if entry.user_id == int(user_id)
             ),
             None,
@@ -192,6 +193,7 @@ def create_admin_app(client: discord.Client) -> web.Application:
             _log.exception("Admin registration promotion failed for event %r", event_name)
             return web.json_response({"error": "promotion_unconfirmed"}, status=502)
         warnings = []
+        await credit_promoted_attendance(client, event, entry)
         # Saved attendance is not rolled back if Discord delivery or cleanup fails.
         actions: list[tuple[Callable[[], Awaitable[bool | None]], str]] = [
             (

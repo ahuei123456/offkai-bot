@@ -390,7 +390,7 @@ uv run ty check
 - `/waitlist` - View waitlisted users
   - Parameters: event_name, sort (optional, default: False), nicknames (optional, default: False; includes `@username` for disambiguation)
 
-- `/export_responses` - DM yourself the raw responses data (all events) as JSON, plus an `_export` section that `/import_responses` needs
+- `/export_responses` - DM yourself the raw responses data for this server as JSON, plus an `_export` section that `/import_responses` needs
 
 - `/import_responses` - Replace the responses data with an edited export
   - Parameters: file, apply (optional, default: False; without it the command only previews the changes)

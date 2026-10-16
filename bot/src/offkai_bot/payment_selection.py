@@ -7,6 +7,7 @@ import discord
 from discord.ext import tasks
 
 from offkai_bot.data.event import Event, load_event_data
+from offkai_bot.data.ranking import decrease_rank
 from offkai_bot.data.response import (
     clear_payment_expiry_backfill,
     expire_payment_selections,
@@ -46,6 +47,12 @@ async def _expire_event_payments(client: discord.Client, event: Event) -> None:
         return
     if not expired and get_payment_expiry_backfill(event.event_name) is None:
         return
+    for entry in expired:
+        # Leaving the attendee list undoes the attendance credit given on signup/promotion.
+        try:
+            decrease_rank(entry.user_id, entry.username)
+        except Exception:
+            _log.exception("Rank update failed after payment expiry for user %s", entry.user_id)
     if expired and event.role_id:
         try:
             thread = await fetch_thread_for_event(client, event)

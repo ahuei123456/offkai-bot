@@ -47,7 +47,7 @@ def make_response(user_id, username, display_name, extra_people=0, extras_names=
 
 
 @pytest.fixture
-def current_data(mock_paths):
+def current_data(mock_paths, prepopulated_event_cache):
     data = {
         "Summer Bash": EventData(
             attendees=[
