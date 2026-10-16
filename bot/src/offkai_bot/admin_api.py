@@ -69,7 +69,7 @@ def create_admin_app(client: discord.Client) -> web.Application:
         entry = next(
             (
                 entry
-                for entry in [*get_responses(event_name), *get_waitlist(event_name)]
+                for entry in [*get_responses(event.event_name), *get_waitlist(event.event_name)]
                 if entry.user_id == int(user_id)
             ),
             None,

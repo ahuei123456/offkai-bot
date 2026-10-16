@@ -655,7 +655,7 @@ class EventsCog(commands.Cog):
         await interaction.response.defer()
         await _require_guild_event(self.bot, interaction, event_name)
         reopened_event = set_event_open_status(event_name, target_open_status=True)
-        clear_attendee_numbers(event_name)
+        clear_attendee_numbers(reopened_event.event_name)
         save_responses()
         save_event_data()
         await update_event_message(self.bot, reopened_event)
@@ -813,10 +813,16 @@ class EventsCog(commands.Cog):
             raise ResponsesImportError("The file is too large.")
         upload = parse_responses_import(await file.read())
         names = await self._guild_response_names(interaction, load_responses())
-        # Authorize every uploaded key, including metadata and unchanged entries,
-        # before calculating conflicts or producing previews containing private data.
+        # Authorize every uploaded key before revealing canonical names or
+        # calculating conflicts/previews containing private registration data.
         for name in set(upload.events) | set(upload.baseline):
-            await _require_guild_event(self.bot, interaction, name)
+            event = await _require_guild_event(self.bot, interaction, name)
+            if name != event.event_name:
+                raise ResponsesImportError(
+                    f"Response key '{name}' does not match stored event name '{event.event_name}'. "
+                    "Correct the event key and each registration's event_name in a fresh export; "
+                    "existing differently capitalized records need organizer reconciliation."
+                )
             names.add(name)
         # Ownership fetches yield to signups. Take the data snapshot only after
         # the last await, and merge/persist without yielding again.
@@ -876,7 +882,7 @@ class EventsCog(commands.Cog):
             raise InterestCheckOperationError(event_name, "Resending confirmations")
         user_ids = None
         if member is not None:
-            registered = [*get_responses(event_name), *get_waitlist(event_name)]
+            registered = [*get_responses(event.event_name), *get_waitlist(event.event_name)]
             if not any(entry.user_id == member.id for entry in registered):
                 raise ResponseNotFoundError(event_name, member.id)
             user_ids = {member.id}
@@ -992,7 +998,9 @@ class EventsCog(commands.Cog):
         event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Attendance")
-        total_count, attendee_list = calculate_attendance(event_name, nicknames=nicknames, drinks=drinks, sort=sort)
+        total_count, attendee_list = calculate_attendance(
+            event.event_name, nicknames=nicknames, drinks=drinks, sort=sort
+        )
 
         output = _format_attendance_output(event_name, total_count, attendee_list)
 
@@ -1035,14 +1043,14 @@ class EventsCog(commands.Cog):
         event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Attendance reports")
-        if event.open or not has_complete_attendee_numbers(event_name):
+        if event.open or not has_complete_attendee_numbers(event.event_name):
             await interaction.followup.send(
                 "Attendee numbers are generated when an event is closed. Close the event before exporting this report.",
                 ephemeral=True,
             )
             return
 
-        report_rows = build_attendee_report_rows(event_name)
+        report_rows = build_attendee_report_rows(event.event_name)
         try:
             await interaction.user.send(
                 f"Attendance report for **{event_name}** is attached as a CSV file.",
@@ -1084,7 +1092,7 @@ class EventsCog(commands.Cog):
         event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "The waitlist")
-        total_count, waitlisted_list = calculate_waitlist(event_name, nicknames=nicknames, sort=sort)
+        total_count, waitlisted_list = calculate_waitlist(event.event_name, nicknames=nicknames, sort=sort)
 
         output = f"**Waitlist for {event_name}**\n\n"
         output += f"Total Waitlisted: **{total_count}**\n\n"
@@ -1109,7 +1117,7 @@ class EventsCog(commands.Cog):
         event = await _require_guild_event(self.bot, interaction, event_name)
         if event.interest_check:
             raise InterestCheckOperationError(event_name, "Drink tracking")
-        total_count, drinks_count = calculate_drinks(event_name)
+        total_count, drinks_count = calculate_drinks(event.event_name)
 
         output = f"**Drinks for {event_name}**\n\n"
         output += f"Total Drinks: **{total_count}**\n\n"
