@@ -1,6 +1,14 @@
 # Use a Python image with uv pre-installed
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+# Pin uv to a release with the updated CA trust store
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
+
+# Pick up the patched Debian CA bundle (20250419~deb12u2 or later)
+RUN apt-get update \
+    && apt-get install -y --only-upgrade --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install the project into `/app`
 WORKDIR /app
 
