@@ -26,6 +26,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=8090
 
+# Pick up the patched Alpine CA bundle (20261020-r0 or later)
+RUN apk upgrade --no-cache ca-certificates-bundle
+
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
