@@ -306,6 +306,12 @@ test('synthetic confirmed and waitlist payment flow, isolation, auth, image proc
     const tooManyPixels = await sharp({ create: { width: 8000, height: 6000, channels: 3, background: 'white' } })
       .png().toBuffer()
     await assert.rejects(() => payments.normalizeProof(tooManyPixels))
+    const jpeg = await sharp(small).jpeg().toBuffer()
+    assert.equal((await sharp(await payments.normalizeProof(jpeg)).metadata()).format, 'webp')
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>')
+    await assert.rejects(() => payments.normalizeProof(svg), payments.InvalidImageError)
+    const tiff = await sharp(small).tiff().toBuffer()
+    await assert.rejects(() => payments.normalizeProof(tiff), payments.InvalidImageError)
   } finally {
     await new Promise<void>((resolve, reject) => bot.close(error => error ? reject(error) : resolve()))
     if (previousBotUrl === undefined) delete process.env.BOT_ADMIN_URL; else process.env.BOT_ADMIN_URL = previousBotUrl

@@ -155,9 +155,18 @@ export function setPaid(eventName: string, userId: string, paid: boolean, timest
   if (previous.proof && previous.proof.filename !== record.proof?.filename) removeProof(previous.proof)
   return record
 }
+// Sniff the container before libvips sees it, so SVG/HEIF/TIFF loaders never parse untrusted uploads.
+function hasAllowedSignature(input: Buffer): boolean {
+  const ascii = (start: number, end: number) => input.subarray(start, end).toString('latin1')
+  return (input[0] === 0xff && input[1] === 0xd8 && input[2] === 0xff)
+    || input.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    || (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP')
+    || ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a'
+}
 export async function normalizeProof(input: Buffer): Promise<Buffer> {
   try {
     if (!input.length || input.length > MAX_IMAGE_BYTES) throw new Error('Image must be at most 10 MiB')
+    if (!hasAllowedSignature(input)) throw new Error('Unsupported image')
     const image = sharp(input, { limitInputPixels: MAX_PIXELS, animated: false, failOn: 'error' })
     const metadata = await image.metadata()
     if (!['jpeg', 'png', 'webp', 'gif'].includes(metadata.format || '')) throw new Error('Unsupported image')

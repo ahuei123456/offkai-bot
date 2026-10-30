@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readEvents, getDefaultEvent, orderEventsForDropdown } from '../db'
-import { MOCK_EVENTS } from '../mock'
+import { readEvents, getDefaultEvent, orderEventsForDropdown, type Event } from '../db'
+import { MOCK_EVENTS, type MockEvent } from '../mock'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const source = MOCK_MODE ? MOCK_EVENTS : readEvents()
+  const source: (MockEvent | Event)[] = MOCK_MODE ? MOCK_EVENTS : readEvents()
   const ordered = orderEventsForDropdown(source)
   const defaultEvent = getDefaultEvent(source)
 
