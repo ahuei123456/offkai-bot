@@ -22,13 +22,14 @@ export function RemoveRegistration({ attendee, onRemove }: {
     }
     finally { setBusy(false) }
   }
-  return <div className="text-xs">
+  return <div className="relative text-xs">
     <button type="button" className="w-11 h-11 rounded-xl border-2 border-[#17120F] bg-red-50 text-red-700 flex items-center justify-center shrink-0 active:translate-x-[1px] active:translate-y-[1px] transition"
       disabled={busy} onClick={remove} aria-label={t.removeUser} title={t.removeUser}>
       {busy ? '…' : <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
       </svg>}
     </button>
-    {error && <p role="alert" className="mt-2 text-red-700">{error === 'registration_changed' ? t.removalRegistrationChanged : error === 'not_removed' ? t.removalNotStarted : t.removalError}</p>}
+    {/* Absolutely positioned so the message never widens or heightens the icon row. */}
+    {error && <p role="alert" className="absolute right-0 top-full z-10 mt-1 w-40 rounded-md bg-white/95 px-1.5 py-0.5 leading-snug text-red-700">{error === 'registration_changed' ? t.removalRegistrationChanged : error === 'not_removed' ? t.removalNotStarted : t.removalError}</p>}
   </div>
 }
