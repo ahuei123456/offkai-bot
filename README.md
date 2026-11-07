@@ -84,7 +84,7 @@ This bot replaces manual methods of collecting attendance such as:
   - Blank or whitespace-only input falls back to the user's current Discord display name, then username
   - Names are trimmed and snapshotted per event; later Discord nickname changes do not rewrite existing responses
   - Discord `user_id` remains authoritative, while usernames remain available to organizers for auditing and disambiguation
-  - Duplicate preferred names are allowed, and changing a submitted name requires withdrawing and responding again
+  - Duplicate preferred names are allowed; organizers can correct confirmed attendee and guest names in the admin panel without changing the registration
 
 - **💬 Communication Tools**
   - Broadcast messages to all event attendees
@@ -192,6 +192,26 @@ For local development, set `ADMIN_API_PORT=8091` for the bot (host defaults to `
 and `BOT_ADMIN_URL=http://127.0.0.1:8091` for the frontend. Both use the same `ADMIN_KEY`.
 Without `ADMIN_API_PORT`, the bot API remains disabled. Keep this connection private;
 the browser calls the existing frontend admin API, which forwards the action to the bot.
+
+### Admin attendee name corrections
+
+Confirmed attendees have an edit control for their event display name and their existing guest names.
+Only the current guest slots are editable; the editor never adds, removes, reorders or compacts guests, and an
+untouched legacy unnamed slot is preserved. Waitlisted registrations are out of scope.
+
+The browser captures a compact SHA-256 revision of the original names when the editor opens, not the full raw
+snapshot. One editor Save sends the changed attendee and guest names plus the expected revision in a single request.
+The maximum JSON body is 4064 UTF-8 bytes, so the existing 4 KiB application limit is unchanged; edited control
+characters and invalid Unicode surrogates are rejected by the bot before trimming. The bot resolves the event's
+Discord thread to enforce the configured guild boundary, then revalidates the selected event, user ID, registration
+timestamp, name revision and guest slots immediately before its existing atomic JSON write. A removed, rejoined or
+promoted/demoted registration, a changed guest count, changed surplus legacy names, or another admin's name edit is
+rejected with a refresh/retry conflict instead of overwriting current data. Unrelated payment or check-in updates
+are preserved. After the atomic write, saving names sends one bilingual DM listing only the fields that actually
+changed. It does not change roles or trigger signup, payment, attendance or promotion actions, and previously sent
+event messages are not updated. If DM delivery fails, the saved names remain and the admin panel shows a warning.
+The admin panel refreshes the roster after every save and treats a lost response as unconfirmed rather than
+retrying the write blindly.
 
 ### Payment proof by DM
 

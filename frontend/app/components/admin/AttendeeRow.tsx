@@ -1,20 +1,24 @@
 'use client'
+import { EditNames } from './EditNames'
 import { PaymentControl } from './PaymentControl'
 import { RemoveRegistration } from './RemoveRegistration'
 import { drinkDot } from '../../lib/format'
 import type { Attendee, CheckinRecord } from '../../lib/types'
+import type { NamesChanges, NamesSaveOutcome } from '../../hooks/useAdminData'
 
 export function AttendeeRow({
   attendee: a,
   checkin,
   onCheckin,
   onCheckout,
-  adminKey, eventName, onPayment, onRemove,
+  adminKey, eventName, onPayment, onRemove, onSaveNames,
 }: {
   adminKey: string
   eventName: string
   onPayment: (userId: string, paid: boolean, timestamp: string) => Promise<boolean>
   onRemove: (userId: string, timestamp: string) => Promise<boolean>
+  onSaveNames: (eventName: string, userId: string, timestamp: string, expectedRevision: string,
+    changes: NamesChanges) => Promise<NamesSaveOutcome>
   attendee: Attendee
   checkin?: CheckinRecord
   onCheckin: (userId: string, timestamp: string) => void
@@ -84,6 +88,8 @@ export function AttendeeRow({
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
+          <EditNames key={`${eventName}:${a.user_id}:${a.registration_timestamp ?? ""}:${a.status}`}
+            attendee={a} eventName={eventName} onSave={onSaveNames} />
           <RemoveRegistration attendee={a} onRemove={onRemove} />
         </div>
       </div>

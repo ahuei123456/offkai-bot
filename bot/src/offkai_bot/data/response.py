@@ -1,8 +1,11 @@
 # src/offkai_bot/data/response.py
+import hashlib
 import json
 import logging
 import os
+import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
@@ -64,6 +67,23 @@ class WaitlistEntry:
     payment_selection_demotes: bool = False
 
 
+@dataclass(frozen=True)
+class AttendeeNameChange:
+    """One persisted name field change captured during the atomic commit."""
+
+    guest_number: int | None  # None for the primary attendee, 1-based for guests
+    old_name: str | None
+    new_name: str
+
+
+@dataclass(frozen=True)
+class AttendeeNameUpdate:
+    """The committed record plus immutable old/new values for notifications."""
+
+    registration: Response
+    changes: tuple[AttendeeNameChange, ...]
+
+
 def get_effective_display_name(entry: Response | WaitlistEntry) -> str:
     """Return the event snapshot name, falling back safely for legacy records."""
 
@@ -72,6 +92,56 @@ def get_effective_display_name(entry: Response | WaitlistEntry) -> str:
         if display_name:
             return display_name
     return entry.username
+
+
+# Admin name edit bounds. The display-name limit mirrors the signup modal's
+# 32-character preferred-name field. The 160-character guest-name limit is an
+# explicit admin-edit bound derived from the custom signup form's combined
+# extras-names field; the default signup form had no separate per-name cap.
+# Neither bound is applied to untouched legacy values: only edited values are
+# trimmed and validated, and untouched names are never truncated.
+MAX_DISPLAY_NAME_LENGTH = 32
+MAX_GUEST_NAME_LENGTH = 160
+MAX_EXTRA_PEOPLE = 5
+
+
+def compute_names_revision(
+    display_name: str | None, extra_people: int, extras_names: Sequence[str | None] | None
+) -> str:
+    """Return the compact cross-language conflict revision for a name snapshot.
+
+    The canonical form is a compact ASCII JSON array so the Next.js server can
+    derive the same token with Node crypto and return it to the admin UI. The
+    browser only captures that revision; it does not compute it. ``ensure_ascii``
+    escapes every non-ASCII UTF-16 code unit as a lowercase ``\\uXXXX`` sequence,
+    exactly like the frontend helper.
+    """
+
+    canonical = json.dumps(
+        [display_name, extra_people, [] if extras_names is None else list(extras_names)],
+        ensure_ascii=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+
+
+def _normalized_edited_name(value: object, max_length: int, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    # Reject control characters and invalid Unicode surrogates before trimming so
+    # they cannot be persisted or expanded into multi-byte JSON escapes.
+    if any(
+        ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F or 0xD800 <= ord(character) <= 0xDFFF
+        for character in value
+    ):
+        raise ValueError(f"{field} contains unsupported characters")
+    name = value.strip()
+    if not name:
+        raise ValueError(f"{field} cannot be blank")
+    if len(name) > max_length:
+        raise ValueError(f"{field} must be at most {max_length} characters")
+    return name
 
 
 def format_organizer_name(entry: Response | WaitlistEntry, *, nicknames: bool = False) -> str:
@@ -603,6 +673,110 @@ def add_response(
         original_response.extras_attendee_numbers = response.extras_attendee_numbers
     _log.info("Added response from user %s to event %s.", response.user_id, event_name)
     return assigned_max_number
+
+
+def update_attendee_names(
+    event_name: str,
+    user_id: int,
+    expected_timestamp: datetime,
+    expected_revision: str,
+    *,
+    display_name: str | None = None,
+    guest_names: list[tuple[int, str]] | None = None,
+) -> AttendeeNameUpdate:
+    """Replace only the edited names on the current confirmed attendee record.
+
+    ``expected_revision`` is the compact SHA-256 snapshot captured when the
+    editor opened. It must still match the live record immediately before the
+    commit, so concurrent name or guest-slot changes, a rejoin, or a demotion
+    are rejected instead of being overwritten with a stale form. Unedited fields
+    and names are copied verbatim; missing legacy guest slots stay missing
+    unless a later slot is edited and needs positional materialisation.
+
+    Raises:
+        RegistrationChangedError: If the registration identity or names snapshot no longer matches.
+        ValueError: If the expected revision or edited values are malformed.
+    """
+    if expected_timestamp.tzinfo is None:
+        raise ValueError("Registration timestamp requires a timezone")
+    if not isinstance(expected_revision, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_revision):
+        raise ValueError("Names revision is malformed")
+    if display_name is None and not guest_names:
+        raise ValueError("No name changes supplied")
+    normalized_display_name = (
+        _normalized_edited_name(display_name, MAX_DISPLAY_NAME_LENGTH, "Attendee name")
+        if display_name is not None
+        else None
+    )
+    normalized_guests: list[tuple[int, str]] = []
+    seen_indices: set[int] = set()
+    for item in guest_names or []:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise ValueError("Guest name changes must be index/value pairs")
+        index, value = item
+        if type(index) is not int or not (0 <= index < MAX_EXTRA_PEOPLE):
+            raise ValueError("Guest index is out of range")
+        if index in seen_indices:
+            raise ValueError("Guest index was edited more than once")
+        seen_indices.add(index)
+        normalized_guests.append((index, _normalized_edited_name(value, MAX_GUEST_NAME_LENGTH, "Guest name")))
+
+    all_data = load_responses()
+    event_data = all_data.get(event_name, EventData(attendees=[], waitlist=[]))
+    current = next((r for r in event_data["attendees"] if r.user_id == user_id), None)
+    if current is None:
+        raise RegistrationChangedError()
+    # Revision-only conflict checks still need the supported current guest count;
+    # do not silently edit a malformed legacy record outside the 0..5 model.
+    if type(current.extra_people) is not int or not (0 <= current.extra_people <= MAX_EXTRA_PEOPLE):
+        raise ValueError(f"Guest count must be between 0 and {MAX_EXTRA_PEOPLE}")
+
+    current_timestamp = current.timestamp.replace(tzinfo=UTC) if current.timestamp.tzinfo is None else current.timestamp
+    expected = expected_timestamp.astimezone(UTC)
+    if (
+        current_timestamp.astimezone(UTC).replace(microsecond=current_timestamp.microsecond // 1000 * 1000)
+        != expected.replace(microsecond=expected.microsecond // 1000 * 1000)
+        or compute_names_revision(current.display_name, current.extra_people, current.extras_names) != expected_revision
+    ):
+        raise RegistrationChangedError()
+    for index, _value in normalized_guests:
+        if index >= current.extra_people:
+            raise ValueError("Guest index is out of range")
+
+    # Capture persisted differences before staging; trim-equivalent edits are no-ops.
+    persisted_changes: list[AttendeeNameChange] = []
+    if normalized_display_name is not None and normalized_display_name != current.display_name:
+        persisted_changes.append(AttendeeNameChange(None, current.display_name, normalized_display_name))
+    for index, value in normalized_guests:
+        current_slot = current.extras_names[index] if index < len(current.extras_names) else None
+        if value != current_slot:
+            persisted_changes.append(AttendeeNameChange(index + 1, current_slot, value))
+
+    if not persisted_changes:
+        _log.info("No persisted name changes for user %s in event %s.", user_id, event_name)
+        return AttendeeNameUpdate(registration=current, changes=())
+
+    # Detach the record and names list from the live cache before writing.
+    staged_names = list(current.extras_names)
+    for index, value in normalized_guests:
+        while len(staged_names) <= index:
+            staged_names.append("")
+        staged_names[index] = value
+    updated = replace(
+        current,
+        display_name=normalized_display_name if display_name is not None else current.display_name,
+        extras_names=staged_names,
+    )
+    _commit_event_data(
+        event_name,
+        EventData(
+            attendees=[updated if response is current else response for response in event_data["attendees"]],
+            waitlist=event_data["waitlist"],
+        ),
+        all_data,
+    )
+    _log.info("Updated attendee names for user %s in event %s.", user_id, event_name)
+    return AttendeeNameUpdate(registration=updated, changes=tuple(persisted_changes))
 
 
 def remove_response(event_name: str, user_id: int) -> Response:

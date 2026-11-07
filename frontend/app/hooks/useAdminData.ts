@@ -5,6 +5,9 @@ import { matchesCheckin } from '../lib/checkin'
 
 const groupSize = (a: Attendee) => 1 + (a.extra_people ?? 0)
 
+export type NamesSaveOutcome = 'saved' | 'conflict' | 'invalid' | 'unconfirmed' | 'error' | 'stale'
+export type NamesChanges = { display_name?: string; extras_names?: { index: number; value: string }[] }
+
 // Owns admin auth + the selected event's attendees/check-ins, the manual
 // check-in/out actions, and the filtered/derived view data. The scanner hook is
 // kept separate and feeds successful scans back via `applyScanCheckin`.
@@ -183,6 +186,64 @@ export function useAdminData() {
     return true
   }, [key, selectedEvent, eventName, loadAttendees])
 
+  // Send one bounded name-edit request, then refresh the list. A lost or failed
+  // refresh must never turn a saved result into a reported failure.
+  const saveAttendeeNames = useCallback(async (
+    requestedEvent: string,
+    userId: string,
+    timestamp: string,
+    expectedRevision: string,
+    changes: NamesChanges,
+  ): Promise<NamesSaveOutcome> => {
+    if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName ||
+        requestedEvent !== eventName) return 'stale'
+    if (!attendeesRef.current.some(a => a.status === 'attending' && a.user_id === userId &&
+        a.registration_timestamp === timestamp)) return 'stale'
+    const guestNames: Record<string, string> = {}
+    for (const change of changes.extras_names ?? []) guestNames[String(change.index)] = change.value
+    const body = {
+      event_name: eventName,
+      user_id: userId,
+      registration_timestamp: timestamp,
+      expected_revision: expectedRevision,
+      ...(changes.display_name !== undefined ? { display_name: changes.display_name } : {}),
+      ...(Object.keys(guestNames).length ? { guest_names: guestNames } : {}),
+    }
+    const generation = eventGeneration.current
+    const stillCurrent = () => generation === eventGeneration.current && selectedEventRef.current === eventName
+    let response: Response | undefined
+    let result: { saved?: boolean; error?: string; warnings?: string[] } = {}
+    try {
+      response = await fetch('/api/registration/names?key=' + encodeURIComponent(key), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      result = await response.json().catch(() => ({}))
+    } catch {
+      // A timeout can follow a committed save. Refresh to confirm; never retry it automatically.
+    }
+    try {
+      await loadAttendees(key, eventName)
+    } catch {
+      // Keep the confirmed result even when the refresh fails.
+    }
+    // A rejoin/removal or event switch owns the list and warning area now.
+    const identityStillCurrent = attendeesRef.current.some(a => a.status === 'attending' &&
+      a.user_id === userId && a.registration_timestamp === timestamp)
+    if (!stillCurrent() || !identityStillCurrent) return 'stale'
+    if (response?.ok && result.saved === true) {
+      setActionWarnings(Array.isArray(result.warnings)
+        ? result.warnings.filter(warning => typeof warning === 'string')
+        : [])
+      return 'saved'
+    }
+    if (response?.status === 400) return 'invalid'
+    if (response?.status === 409) return 'conflict'
+    if (response?.status === 502 && result.error === 'names_unconfirmed') return 'unconfirmed'
+    if (response?.status === 500 && result.error === 'write_failed') return 'error'
+    // Unknown or ambiguous outcome: the list was refreshed without claiming a result.
+    return response ? 'error' : 'unconfirmed'
+  }, [key, selectedEvent, eventName, loadAttendees])
+
   const removeRegistration = useCallback(async (userId: string, timestamp: string) => {
     if (!eventName || eventName !== selectedEvent || selectedEventRef.current !== eventName) return false
     const generation = eventGeneration.current
@@ -268,7 +329,7 @@ export function useAdminData() {
     key, authed, keyInput, setKeyInput, loginError, handleLogin,
     eventName, events, selectedEvent, changeEvent,
     updatePayment, attendees, checkins: currentCheckins, applyScanCheckin, manualCheckin, manualCheckout,
-    removeRegistration, promoteRegistration, actionWarnings,
+    saveAttendeeNames, removeRegistration, promoteRegistration, actionWarnings,
     filter, changeFilter, search, setSearch,
     filtered, waitlist, pendingCount, checkedInCount, attendingCount,
     waitlistCount: waitlist.length,
