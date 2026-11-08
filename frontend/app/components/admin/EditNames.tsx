@@ -154,8 +154,9 @@ export function EditNames({ attendee, eventName, onSave }: {
           <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
         </svg>
       </button>
-      {saved && !activeDraft && <p role="status" className="mt-1 w-40 font-bold text-green-800">{t.namesSaved}</p>}
-      {error && !activeDraft && <p role="alert" className="mt-1 w-40 leading-snug text-red-700">{errorMessage}</p>}
+      {/* Absolutely positioned so the message never widens or heightens the icon row. */}
+      {saved && !activeDraft && <p role="status" className="absolute right-0 top-full z-10 mt-1 w-max max-w-40 rounded-md bg-white/95 px-1.5 py-0.5 font-bold text-green-800">{t.namesSaved}</p>}
+      {error && !activeDraft && <p role="alert" className="absolute right-0 top-full z-10 mt-1 w-40 rounded-md bg-white/95 px-1.5 py-0.5 leading-snug text-red-700">{errorMessage}</p>}
       {activeDraft && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17120F]/40 p-4">
           <form role="dialog" aria-modal="true" aria-labelledby={`names-title-${attendee.user_id}`}
