@@ -1,0 +1,212 @@
+{
+  "generatedAt": "2026-07-07T01:59:07.681Z",
+  "source": "live localhost admin modal, MOCK_MODE=true, ADMIN_KEY=dev",
+  "officialAveryPage": "https://www.avery.com/templates/5395",
+  "officialVisibleSpec": "Template 5395 Adhesive Name Badges, Letter 8-1/2 x 11, 2-1/3 x 3-3/8, 8 per sheet",
+  "mm": {
+    "paperW": 215.9,
+    "paperH": 279.4,
+    "labelW": 85.73,
+    "labelH": 59.27,
+    "marginX": 14.2,
+    "marginTop": 12.7,
+    "marginBottom": 12.7,
+    "gutterX": 15.7,
+    "gutterY": 5.64
+  },
+  "cols": 2,
+  "rows": 4,
+  "labelsPerSheet": 8,
+  "contentW": 187.5,
+  "contentH": 254,
+  "usedW": 187.16,
+  "usedH": 254,
+  "slackW": 0.34,
+  "slackH": 0,
+  "pdf": {
+    "pageSize": "612 x 792 pts (letter)",
+    "pageCount": 2,
+    "printScalingRequired": "100% / actual size; do not fit to page"
+  },
+  "sampleState": {
+    "sheetCount": 2,
+    "cardCount": 16,
+    "blankCount": 1,
+    "hasWaitlistInPrintRoot": false,
+    "text": "ENTRY PASSMyGO!!!!! OffkaiNo.1大衆酒場Tomori Takamatsu@tomori_long_handleOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.2大衆酒場Taki Shiina Plus One+1 of @tomori_long_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.3大衆酒場Anon@anonOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.4大衆酒場Rāna@ranaOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.5大衆酒場Soyo Nagasaki With A Long Name@soyo_nagasaki_very_longOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.6大衆酒場Mutsumi Wakaba Extra Long Guest Name+1 of @soyo_nagasaki_very_longOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.7大衆酒場Sakiko@sakikoOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.8大衆酒場Umiri Yahata Extended Test Name@umiri_yahata_extended_handleOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.9大衆酒場Uika Misumi+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.10大衆酒場Nyamu Yutenji Super Long Plus One+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.11大衆酒場Mashiro@mashiroOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.12大衆酒場Touko@toukoOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.13大衆酒場Nanami+1 of @toukoOffkai Bot+1 GUESTENTRY PASSMyGO!!!!! OffkaiNo.14大衆酒場Tsukushi@tsukushiOffkai BotOFFKAIENTRY PASSMyGO!!!!! OffkaiNo.15大衆酒場Rui@ruiOffkai BotOFFKAIENTRY PASSMyGO!!!!! Offkai大衆酒場  Offkai BotOFFKAI",
+    "sheets": [
+      {
+        "page": 1,
+        "sheetPx": {
+          "w": 816,
+          "h": 1056
+        },
+        "cards": [
+          {
+            "index": 1,
+            "left": 53.6563,
+            "top": 48,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.1大衆酒場Tomori Takamatsu@tomori_long_handleOffkai BotOFFKAI"
+          },
+          {
+            "index": 2,
+            "left": 437,
+            "top": 48,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.2大衆酒場Taki Shiina Plus One+1 of @tomori_long_handleOffkai Bot+1 GUEST"
+          },
+          {
+            "index": 3,
+            "left": 53.6563,
+            "top": 293.3125,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.3大衆酒場Anon@anonOffkai BotOFFKAI"
+          },
+          {
+            "index": 4,
+            "left": 437,
+            "top": 293.3125,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.4大衆酒場Rāna@ranaOffkai BotOFFKAI"
+          },
+          {
+            "index": 5,
+            "left": 53.6563,
+            "top": 538.625,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.5大衆酒場Soyo Nagasaki With A Long Name@soyo_nagasaki_very_longOffkai BotOFFKAI"
+          },
+          {
+            "index": 6,
+            "left": 437,
+            "top": 538.625,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.6大衆酒場Mutsumi Wakaba Extra Long Guest Name+1 of @soyo_nagasaki_very_longOffkai Bot+1 GUEST"
+          },
+          {
+            "index": 7,
+            "left": 53.6563,
+            "top": 783.9375,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.7大衆酒場Sakiko@sakikoOffkai BotOFFKAI"
+          },
+          {
+            "index": 8,
+            "left": 437,
+            "top": 783.9375,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.8大衆酒場Umiri Yahata Extended Test Name@umiri_yahata_extended_handleOffkai BotOFFKAI"
+          }
+        ]
+      },
+      {
+        "page": 2,
+        "sheetPx": {
+          "w": 816,
+          "h": 1056
+        },
+        "cards": [
+          {
+            "index": 9,
+            "left": 53.6563,
+            "top": 48,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.9大衆酒場Uika Misumi+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUEST"
+          },
+          {
+            "index": 10,
+            "left": 437,
+            "top": 48,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.10大衆酒場Nyamu Yutenji Super Long Plus One+1 of @umiri_yahata_extended_handleOffkai Bot+1 GUEST"
+          },
+          {
+            "index": 11,
+            "left": 53.6563,
+            "top": 293.3125,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.11大衆酒場Mashiro@mashiroOffkai BotOFFKAI"
+          },
+          {
+            "index": 12,
+            "left": 437,
+            "top": 293.3125,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.12大衆酒場Touko@toukoOffkai BotOFFKAI"
+          },
+          {
+            "index": 13,
+            "left": 53.6563,
+            "top": 538.625,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.13大衆酒場Nanami+1 of @toukoOffkai Bot+1 GUEST"
+          },
+          {
+            "index": 14,
+            "left": 437,
+            "top": 538.625,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.14大衆酒場Tsukushi@tsukushiOffkai BotOFFKAI"
+          },
+          {
+            "index": 15,
+            "left": 53.6563,
+            "top": 783.9375,
+            "w": 324.0156,
+            "h": 224,
+            "blank": false,
+            "text": "ENTRY PASSMyGO!!!!! OffkaiNo.15大衆酒場Rui@ruiOffkai BotOFFKAI"
+          },
+          {
+            "index": 16,
+            "left": 437,
+            "top": 783.9375,
+            "w": 324.0156,
+            "h": 224,
+            "blank": true,
+            "text": "ENTRY PASSMyGO!!!!! Offkai大衆酒場  Offkai BotOFFKAI"
+          }
+        ]
+      }
+    ]
+  },
+  "files": {
+    "sampleHtmlPath": "frontend/docs/pr-proof/nametag-stickers/sample-nametag-sheet.html",
+    "overlayHtmlPath": "frontend/docs/pr-proof/nametag-stickers/avery-5395-interlaced-proof.html",
+    "page1Png": "frontend/docs/pr-proof/nametag-stickers/avery-5395-plain-preview.png",
+    "page2Png": "frontend/docs/pr-proof/nametag-stickers/avery-5395-plain-preview-page-2.png",
+    "page1OverlayPng": "frontend/docs/pr-proof/nametag-stickers/avery-5395-template-interlaced-proof.png",
+    "page2OverlayPng": "frontend/docs/pr-proof/nametag-stickers/avery-5395-template-interlaced-proof-page-2.png",
+    "pdfPath": "frontend/docs/pr-proof/nametag-stickers/sample-nametag-sheet.pdf",
+    "modalPng": "frontend/docs/pr-proof/nametag-stickers/nametag-generator-admin.png"
+  }
+}
