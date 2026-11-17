@@ -422,8 +422,10 @@ uv run ty check
 
 ### Communication
 
-- `/broadcast` - Send message to all attendees
-  - Parameters: event_name, message
+- `/broadcast` - Send a message about an event, either in its thread or by DM
+  - Parameters: event_name, message, destination (optional, default: Event thread)
+  - Destinations: **Event thread** posts in the event's thread; **DM attendees** DMs every confirmed attendee; **DM attendees + waitlist** also DMs waitlisted users.
+  - DM messages are limited to 1800 characters and are prefixed with the event name. Mentions in them never ping anyone. The reply lists anyone whose DMs couldn't be delivered.
 
 ### Interactive Buttons
 

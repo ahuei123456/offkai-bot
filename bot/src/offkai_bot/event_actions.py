@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from dataclasses import dataclass, field
 
 import discord
 
@@ -8,7 +10,14 @@ from offkai_bot.data.event import (
     persist_event_changes,
     set_event_open_status,
 )
-from offkai_bot.data.response import get_effective_display_name, get_responses
+from offkai_bot.data.response import (
+    Response,
+    WaitlistEntry,
+    format_organizer_name,
+    get_effective_display_name,
+    get_responses,
+    get_waitlist,
+)
 from offkai_bot.errors import (
     BotCommandError,
     MissingChannelIDError,
@@ -27,6 +36,7 @@ from offkai_bot.interactions import (
 
 _log = logging.getLogger(__name__)
 _DISCORD_MESSAGE_LIMIT = 2000
+_DM_THROTTLE_SECONDS = 0.5
 
 
 def get_event_view(event: Event):
@@ -333,3 +343,70 @@ async def update_event_message(client: discord.Client, event: Event):
             await send_event_message(thread, event)
         except Exception:
             _log.exception("Event '%s' remains saved, but its announcement could not be replaced.", event.event_name)
+
+
+# --- Organizer DMs to participants ---
+
+
+def build_participant_dm(event: Event, message: str) -> str:
+    """Wraps an organizer's custom text so recipients know which event it is about."""
+    return f"📨 **Message from the organizers of {event.event_name}:**\n\n{message}"
+
+
+@dataclass
+class ParticipantDMResult:
+    """Outcome of a DM fan-out: who received it and who could not be reached."""
+
+    sent: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return len(self.sent) + len(self.failed)
+
+
+def get_dm_recipients(event_name: str, include_waitlist: bool = False) -> list[Response | WaitlistEntry]:
+    """Confirmed attendees (and optionally waitlisted users), one entry per Discord user."""
+    entries: list[Response | WaitlistEntry] = list(get_responses(event_name))
+    if include_waitlist:
+        entries.extend(get_waitlist(event_name))
+
+    seen: set[int] = set()
+    recipients: list[Response | WaitlistEntry] = []
+    for entry in entries:
+        if entry.user_id in seen:
+            continue
+        seen.add(entry.user_id)
+        recipients.append(entry)
+    return recipients
+
+
+async def dm_event_participants(
+    client: discord.Client, event: Event, message: str, *, include_waitlist: bool = False
+) -> ParticipantDMResult:
+    """DMs an organizer message to every registered user of an event, one at a time.
+
+    Failures (DMs closed, unknown user, HTTP errors) are collected rather than raised so
+    a single unreachable user never stops the rest of the fan-out.
+    """
+    recipients = get_dm_recipients(event.event_name, include_waitlist)
+    content = build_participant_dm(event, message)
+    result = ParticipantDMResult()
+
+    for index, entry in enumerate(recipients):
+        label = format_organizer_name(entry, nicknames=True)
+        try:
+            user = client.get_user(entry.user_id) or await client.fetch_user(entry.user_id)
+            # Organizer text is relayed verbatim; never let it ping anyone.
+            await user.send(content, allowed_mentions=discord.AllowedMentions.none())
+            result.sent.append(label)
+        except discord.HTTPException as e:
+            _log.warning("Failed to DM user %s for event '%s' (%s).", entry.user_id, event.event_name, type(e).__name__)
+            result.failed.append(label)
+
+        # Throttle only between sends, not after the last recipient.
+        if index != len(recipients) - 1:
+            await asyncio.sleep(_DM_THROTTLE_SECONDS)
+
+    _log.info("Sent %s/%s organizer DMs for event '%s'.", len(result.sent), result.total, event.event_name)
+    return result

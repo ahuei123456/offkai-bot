@@ -56,6 +56,10 @@ COMMANDS_REQUIRING_CONTEXT = [
     ("reopen_offkai", {}),
     ("archive_offkai", {}),
     ("broadcast", {"message": "Hello"}),
+    (
+        "broadcast",
+        {"message": "Hello", "destination": app_commands.Choice(name="DM attendees", value="dm_attendees")},
+    ),
     ("delete_response", {"member": MagicMock(spec=discord.Member)}),
     ("promote", {"username": "123"}),
     ("attendance", {}),
