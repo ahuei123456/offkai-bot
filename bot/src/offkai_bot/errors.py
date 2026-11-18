@@ -312,6 +312,16 @@ class BroadcastSendError(BotCommandError):
         super().__init__(f"❌ Failed to send message to {channel.mention}.")
 
 
+class BroadcastMessageTooLongError(BotCommandError):
+    def __init__(self, length: int, max_length: int):
+        self.length = length
+        self.max_length = max_length
+        super().__init__(
+            f"❌ DM broadcasts are limited to {max_length} characters (yours is {length}). "
+            "Shorten the message or send it to the event thread instead."
+        )
+
+
 # You would then catch these in your on_command_error handler:
 # elif isinstance(original_error, EventNotFound):
 #     await interaction.response.send_message(str(original_error), ephemeral=True)

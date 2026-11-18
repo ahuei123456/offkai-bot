@@ -50,6 +50,7 @@ from offkai_bot.data.responses_transfer import (
     replace_responses,
 )
 from offkai_bot.errors import (
+    BroadcastMessageTooLongError,
     BroadcastPermissionError,
     BroadcastSendError,
     DuplicateEventError,
@@ -65,7 +66,9 @@ from offkai_bot.errors import (
     ThreadNotFoundError,
 )
 from offkai_bot.event_actions import (
+    dm_event_participants,
     fetch_thread_for_event,
+    get_dm_recipients,
     perform_close_event,
     send_event_message,
     update_event_message,
@@ -138,6 +141,11 @@ async def _require_guild_event(bot: commands.Bot, interaction: discord.Interacti
 ATTENDANCE_FILE_THRESHOLD = 100
 DISCORD_MESSAGE_SOFT_LIMIT = 1900
 MAX_RESPONSES_IMPORT_BYTES = 8 * 1024 * 1024
+# Leaves room for the event header added to each DM within Discord's 2000-char limit.
+BROADCAST_DM_MAX_LENGTH = 1800
+BROADCAST_THREAD = "thread"
+BROADCAST_DM_ATTENDEES = "dm_attendees"
+BROADCAST_DM_ALL = "dm_attendees_and_waitlist"
 
 
 def _format_attendance_output(event_name: str, total_count: int, attendee_list: list[str]) -> str:
@@ -724,24 +732,60 @@ class EventsCog(commands.Cog):
 
     @app_commands.command(
         name="broadcast",
-        description="Sends a message to the offkai channel.",
+        description="Sends a message to the offkai thread or by DM to its attendees.",
     )
-    @app_commands.describe(event_name="The name of the event.", message="Message to broadcast.")
+    @app_commands.describe(
+        event_name="The name of the event.",
+        message="Message to broadcast.",
+        destination="Where to send it (default: the event thread).",
+    )
+    @app_commands.choices(
+        destination=[
+            app_commands.Choice(name="Event thread", value=BROADCAST_THREAD),
+            app_commands.Choice(name="DM attendees", value=BROADCAST_DM_ATTENDEES),
+            app_commands.Choice(name="DM attendees + waitlist", value=BROADCAST_DM_ALL),
+        ]
+    )
     @app_commands.checks.has_role("Offkai Organizer")
     @log_command_usage
-    async def broadcast(self, interaction: discord.Interaction, event_name: str, message: str):
+    async def broadcast(
+        self,
+        interaction: discord.Interaction,
+        event_name: str,
+        message: str,
+        destination: app_commands.Choice[str] | None = None,
+    ):
         validate_guild_context(interaction)
         await interaction.response.defer(ephemeral=True)
+        target = destination.value if destination else BROADCAST_THREAD
+        if target != BROADCAST_THREAD and len(message) > BROADCAST_DM_MAX_LENGTH:
+            raise BroadcastMessageTooLongError(len(message), BROADCAST_DM_MAX_LENGTH)
         event = await _require_guild_event(self.bot, interaction, event_name)
-        thread = await fetch_thread_for_event(self.bot, event)
 
-        try:
-            await thread.send(f"{message}")
-            await interaction.followup.send(f"📣 Sent broadcast to channel {thread.mention}.", ephemeral=True)
-        except discord.Forbidden as e:
-            raise BroadcastPermissionError(thread, e)
-        except discord.HTTPException as e:
-            raise BroadcastSendError(thread, e)
+        if target == BROADCAST_THREAD:
+            thread = await fetch_thread_for_event(self.bot, event)
+            try:
+                await thread.send(f"{message}")
+                await interaction.followup.send(f"📣 Sent broadcast to channel {thread.mention}.", ephemeral=True)
+            except discord.Forbidden as e:
+                raise BroadcastPermissionError(thread, e)
+            except discord.HTTPException as e:
+                raise BroadcastSendError(thread, e)
+            return
+
+        include_waitlist = target == BROADCAST_DM_ALL
+        if not get_dm_recipients(event.event_name, include_waitlist):
+            who = "attendees or waitlisted users" if include_waitlist else "attendees"
+            await interaction.followup.send(f"ℹ️ '{event.event_name}' has no {who} to message.", ephemeral=True)
+            return
+
+        result = await dm_event_participants(self.bot, event, message, include_waitlist=include_waitlist)
+
+        output = f"📨 Sent your message to **{len(result.sent)}** of {result.total} users for '{event.event_name}'."
+        if result.failed:
+            output += "\n\nCould not DM (DMs closed or user unavailable):\n"
+            output += "\n".join(f"- {name}" for name in result.failed)
+        await _send_long_followup(interaction, output, "broadcast_dm_failures")
 
     @app_commands.command(
         name="delete_response",
@@ -1198,7 +1242,7 @@ class EventsCog(commands.Cog):
     create_offkai.autocomplete("ping_role")(meetup_role_autocomplete)
     modify_offkai.autocomplete("event_name")(offkai_autocomplete_active)
     close_offkai.autocomplete("event_name")(offkai_autocomplete_active)
-    broadcast.autocomplete("event_name")(offkai_autocomplete_active)
+    broadcast.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     delete_response.autocomplete("event_name")(offkai_autocomplete_active)
     resend_confirmation.autocomplete("event_name")(offkai_autocomplete_all_non_archived)
     promote.autocomplete("event_name")(offkai_autocomplete_all_non_archived)

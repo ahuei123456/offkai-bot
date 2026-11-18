@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from discord import app_commands
 from discord.ext import commands
 
 from offkai_bot.cogs.events import EventsCog, _require_guild_event
@@ -48,6 +49,13 @@ def scoped():
         ("reopen_offkai", {}),
         ("archive_offkai", {}),
         ("broadcast", {"message": "secret"}),
+        (
+            "broadcast",
+            {
+                "message": "secret",
+                "destination": app_commands.Choice(name="DM attendees + waitlist", value="dm_attendees_and_waitlist"),
+            },
+        ),
         ("delete_response", {"member": MagicMock()}),
         ("resend_confirmation", {}),
         ("promote", {"username": "123"}),
